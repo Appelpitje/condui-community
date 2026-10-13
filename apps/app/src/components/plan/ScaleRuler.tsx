@@ -361,7 +361,7 @@ function ScaleRuler({
       setIsDrawing(false)
       setTimeout(() => inputRef.current?.focus(), 100)
     }
-  }, [imageSize, scale, startPoint, endPoint, getHandleAt])
+  }, [imageSize, startPoint, endPoint, getHandleAt])
 
   // Handle mouse move
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -380,7 +380,7 @@ function ScaleRuler({
       // Update preview end point while drawing new line
       setTempEndPoint({ x, y })
     }
-  }, [startPoint, endPoint, imageSize, scale, isDrawing, draggingHandle])
+  }, [startPoint, endPoint, imageSize, isDrawing, draggingHandle])
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {

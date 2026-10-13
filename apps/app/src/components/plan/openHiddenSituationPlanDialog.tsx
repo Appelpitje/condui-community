@@ -1,4 +1,5 @@
 import type { TFunction } from 'i18next'
+import { getAuxiliaryEnclosureLabel } from '@/lib/panel/auxiliaryEnclosureLabel'
 import HiddenItemsDialog, { type HiddenItem } from '@/components/common/HiddenItemsDialog'
 import { getSymbolById } from '@/lib/symbols'
 import { hasCustomPlacement } from '@/lib/plan/customPlacement'
@@ -55,7 +56,11 @@ export function openHiddenSituationPlanDialogForFloor(
       return [
         {
           id,
-          label: enclosure?.name.trim() || t('panelCanvas.virtualEnclosure', 'Supply enclosure'),
+          label: getAuxiliaryEnclosureLabel(
+            enclosure,
+            t,
+            store.currentProject?.disciplines?.electrical?.auxiliaryEnclosures
+          ),
           icon: symbol ? (
             <img src={symbol.svgPath} alt="" className="h-7 w-7 object-contain dark:invert" />
           ) : undefined,

@@ -1,7 +1,6 @@
+import { placeElectricalSymbol } from '@/handlers/eendraad/placeElectricalSymbol'
 import { useCallback, useRef, useState } from 'react'
-import type { TFunction } from 'i18next'
-import { useProjectStore, type ProjectState } from '@/stores/projectStore'
-import { useUIStore } from '@/stores/uiStore'
+import type { ProjectState } from '@/stores/projectStore'
 import { logger } from '@/lib/logger'
 import { getVoltagePolesConfig, getProtectionCreationProps } from '@/lib/protectionDefaults'
 import {
@@ -10,18 +9,10 @@ import {
   ROTATING_SWITCH_SYMBOL_ID,
 } from '@/lib/protectionKind'
 import { getSharedSupplyRefsForPanel, isSupplyTrunkRef } from '@/lib/panel/panelRewire'
-import { generateId } from '@/utils'
-import { countPanels } from '@/utils/project'
 import { polesFromConfig } from '@/constants/poleConfig'
 import { clamp } from '@/lib/geometry'
 import type { SymbolMetadata } from '@/lib/symbols'
-import type {
-  Panel,
-  PanelGridModuleRef,
-  PanelGridSlot,
-  ProtectionDevice,
-  TrunkDevice,
-} from '@/types/schema'
+import type { Panel, PanelGridModuleRef } from '@/types/schema'
 import type { Point } from '@/types/ui'
 import {
   CELL_H,
@@ -34,15 +25,8 @@ import {
   panelGridModuleRefKey,
   snapToGrid,
   type ModulePlacement,
-} from '@/components/canvas/panel/panelGridLayout'
-import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
-import { collectCircuits, findPanelById, getLastAssignableCircuit } from '@/lib/panel/panelTree'
-import {
-  executeDropBehavior,
-  type DropBehaviorCallbacks,
-  type DropBehaviorProject,
-} from '@/handlers/eendraad/dropBehaviors'
-import type { DropTarget } from '@/lib/layout/findDropTarget'
+} from '@/lib/panel/panelGridLayout'
+import { getLastAssignableCircuit } from '@/lib/panel/panelTree'
 import { trackSymbolPlace } from '@/lib/analytics/editorEventAnalytics'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import {
@@ -67,24 +51,13 @@ type DragPreview = {
 }
 
 type UsePanelLibraryDropOptions = {
-  addPanel: ProjectState['addPanel']
   combinedPlacements: CombinedPlacement[]
   currentProject: Project | null
   panel: Panel | null
-  placeSupplyModuleAfterInsert: (
-    targetPanel: Panel,
-    targetProject: Project,
-    moduleRef: PanelGridModuleRef,
-    preferredRow?: number,
-    preferredCol?: number
-  ) => { mainSlots: PanelGridSlot[]; supplySlots: PanelGridSlot[] }
   placements: ModulePlacement[]
   setActivePanelId: (panelId: string | null) => void
   supplyLayout: { cols: number; contentWidth: number; rows: number }
   supplyModulesLength: number
-  t: TFunction
-  updatePanelGridSlots: ProjectState['updatePanelGridSlots']
-  updateSupplyPanelSlots: ProjectState['updateSupplyPanelSlots']
 }
 
 function getLibraryDropWidthCols(symbol: SymbolMetadata, project: Project | null): number {
@@ -101,62 +74,14 @@ function getLibraryDropWidthCols(symbol: SymbolMetadata, project: Project | null
   return Math.max(1, poles)
 }
 
-function createPanelDropBehaviorCallbacks(
-  overrides: Partial<DropBehaviorCallbacks> = {}
-): DropBehaviorCallbacks {
-  const store = useProjectStore.getState()
-  return {
-    addPanel: store.addPanel,
-    addProtection: store.addProtection,
-    addCircuit: store.addCircuit,
-    addCircuitToProtection: store.addCircuitToProtection,
-    addEndpoint: store.addEndpoint,
-    addPlacement: store.addPlacement,
-    updateEndpoint: store.updateEndpoint,
-    setSelection: useUIStore.getState().setSelection,
-    getFloorById: (floorId) => {
-      const floor = store.getFloorById(floorId)
-      return floor
-        ? {
-            id: floor.id,
-            layers: floor.layers,
-            hiddenSitplanPlacementIds: floor.hiddenSitplanPlacementIds,
-          }
-        : null
-    },
-    updateFloor: store.updateFloor,
-    getCircuitById: (circuitId) => store.getCircuitById(circuitId) ?? null,
-    getProtectionById: (protectionId) => store.getProtectionById(protectionId) ?? null,
-    addTrunkDevice: store.addTrunkDevice,
-    addSupplyTrunkDevice: store.addSupplyTrunkDevice,
-    addGroundTrunkDevice: store.addGroundTrunkDevice,
-    ensureJunctionPanelPlacementForLabel: store.ensureJunctionPanelPlacementForLabel,
-    updateCircuit: store.updateCircuit,
-    updateProtection: store.updateProtection,
-    updateInstallation: store.updateInstallation,
-    addSupplyAssembly: store.addSupplyAssembly,
-    replaceSupplyAssembly: store.replaceSupplyAssembly,
-    moveCircuitOnMainBus: store.moveCircuitOnMainBus,
-    moveCircuitToSecondaryBus: store.moveCircuitToSecondaryBus,
-    deleteEndpoint: store.deleteEndpoint,
-    addEendraadNote: store.addEendraadNote,
-    ...overrides,
-  }
-}
-
 export function usePanelLibraryDrop({
-  addPanel,
   combinedPlacements,
   currentProject,
   panel,
-  placeSupplyModuleAfterInsert,
   placements,
   setActivePanelId,
   supplyLayout,
   supplyModulesLength,
-  t,
-  updatePanelGridSlots,
-  updateSupplyPanelSlots,
 }: UsePanelLibraryDropOptions) {
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null)
   const lastDragPreviewRef = useRef<DragPreview | null>(null)
@@ -360,28 +285,17 @@ export function usePanelLibraryDrop({
       }
 
       if (symbol.id === 'panel_distribution') {
-        const totalPanelCount = countPanels(getProjectElectricalPanels(currentProject))
-        const panelNumber = totalPanelCount + 1
-        const newPanelId = generateId()
-        const newPanel: Panel = {
-          id: newPanelId,
-          name:
-            totalPanelCount === 0
-              ? t('panels.mainPanel', { defaultValue: 'Main Panel' })
-              : t('panels.secondaryPanel', {
-                  number: panelNumber,
-                  defaultValue: `Panel ${panelNumber}`,
-                }),
-          symbol: 'panel_distribution',
-          isMain: true,
-          protections: [],
-          circuits: [],
-          subPanels: [],
-        }
-
-        addPanel(newPanel)
+        const placed = placeElectricalSymbol({
+          symbolId: symbol.id,
+          target: { type: null },
+          label: 'drop panel from library',
+        })
+        const newPanelId =
+          placed.status === 'placed'
+            ? placed.created.find((ref) => ref.kind === 'panel')?.id
+            : undefined
+        if (!newPanelId) return
         setActivePanelId(newPanelId)
-        useUIStore.getState().setSelection({ type: 'panel', ids: [newPanelId] })
         trackSymbolPlace({
           canvas: 'panel',
           symbol,
@@ -538,63 +452,18 @@ export function usePanelLibraryDrop({
             Math.min(supplyLayout.cols - newModuleWidthCols, Math.round(groupX / CELL_W))
           )
         }
-        let insertedDeviceId: string | null = null
-        const callbacks = createPanelDropBehaviorCallbacks({
-          addSupplyTrunkDevice: (trunkDevice, targetInsertIndex, target) => {
-            insertedDeviceId = trunkDevice.id
-            useProjectStore.getState().addSupplyTrunkDevice(trunkDevice, targetInsertIndex, target)
-          },
-        })
-        executeDropBehavior(
-          symbol,
-          {
+        const placed = placeElectricalSymbol({
+          symbolId: symbol.id,
+          target: {
             type: 'supplyWire',
             panelId: panel.id,
             supplyDeviceInsertIndex: insertIndex,
             supplyFeedScope: 'shared',
-          } as DropTarget,
-          currentProject as DropBehaviorProject,
-          t,
-          callbacks,
-          false
-        )
-        if (!insertedDeviceId) return
-
-        const insertedModuleRef: PanelGridModuleRef = {
-          kind: 'trunkDevice',
-          id: insertedDeviceId,
-          scope: 'supply',
-        }
-        useProjectStore
-          .getState()
-          .unhideModuleFromPanel(panel.id, panelGridModuleRefKey(insertedModuleRef))
-
-        const nextProject = useProjectStore.getState().currentProject
-        const nextPanel =
-          nextProject != null
-            ? findPanelById(getProjectElectricalPanels(nextProject), panel.id)
-            : undefined
-        if (nextProject && nextPanel) {
-          const { mainSlots, supplySlots } = placeSupplyModuleAfterInsert(
-            nextPanel,
-            nextProject,
-            insertedModuleRef,
-            row,
-            col
-          )
-          updatePanelGridSlots(panel.id, mainSlots)
-          updateSupplyPanelSlots(panel.id, supplySlots)
-        } else {
-          const supplySlots = panel.gridView?.supplyPanelSlots ?? []
-          const newSupplySlots = [
-            ...supplySlots.slice(0, insertIndex),
-            { row, col, module: insertedModuleRef },
-            ...supplySlots.slice(insertIndex),
-          ]
-          updateSupplyPanelSlots(panel.id, newSupplySlots)
-        }
-
-        useUIStore.getState().setSelection({ type: 'trunkDevice', ids: [insertedDeviceId] })
+          },
+          panelGrid: { scope: 'supply', row, col: Math.max(0, col) },
+          label: 'drop symbol from library onto panel',
+        })
+        if (placed.status !== 'placed' || !placed.changed) return
         trackSymbolPlace({
           canvas: 'panel',
           symbol,
@@ -633,68 +502,28 @@ export function usePanelLibraryDrop({
           : null
         const isAutoParent = !!hit && !!parentPl
 
-        let circuitId: string | null = null
-        let protectionId: string | null = null
-        const callbacks = createPanelDropBehaviorCallbacks({
-          addProtection: (targetPanelId, protection) => {
-            protectionId = protection.id
-            useProjectStore.getState().addProtection(targetPanelId, protection)
+        const parentProtectionId =
+          isAutoParent && hit?.ref.kind === 'protection' ? hit.ref.id : undefined
+        const parentProtection = panel.protections.find(
+          (protection) => protection.id === parentProtectionId
+        )
+        const parentCircuitId = parentProtection?.circuits?.[0]?.id
+        const snapped = snapToGrid(localX, localY - mainPanelY + CELL_H / 2)
+        const placed = placeElectricalSymbol({
+          symbolId: symbol.id,
+          target: { type: 'mainBus', panelId: panel.id },
+          panelGrid: {
+            scope: 'main',
+            row: isAutoParent ? (childPlacement?.row ?? 0) : clamp(snapped.row, 0, rows - 1),
+            col: isAutoParent
+              ? (childPlacement?.col ?? 0)
+              : Math.max(0, Math.round(localX / CELL_W)),
+            centerColumn: !isAutoParent,
+            parentCircuitId,
           },
-          addCircuit: (targetPanelId, circuit, targetProtectionId) => {
-            circuitId = circuit.id
-            useProjectStore.getState().addCircuit(targetPanelId, circuit, targetProtectionId)
-          },
+          label: 'drop symbol from library onto panel',
         })
-        executeDropBehavior(
-          symbol,
-          { type: 'mainBus', panelId: panel.id } as DropTarget,
-          currentProject as DropBehaviorProject,
-          t,
-          callbacks,
-          false
-        )
-        if (!protectionId || !circuitId) return
-
-        if (isAutoParent) {
-          const parentProtection = panel.protections.find(
-            (p: ProtectionDevice) => hit?.ref.kind === 'protection' && p.id === hit.ref.id
-          )
-          const parentFirstCircuit = parentProtection?.circuits?.[0]
-          if (parentFirstCircuit) {
-            const existingSub = parentFirstCircuit.subCircuitIds ?? []
-            useProjectStore.getState().updateCircuit(parentFirstCircuit.id, {
-              subCircuitIds: [...existingSub, circuitId],
-            })
-          }
-        }
-
-        const moduleRef: PanelGridModuleRef = { kind: 'protection', id: protectionId }
-        const projectAfterProtection = useProjectStore.getState().currentProject
-        const moduleWidthCols = getModuleWidthInCols(
-          moduleRef,
-          projectAfterProtection ?? currentProject
-        )
-        const existingSlots = panel.gridView?.slots ?? []
-        let slotRow: number
-        let slotCol: number
-        if (isAutoParent) {
-          slotRow = childPlacement?.row ?? 0
-          slotCol = childPlacement?.col ?? 0
-        } else {
-          const snapped = snapToGrid(localX, localY - mainPanelY + CELL_H / 2)
-          slotRow = clamp(snapped.row, 0, rows - 1)
-          slotCol = Math.max(
-            0,
-            Math.min(
-              cols - moduleWidthCols,
-              Math.round(localX / CELL_W) - Math.floor(moduleWidthCols / 2)
-            )
-          )
-        }
-        const newSlots = [...existingSlots, { row: slotRow, col: slotCol, module: moduleRef }]
-        updatePanelGridSlots(panel.id, newSlots, { preserveProtectionOrder: true })
-
-        useUIStore.getState().setSelection({ type: 'protection', ids: [protectionId] })
+        if (placed.status !== 'placed' || !placed.changed) return
         trackSymbolPlace({
           canvas: 'panel',
           symbol,
@@ -714,62 +543,23 @@ export function usePanelLibraryDrop({
           return
         }
 
-        const deviceId = generateId()
-        const trunkDevice: TrunkDevice = {
-          id: deviceId,
-          type: 'energy_meter',
-          symbol: 'energy_meter',
-          label: 'kWh',
-          trunkPosition: 0, // Before all branches
-        }
-
-        useProjectStore.getState().addTrunkDevice(targetCircuit.id, trunkDevice)
-
-        const projectAfterMeter = useProjectStore.getState().currentProject
-        const persistedPanel = projectAfterMeter
-          ? findPanelById(getProjectElectricalPanels(projectAfterMeter), panel.id)
-          : undefined
-        const persistedCircuit = persistedPanel
-          ? collectCircuits(persistedPanel).find((circuit) => circuit.id === targetCircuit.id)
-          : undefined
-        if (
-          !persistedPanel ||
-          !persistedCircuit?.trunkDevices?.some((device) => device.id === deviceId)
-        ) {
-          logger.error(
-            'PanelCanvas: Energy meter could not be assigned to the target panel circuit',
-            {
-              panelId: panel.id,
-              circuitId: targetCircuit.id,
-              deviceId,
-            }
-          )
-          return
-        }
-
-        // Add to panel grid at the computed slot.
-        const moduleRef: PanelGridModuleRef = {
-          kind: 'trunkDevice',
-          id: deviceId,
-          scope: 'circuit',
-          circuitId: targetCircuit.id,
-        }
-        const moduleWidthCols = getModuleWidthInCols(moduleRef, projectAfterMeter ?? currentProject)
-        const existingSlots = persistedPanel.gridView?.slots ?? []
-        const row = clamp(snapped.row, 0, rows - 1)
-        const col = Math.max(
-          0,
-          Math.min(
-            cols - moduleWidthCols,
-            Math.round(localX / CELL_W) - Math.floor(moduleWidthCols / 2)
-          )
-        )
-        useProjectStore.getState().unhideModuleFromPanel(panel.id, panelGridModuleRefKey(moduleRef))
-        const newSlots = [...existingSlots, { row, col, module: moduleRef }]
-        updatePanelGridSlots(panel.id, newSlots)
-
-        // Select the newly created trunk device
-        useUIStore.getState().setSelection({ type: 'trunkDevice', ids: [deviceId] })
+        const placed = placeElectricalSymbol({
+          symbolId: symbol.id,
+          target: {
+            type: 'circuit',
+            circuitId: targetCircuit.id,
+            panelId: panel.id,
+            circuitTrunkSegmentIndex: 0,
+          },
+          panelGrid: {
+            scope: 'main',
+            row: clamp(snapped.row, 0, rows - 1),
+            col: Math.max(0, Math.round(localX / CELL_W)),
+            centerColumn: true,
+          },
+          label: 'drop symbol from library onto panel',
+        })
+        if (placed.status !== 'placed' || !placed.changed) return
         trackSymbolPlace({
           canvas: 'panel',
           symbol,
@@ -805,55 +595,18 @@ export function usePanelLibraryDrop({
           return
         }
 
-        const callbacks = createPanelDropBehaviorCallbacks()
-        executeDropBehavior(
-          symbol,
-          { type: 'circuit', panelId: panel.id, circuitId: targetCircuit.id } as DropTarget,
-          currentProject as DropBehaviorProject,
-          t,
-          callbacks,
-          false
-        )
-
-        const createdId = useUIStore.getState().selection.ids[0]
-        const projectAfterDrop = useProjectStore.getState().currentProject
-        const persistedPanel = projectAfterDrop
-          ? findPanelById(getProjectElectricalPanels(projectAfterDrop), panel.id)
-          : undefined
-        const persistedCircuit = persistedPanel
-          ? collectCircuits(persistedPanel).find((circuit) => circuit.id === targetCircuit.id)
-          : undefined
-        if (
-          !createdId ||
-          !persistedPanel ||
-          !persistedCircuit?.endpoints.some((endpoint) => endpoint.id === createdId)
-        ) {
-          logger.error('PanelCanvas: Modular socket could not be assigned to the target circuit', {
-            panelId: panel.id,
-            circuitId: targetCircuit.id,
-            createdId,
-          })
-          return
-        }
-
-        const moduleRef: PanelGridModuleRef = {
-          kind: 'domotica',
-          endpointId: createdId,
-          circuitId: targetCircuit.id,
-        }
-        const moduleWidthCols = getModuleWidthInCols(moduleRef, projectAfterDrop ?? currentProject)
-        const existingSlots = persistedPanel.gridView?.slots ?? []
-        const row = clamp(snapped.row, 0, rows - 1)
-        const col = Math.max(
-          0,
-          Math.min(
-            cols - moduleWidthCols,
-            Math.round(localX / CELL_W) - Math.floor(moduleWidthCols / 2)
-          )
-        )
-        const newSlots = [...existingSlots, { row, col, module: moduleRef }]
-        useProjectStore.getState().unhideModuleFromPanel(panel.id, panelGridModuleRefKey(moduleRef))
-        updatePanelGridSlots(panel.id, newSlots)
+        const placed = placeElectricalSymbol({
+          symbolId: symbol.id,
+          target: { type: 'circuit', panelId: panel.id, circuitId: targetCircuit.id },
+          panelGrid: {
+            scope: 'main',
+            row: clamp(snapped.row, 0, rows - 1),
+            col: Math.max(0, Math.round(localX / CELL_W)),
+            centerColumn: true,
+          },
+          label: 'drop symbol from library onto panel',
+        })
+        if (placed.status !== 'placed' || !placed.changed) return
         trackSymbolPlace({
           canvas: 'panel',
           symbol,
@@ -865,12 +618,7 @@ export function usePanelLibraryDrop({
     [
       currentProject,
       panel,
-      addPanel,
       setActivePanelId,
-      t,
-      updatePanelGridSlots,
-      updateSupplyPanelSlots,
-      placeSupplyModuleAfterInsert,
       combinedPlacements,
       placements,
       supplyLayout.cols,

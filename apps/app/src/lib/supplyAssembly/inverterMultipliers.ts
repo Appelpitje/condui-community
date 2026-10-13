@@ -14,6 +14,11 @@ export function supportsSupplyDeviceMultiplier(device: TrunkDevice | undefined):
   )
 }
 
+/** Inverters run as one to three units; panels and batteries go up to 99. */
+export function getSupplyDeviceMaxMultiplier(device: Pick<TrunkDevice, 'symbol'>): number {
+  return device.symbol === 'inverter' ? 3 : 99
+}
+
 export function getSupplyDeviceMultiplier(device: TrunkDevice): number {
   if (!supportsSupplyDeviceMultiplier(device)) return 1
   const serialNumbers =

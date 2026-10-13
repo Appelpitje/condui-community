@@ -10,6 +10,8 @@ import { createResetSlice } from './slices/resetSlice'
 import { createSelectorAnnotationSlice } from './slices/selectorAnnotationSlice'
 import { createSupplyAssemblySlice } from './slices/supplyAssemblySlice'
 import { logger } from '@/lib/logger'
+import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
+import { followWireAnchorDomains, wireAnchorDomainsNeedFollowing } from '@/lib/wires/followWireAnchorDomains'
 import {
   bindProjectStoreApi,
   initialState,
@@ -59,6 +61,21 @@ useProjectStore.subscribe((state: ProjectState, prevState: ProjectState) => {
 
   // Debounce snapshot creation to coalesce rapid updates (e.g. typing).
   projectHistory.schedulePending(previousProject)
+})
+
+// Adding or removing an inverter or rectifier flips the domain in the anchors of the cables after
+// it. Their specs, lengths, plan traces and junction connections move along in the same undo step.
+useProjectStore.subscribe((state: ProjectState, prevState: ProjectState) => {
+  const currentProject = state.currentProject
+  const previousProject = prevState?.currentProject
+  if (!currentProject || !previousProject || currentProject === previousProject) return
+  if (getProjectElectricalPanels(currentProject) === getProjectElectricalPanels(previousProject)) return
+  if (!wireAnchorDomainsNeedFollowing(currentProject)) return
+  projectHistory.runWithoutRecording(() => {
+    useProjectStore.setState((draft) => {
+      if (draft.currentProject) followWireAnchorDomains(draft.currentProject)
+    })
+  })
 })
 
 useProjectStore.subscribe((state: ProjectState, prevState: ProjectState) => {

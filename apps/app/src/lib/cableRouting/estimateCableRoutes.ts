@@ -6,6 +6,14 @@ import { getSituationPlanPlacementIdsHiddenByPanel } from '@/lib/plan/panelPlanP
 import { collectSharedJunctions, sharedJunctionKey } from '@/lib/plan/sharedJunctionPlacements'
 import { symbolCanAppearInPanelGrid } from '@/lib/panel/panelGridSymbolEligibility'
 import {
+  isRemountableCircuitTrunkDevice,
+  resolveCircuitModuleEnclosure,
+} from '@/lib/panel/circuitModuleMountingRules'
+import { indexPhysicalEnclosures } from '@/lib/panel/physicalEnclosureIndex'
+import { defaultAuxiliaryEnclosurePlacement } from '@/lib/plan/auxiliaryEnclosurePlanPlacement'
+import { getJunctionPanelIdentity } from '@/lib/junctionPanel/grid'
+import { canOperateControlLinks } from '@/lib/controlLink/controlLink'
+import {
   readLegacyCompatibilityFloors,
   selectProjectBuildingFloors,
   selectProjectFloorPlan,
@@ -20,7 +28,7 @@ import {
 import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { findMainPanel } from '@/lib/panel/panelTree'
 import { resolveAssemblyPanelInput } from '@/lib/supplyAssembly/electricalTopology'
-import type { SupplyNode } from '@/types/supplyAssembly'
+import type { AuxiliaryElectricalEnclosure, SupplyNode } from '@/types/supplyAssembly'
 import {
   selectProjectPlanWireRoutes,
   selectProjectPlanWiringVisibility,
@@ -63,6 +71,9 @@ import type {
  *   rises in its own wall and the cable crosses the ceiling directly.
  * - **Off-plan points.** A point whose symbols are hidden, or still waiting to be placed, sits
  *   next to its neighbour in the branch (e.g. a LED driver beside its light) and adds no route.
+ * - **Contacts.** Internal contacts share their operating module or relay's physical location,
+ *   including its board or auxiliary enclosure. Unlinked contacts sit in their circuit's board.
+ *   Stored contact placements never create a separate routing point or an internal cable run.
  * - **Risers** sit where the cable leaves: runs from a board to another floor share one riser
  *   at the board and spread out on the target floor, keeping slab passages to a minimum.
  * - **Junction boxes and panels** are one physical object per identity, however often the
@@ -300,6 +311,7 @@ interface ModelIndex {
   panelById: Map<string, Panel>
   circuitById: Map<string, Circuit>
   endpointById: Map<string, Endpoint>
+  circuitByEndpointId: Map<string, Circuit>
   panelByCircuitId: Map<string, Panel>
   panelLocationByPanelId: Map<string, Placement>
   /** The `panel_distribution` endpoint that places each board on the plan. */
@@ -316,6 +328,7 @@ function indexModel(panels: readonly Panel[]): ModelIndex {
   const panelById = new Map<string, Panel>()
   const circuitById = new Map<string, Circuit>()
   const endpointById = new Map<string, Endpoint>()
+  const circuitByEndpointId = new Map<string, Circuit>()
   const panelByCircuitId = new Map<string, Panel>()
   const distributionEndpoints: Endpoint[] = []
   const allPanels: Panel[] = []
@@ -327,6 +340,7 @@ function indexModel(panels: readonly Panel[]): ModelIndex {
       panelByCircuitId.set(circuit.id, panel)
       for (const endpoint of circuit.endpoints) {
         endpointById.set(endpoint.id, endpoint)
+        circuitByEndpointId.set(endpoint.id, circuit)
         if (endpoint.symbol === 'panel_distribution') distributionEndpoints.push(endpoint)
       }
     }
@@ -352,6 +366,7 @@ function indexModel(panels: readonly Panel[]): ModelIndex {
     panelById,
     circuitById,
     endpointById,
+    circuitByEndpointId,
     panelByCircuitId,
     panelLocationByPanelId,
     panelEndpointIdByPanelId,
@@ -690,6 +705,7 @@ export function estimateCableRoutes(
   const metersPerUnit = 1 / (calibrated ?? EDITOR_PX_PER_METER)
 
   const model = indexModel(getProjectElectricalPanels(project))
+  const physicalEnclosures = indexPhysicalEnclosures(project)
   const geometry = new PlanGeometry(project, metersPerUnit, settings)
   const context: RouteContext = {
     settings,
@@ -746,7 +762,7 @@ export function estimateCableRoutes(
     }
   }
 
-  const endpointLocations = (endpoint: Endpoint): RouteLocation[] => {
+  const placedEndpointLocations = (endpoint: Endpoint): RouteLocation[] => {
     // A repeated junction box routes to the placements of the occurrence that holds them.
     const owner = junctionOf(endpoint)?.owner
     const holder = owner && owner.entity.id !== endpoint.id ? owner : undefined
@@ -808,6 +824,60 @@ export function estimateCableRoutes(
 
   const boardLocation = (circuitId: string) =>
     boardLocationForPanel(model.panelByCircuitId.get(circuitId))
+
+  const panelIds = new Set(model.panelById.keys())
+  const enclosureIds = new Set(
+    selectProjectAuxiliaryElectricalEnclosures(project).map((item) => item.id)
+  )
+
+  /** Contacts are internal parts of their operator, never independent plan routing points. */
+  function endpointLocations(endpoint: Endpoint, visiting = new Set<string>()): RouteLocation[] {
+    if (visiting.has(endpoint.id)) return []
+    visiting.add(endpoint.id)
+    const circuit = model.circuitByEndpointId.get(endpoint.id)
+    const panel = circuit ? model.panelByCircuitId.get(circuit.id) : undefined
+    const describeLocation = (location: RouteLocation): RouteLocation => ({
+      ...location,
+      label: `${endpoint.label} (${endpoint.symbol ?? endpoint.type})`,
+      code: endpoint.label,
+      nodeType: endpoint.type,
+      symbolId: endpoint.symbol,
+    })
+    if (endpoint.symbol === 'contact') {
+      const parentId = endpoint.domoticaChildProps?.parentEndpointId
+      const linkedDevice = endpoint.controlLink
+        ? model.endpointById.get(endpoint.controlLink.deviceId)
+        : undefined
+      const owner = parentId
+        ? model.endpointById.get(parentId)
+        : canOperateControlLinks(linkedDevice)
+          ? linkedDevice
+          : undefined
+      // Old contacts can contain auto-generated, invisible placements. Ignore all of them.
+      // Without a valid operator the contact belongs inside its own circuit's board.
+      const board = panel ? boardLocationForPanel(panel) : undefined
+      const locations = owner ? endpointLocations(owner, visiting) : board ? [board] : []
+      return locations.map((location) =>
+        describeLocation({ ...location, inBoard: owner ? location.inBoard : true })
+      )
+    }
+    if (
+      panel &&
+      symbolCanAppearInPanelGrid(endpoint.symbol) &&
+      (endpoint.panelMounting ||
+        endpoint.placements.length === 0 ||
+        endpoint.placements.every((placement) => inBoardPlacementIds.has(placement.id)))
+    ) {
+      const mounting = resolveCircuitModuleEnclosure(endpoint, panel.id, { panelIds, enclosureIds })
+      const location = physicalEnclosures.has(endpoint.id)
+        ? moduleEnclosureLocation(endpoint.id)
+        : mounting.kind === 'auxiliary'
+          ? enclosureLocation(mounting.enclosureId)
+          : boardLocationForPanel(model.panelById.get(mounting.panelId))
+      return location ? [describeLocation({ ...location, inBoard: true })] : []
+    }
+    return placedEndpointLocations(endpoint)
+  }
 
   /** Plan distance plus any riser; only used to pick the nearest feed point. */
   const linkCostM = (from: RouteLocation, to: RouteLocation): number => {
@@ -911,8 +981,13 @@ export function estimateCableRoutes(
     const enclosure = selectProjectAuxiliaryElectricalEnclosures(project).find(
       (candidate) => candidate.id === enclosureId
     )
-    const placement = enclosure?.placements?.find(onPlan)
-    if (!enclosure || !placement) return undefined
+    if (!enclosure) return undefined
+    // Never placed yet: the plan puts it beside its board, so the cables run there too.
+    // A hidden placement keeps the enclosure, and the cables ending at it, off the plan.
+    const placement = enclosure.placements?.length
+      ? enclosure.placements.find(onPlan)
+      : unplacedEnclosurePlacement(enclosure)
+    if (!placement || !floors.has(placement.floorId)) return undefined
     return {
       floorId: placement.floorId,
       pos: placement.pos,
@@ -926,6 +1001,33 @@ export function estimateCableRoutes(
       code: enclosure.name,
       label: enclosure.name,
     }
+  }
+
+  function unplacedEnclosurePlacement(enclosure: AuxiliaryElectricalEnclosure): Placement | undefined {
+    const index = selectProjectAuxiliaryElectricalEnclosures(project).indexOf(enclosure)
+    const placement = defaultAuxiliaryEnclosurePlacement(project, enclosure, Math.max(0, index))
+    return placement ? { ...placement, id: `default-enclosure:${enclosure.id}` } : undefined
+  }
+
+  /**
+   * Where a module hangs when it has no symbol of its own on the plan: its board, its virtual
+   * enclosure, or the junction panel its circuit runs through (the same rule as the one-wire
+   * enclosure dashes and the structure view).
+   */
+  function moduleEnclosureLocation(entityId: string): RouteLocation | undefined {
+    const key = physicalEnclosures.get(entityId)
+    if (key?.startsWith('panel:')) return boardLocationForPanel(model.panelById.get(key.slice(6)))
+    if (key?.startsWith('auxiliary:')) return enclosureLocation(key.slice(10))
+    if (key?.startsWith('junction:')) {
+      const identity = key.slice(9)
+      for (const circuit of model.circuitById.values())
+        for (const device of circuit.trunkDevices ?? []) {
+          if ((getJunctionPanelIdentity(device) ?? device.id) !== identity) continue
+          const location = circuitDeviceLocation(device)
+          if (location) return location
+        }
+    }
+    return undefined
   }
 
   /** A supply device with its own symbol on the plan (inverter, solar panels, battery, ...). */
@@ -1295,7 +1397,9 @@ export function estimateCableRoutes(
       if (visiting.has(device.id)) return undefined
       visiting.add(device.id)
       const edge = edgeByDeviceId.get(device.id)
-      const location = edge ? circuitDeviceLocation(device) : undefined
+      const location = edge
+        ? (circuitDeviceLocation(device) ?? enclosedModuleLocation(device))
+        : undefined
       if (!edge || !location) {
         visiting.delete(device.id)
         return undefined
@@ -1313,16 +1417,18 @@ export function estimateCableRoutes(
       const sourceEndpoint = source.startsWith('endpoint:')
         ? model.endpointById.get(source.slice('endpoint:'.length))
         : undefined
-      const sourceInBoard =
-        sourceEndpoint &&
-        symbolCanAppearInPanelGrid(sourceEndpoint.symbol) &&
-        (sourceEndpoint.placements.length === 0 ||
-          sourceEndpoint.placements.every((placement) => inBoardPlacementIds.has(placement.id)))
       const previous =
-        upstream?.to ??
-        (sourceEndpoint
-          ? (endpointLocations(sourceEndpoint).at(-1) ?? (sourceInBoard ? board : undefined))
-          : board)
+        upstream?.to ?? (sourceEndpoint ? endpointLocations(sourceEndpoint).at(-1) : board)
+      // A module fed from inside its own enclosure is wired there: no cable, measured from it.
+      if (
+        upstream &&
+        location.inBoard &&
+        previous?.placementId === location.placementId
+      ) {
+        reached.set(edge.toNodeId, upstream)
+        visiting.delete(device.id)
+        return upstream
+      }
       const builder = new RouteBuilder(context)
       const gaps: CableRouteGap[] = []
       if (previous) builder.connect(previous, location)
@@ -1377,6 +1483,26 @@ export function estimateCableRoutes(
     }
     devices.forEach(visit)
     return routes
+
+    /** A relay, meter or converter hung in another enclosure than its circuit's board. */
+    function enclosedModuleLocation(device: TrunkDevice): RouteLocation | undefined {
+      const key = physicalEnclosures.get(device.id)
+      const ownerKey = `panel:${model.panelByCircuitId.get(circuit.id)?.id}`
+      if (!key || key === ownerKey || !isRemountableCircuitTrunkDevice(device)) return undefined
+      const location = moduleEnclosureLocation(device.id)
+      const code = (device.label ?? '').trim()
+      return location
+        ? {
+            ...location,
+            inBoard: true,
+            trunkDeviceId: device.id,
+            nodeType: device.type,
+            symbolId: device.symbol,
+            code,
+            label: code || device.symbol || device.type,
+          }
+        : undefined
+    }
   }
 
   /** Target placement → source placement of wires the user drew for this circuit. */
@@ -1425,32 +1551,20 @@ export function estimateCableRoutes(
       const edge = edgeByEndpointId.get(endpoint.id)
       if (!edge) return undefined
       const locations = endpointLocations(endpoint)
+      // Internal board contacts switch a circuit without adding a physical cable stop.
+      // Keep the circuit's actual junction/feed path for the field devices after them.
+      if (
+        endpoint.symbol === 'contact' &&
+        locations[0]?.inBoard &&
+        locations[0].placementId === boardLocation(circuit.id)?.placementId
+      )
+        return undefined
       if (locations.length > 0) return { endpoint, edge, locations }
       const inBoard =
         endpoint.placements.length > 0 &&
         endpoint.placements.every((placement) => inBoardPlacementIds.has(placement.id))
       if (endpoint.placements.length > 0 && !inBoard) {
         return { endpoint, edge, locations: [], offPlan: true }
-      }
-      // A relay, timer, or contactor in the board: its cable starts and ends inside the board.
-      const board = symbolCanAppearInPanelGrid(endpoint.symbol)
-        ? boardLocation(circuit.id)
-        : undefined
-      if (board) {
-        return {
-          endpoint,
-          edge,
-          locations: [
-            {
-              ...board,
-              inBoard: true,
-              label: `${endpoint.label} (${endpoint.symbol ?? endpoint.type})`,
-              code: endpoint.label,
-              nodeType: endpoint.type,
-              symbolId: endpoint.symbol,
-            },
-          ],
-        }
       }
       results.push(unplacedEstimate(circuit, edge, endpoint))
       return undefined
@@ -1534,18 +1648,13 @@ export function estimateCableRoutes(
           const parentId = edge.fromNodeId.slice('endpoint:'.length)
           const parent = model.endpointById.get(parentId)
           const location = parent ? endpointLocations(parent).at(-1) : undefined
-          const inBoard =
-            parent &&
-            symbolCanAppearInPanelGrid(parent.symbol) &&
-            (parent.placements.length === 0 ||
-              parent.placements.every((placement) => inBoardPlacementIds.has(placement.id)))
-          if (location || (inBoard && board)) {
+          if (location) {
             const link =
               -deviceRoutes.length -
               circuit.endpoints.findIndex((endpoint) => endpoint.id === parentId) -
               2
             controllerRoots.set(link, parentId)
-            return { location: location ?? board, link, group: `${parentId}:${edge.outputKey}` }
+            return { location, link, group: `${parentId}:${edge.outputKey}` }
           }
         }
         const device = deviceRouteByNode.get(edge.fromNodeId)
@@ -1696,7 +1805,12 @@ export function estimateCableRoutes(
       const { first, hops } = trees[index]!
       // Inside one board (a relay next to its breaker) no cable leaves the board: no row, and
       // what it feeds is measured from the board.
-      if (first.inBoard && link.from?.placementId === first.placementId && hops.length === 0) {
+      if (
+        (first.inBoard || stop.endpoint.symbol === 'contact') &&
+        first.placementId &&
+        link.from?.placementId === first.placementId &&
+        hops.length === 0
+      ) {
         cumulative.set(index, link.feeder != null ? cumulative.get(link.feeder) : undefined)
         return
       }
@@ -1736,8 +1850,7 @@ export function estimateCableRoutes(
             ? links[link.feeder]!.stop.edge.toNodeId
             : link.feeder != null && controllerRoots.has(link.feeder)
               ? `endpoint:${controllerRoots.get(link.feeder)!}`
-              : deviceNodeByLink.get(link.feeder ?? -1) ??
-                stop.edge.fromNodeId,
+              : (deviceNodeByLink.get(link.feeder ?? -1) ?? stop.edge.fromNodeId),
         toNodeId: stop.edge.toNodeId,
         fromLabel: link.from?.label ?? '?',
         toLabel: first.label,

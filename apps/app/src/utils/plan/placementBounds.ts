@@ -5,7 +5,7 @@ import {
   PANEL_SYMBOL_WIDTH,
   PANEL_SYMBOL_HEIGHT,
   PLAN_PANEL_VISUAL_SCALE,
-} from '@/components/canvas/eendraad/canvasSymbols'
+} from '@/lib/canvas/symbolGeometry'
 
 /**
  * Compute world-space axis-aligned bounding box for a placement,

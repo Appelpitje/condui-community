@@ -1,3 +1,4 @@
+import { editProperties } from '@/handlers/properties/editProperties'
 import { useTranslation } from 'react-i18next'
 import { isAuxiliaryEnclosureShownOnPlan } from '@/lib/plan/auxiliaryEnclosurePlanPlacement'
 import { useProjectStore } from '@/stores/projectStore'
@@ -20,10 +21,11 @@ export function AuxiliaryEnclosureProperties({
   const shownOnPlan = useProjectStore((state) =>
     state.currentProject ? isAuxiliaryEnclosureShownOnPlan(state.currentProject, enclosure) : false
   )
-  const setShownOnPlan = useProjectStore((state) => state.setAuxiliaryEnclosureShownOnPlan)
+  const setShownOnPlan = (enclosureId: string, visible: boolean) =>
+    editProperties({ actions: [{ kind: 'auxiliaryPlanVisibility', enclosureId, visible }] })
   const updateGrid = (updates: Partial<AuxiliaryElectricalEnclosure['gridView']>) =>
     onUpdate(enclosure.id, {
-      gridView: { ...enclosure.gridView, ...updates },
+      gridView: updates as AuxiliaryElectricalEnclosure['gridView'],
     })
 
   return (

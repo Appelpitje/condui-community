@@ -1,4 +1,4 @@
-import { getModuleDisplayInfo } from '@/components/canvas/panel/getModuleDisplayInfo'
+import { getModuleDisplayInfo } from '@/lib/panel/getModuleDisplayInfo'
 import { panelGridModuleRefKey } from '@/lib/panel/panelGridModuleRef'
 import type { PanelGridModuleRef } from '@/types/schema'
 import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'

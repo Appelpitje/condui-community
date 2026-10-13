@@ -16,7 +16,7 @@ import {
   getPanelCanvasOverflowModuleKeys,
   panelCanvasNeedsAttention,
 } from '@/lib/export/labelStripReadiness'
-import { getPanelGridPlacements } from '@/components/canvas/panel/panelGridLayout'
+import { getPanelGridPlacements } from '@/lib/panel/panelGridLayout'
 import { PanelIcon } from '@/components/viewport/CanvasIcons'
 import { LabelStripPdfPreview } from '@/components/export/LabelStripPdfPreview'
 import CustomDropdown from '@/components/common/CustomDropdown'

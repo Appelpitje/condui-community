@@ -5,8 +5,10 @@
  * which stays out of the community UI.
  */
 export function isCableRoutesEnabled(): boolean {
-  const flag = import.meta.env.VITE_ENABLE_CABLE_ROUTES?.trim().toLowerCase()
+  // Guarded so headless project commands can load this outside Vite.
+  const env = import.meta.env as ImportMetaEnv | undefined
+  const flag = env?.VITE_ENABLE_CABLE_ROUTES?.trim().toLowerCase()
   if (flag === '0' || flag === 'false' || flag === 'no' || flag === 'off') return false
   if (flag === '1' || flag === 'true' || flag === 'yes' || flag === 'on') return true
-  return import.meta.env.DEV || import.meta.env.VITE_E2E === '1'
+  return env?.DEV === true || env?.VITE_E2E === '1'
 }

@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { usePlanDragVisualStore } from '@/stores/planDragVisualStore'
 import { resetPlanDragVisualFlush, schedulePlanDragVisualFlush } from './planDragVisualFlush'
 import {
@@ -111,6 +112,87 @@ function resolveDragEndRotation(
   return suggestRotationForPlacement(placementAtDrop, ctx, wallFacingSide)
 }
 
+type PlanDragCommit = {
+  toCommit: ReadonlyMap<string, Point>
+  activeFloorId: string | null
+  snapPos: (pos: Point) => Point
+  planImage: HTMLImageElement | null
+  planImagePosition: { x: number; y: number }
+  baseSymbolSizePx: number
+  /** Which of a selected endpoint's placements on the floor get wall-snap rotation. */
+  endpointPlacements: 'all' | 'first'
+  /** Orient exactly these placements instead of the current selection (single drag). */
+  orientPlacementIds?: readonly string[]
+}
+
+/**
+ * Commits a finished plan drag through `plan.movePlacements`: snapped positions plus the
+ * wall-snap rotation of selected sockets and distribution symbols, as one undo step.
+ */
+function commitPlanDrag(options: PlanDragCommit): void {
+  const { toCommit, activeFloorId, snapPos, planImage } = options
+  const store = useProjectStore.getState()
+  const moves = new Map<string, { placementId: string; pos?: Point; rotationDeg?: number }>()
+  toCommit.forEach((pos, placementId) => {
+    moves.set(placementId, { placementId, pos: snapPos(pos) })
+  })
+
+  const walls = activeFloorId ? (store.getFloorById(activeFloorId)?.floorPlan?.walls ?? []) : []
+  if (activeFloorId && (walls.length > 0 || planImage)) {
+    const { selection } = useUIStore.getState()
+    const placementIdsToOrient =
+      options.orientPlacementIds ??
+      (selection.type === 'placement'
+        ? selection.ids
+        : selection.type === 'endpoint'
+          ? selection.ids.flatMap((endpointId) => {
+              const onFloor =
+                store
+                  .getEndpointById(endpointId)
+                  ?.placements.filter((p: Placement) => p.floorId === activeFloorId) ?? []
+              const chosen = options.endpointPlacements === 'all' ? onFloor : onFloor.slice(0, 1)
+              return chosen.map((p: Placement) => p.id)
+            })
+          : [])
+    const ctx = planImage
+      ? {
+          image: planImage,
+          imagePosition: options.planImagePosition,
+          walls,
+          symbolBaseSizePx: options.baseSymbolSizePx,
+        }
+      : { walls, symbolBaseSizePx: options.baseSymbolSizePx }
+    const floorPlacements = store.getPlacementsByFloor(activeFloorId)
+    for (const placementId of placementIdsToOrient) {
+      const row = floorPlacements.find((p: PlacementRow) => p.id === placementId)
+      if (!row || row.junctionPanelLabel != null || !row.endpointId) continue
+      const endpoint = store.getEndpointById(row.endpointId)
+      const current = endpoint?.placements.find((p: Placement) => p.id === placementId)
+      if (!current || !endpoint) continue
+      const wallFacingSide =
+        endpoint.type === 'socket' ? 'left' : endpoint.symbol === 'panel_distribution' ? 'top' : null
+      if (!wallFacingSide) continue
+      const move = moves.get(placementId)
+      const placementAtDrop = move?.pos ? { ...current, pos: move.pos } : current
+      const placementCtx =
+        endpoint.type === 'socket'
+          ? { ...ctx, socketCount: endpoint.socketProps?.socketCount ?? 1 }
+          : ctx
+      const suggested = resolveDragEndRotation(
+        placementId,
+        placementAtDrop,
+        placementCtx,
+        wallFacingSide
+      )
+      if (suggested != null && suggested !== current.rotationDeg) {
+        moves.set(placementId, { ...(move ?? { placementId }), rotationDeg: suggested })
+      }
+    }
+  }
+
+  if (moves.size > 0) runProjectCommand('plan.movePlacements', { moves: [...moves.values()] })
+}
+
 /**
  * Hook to handle drag operations for placements on the plan canvas
  */
@@ -131,19 +213,6 @@ export function usePlanDragHandling(
     (state: ProjectState) => state.getPlacementsByFloor
   )
   const getFloorById = useProjectStore((state: ProjectState) => state.getFloorById)
-  const updatePlacement = useProjectStore((state: ProjectState) => state.updatePlacement)
-  const updatePlacementsBatch = useProjectStore(
-    (state: ProjectState) => state.updatePlacementsBatch
-  )
-  const movePlanPlacementsToFloor = useProjectStore(
-    (state: ProjectState) => state.movePlanPlacementsToFloor
-  )
-  const updateJunctionPanelPlacement = useProjectStore(
-    (state: ProjectState) => state.updateJunctionPanelPlacement
-  )
-  const updateEarthingPlacement = useProjectStore(
-    (state: ProjectState) => state.updateEarthingPlacement
-  )
   const isDraggingRef = useRef(false)
   const crossFloorContinuationRef = useRef(false)
   const activeDragPlacementIdsRef = useRef<Set<string>>(new Set())
@@ -188,13 +257,19 @@ export function usePlanDragHandling(
       })
       if (positions.size !== placementIds.length) return null
       crossFloorContinuationRef.current = true
-      if (floorId !== activeFloorId && !movePlanPlacementsToFloor(moves, floorId)) {
+      if (
+        floorId !== activeFloorId &&
+        !runProjectCommand('plan.moveToFloor', {
+          floorId,
+          moves: moves.map((move) => ({ placementId: move.id, pos: move.pos })),
+        })?.changed
+      ) {
         crossFloorContinuationRef.current = false
         return null
       }
       return positions
     },
-    [activeFloorId, movePlanPlacementsToFloor],
+    [activeFloorId],
   )
 
   const initDragLabelOffset = useCallback(
@@ -355,84 +430,15 @@ export function usePlanDragHandling(
       },
       onMultiSelectDragEnd: () => {
         if (crossFloorContinuationRef.current) return
-        const toCommit = dragPositionsCommitRef.current
-        const floorPlacements = activeFloorId ? getPlacementsByFloor(activeFloorId) : []
-        const batch: Array<{ id: string; updates: Partial<Placement> }> = []
-        toCommit.forEach((pos, id) => {
-          const snappedPos = snapPos(pos)
-          const row = floorPlacements.find((p: PlacementRow) => p.id === id)
-          const isJunctionPanel = row?.junctionPanelLabel != null
-          const isEarthing = row?.isEarthing === true
-          if (isJunctionPanel) {
-            updateJunctionPanelPlacement(id, { pos: snappedPos })
-          } else if (isEarthing) {
-            updateEarthingPlacement(id, { pos: snappedPos })
-          } else {
-            batch.push({ id, updates: { pos: snappedPos } })
-          }
+        commitPlanDrag({
+          toCommit: dragPositionsCommitRef.current,
+          activeFloorId,
+          snapPos,
+          planImage,
+          planImagePosition,
+          baseSymbolSizePx,
+          endpointPlacements: 'all',
         })
-        if (batch.length > 0) updatePlacementsBatch(batch)
-
-        if (activeFloorId) {
-          const floor = getFloorById(activeFloorId)
-          const walls = floor?.floorPlan?.walls ?? []
-          const hasWalls = walls.length > 0
-          const hasImage = !!planImage
-          if (hasWalls || hasImage) {
-            const { selection } = useUIStore.getState()
-            const placementIdsToOrient =
-              selection.type === 'placement'
-                ? selection.ids
-                : selection.type === 'endpoint'
-                  ? selection.ids.flatMap((endpointId) => {
-                      const endpoint = getEndpointById(endpointId)
-                      return endpoint?.placements
-                        .filter((p: Placement) => p.floorId === activeFloorId)
-                        .map((p: Placement) => p.id) ?? []
-                    })
-                  : []
-
-            const ctx = hasImage
-              ? { image: planImage, imagePosition: planImagePosition, walls, symbolBaseSizePx: baseSymbolSizePx }
-              : { walls, symbolBaseSizePx: baseSymbolSizePx }
-            placementIdsToOrient.forEach((placementId) => {
-              const floorPlacements = getPlacementsByFloor(activeFloorId)
-              const row = floorPlacements.find((p: PlacementRow) => p.id === placementId)
-              if (!row) return
-              if (row.junctionPanelLabel != null) return
-              if (!row.endpointId) return
-              const endpoint = getEndpointById(row.endpointId)
-              const placement = endpoint?.placements.find((p: Placement) => p.id === placementId)
-              if (!placement || !endpoint) return
-              const placementCtx = endpoint.type === 'socket'
-                ? { ...ctx, socketCount: endpoint.socketProps?.socketCount ?? 1 }
-                : ctx
-
-              if (endpoint.type === 'socket') {
-                const suggested = resolveDragEndRotation(
-                  placement.id,
-                  placement,
-                  placementCtx,
-                  'left',
-                )
-                if (suggested != null && suggested !== placement.rotationDeg) {
-                  updatePlacement(placement.id, { rotationDeg: suggested })
-                }
-              }
-              if (endpoint.symbol === 'panel_distribution') {
-                const suggested = resolveDragEndRotation(
-                  placement.id,
-                  placement,
-                  placementCtx,
-                  'top',
-                )
-                if (suggested != null && suggested !== placement.rotationDeg) {
-                  updatePlacement(placement.id, { rotationDeg: suggested })
-                }
-              }
-            })
-          }
-        }
         isDraggingRef.current = false
         activeDragPlacementIdsRef.current.clear()
         dragInitialPositionsRef.current.clear()
@@ -442,7 +448,7 @@ export function usePlanDragHandling(
         setLabelRecalcKey((prev) => prev + 1)
       },
     }
-  }, [activeFloorId, clearDragVisuals, getEndpointById, getFloorById, getPlacementsByFloor, initDragLabelOffset, calculateDragLabelPosition, planImage, planImagePosition, seedDragLabels, snapPos, updatePlacement, updatePlacementsBatch, updateJunctionPanelPlacement, updateEarthingPlacement])
+  }, [activeFloorId, clearDragVisuals, getEndpointById, getPlacementsByFloor, initDragLabelOffset, calculateDragLabelPosition, planImage, planImagePosition, seedDragLabels, snapPos])
 
   const createSingleDragHandlers = useCallback((placement: Placement, labelPositions: Map<string, { x: number; y: number }>, baseSymbolSizePx: number, planImage: HTMLImageElement | null, planImagePosition: { x: number; y: number }, activeFloorId: string | null) => {
     const cached = singleDragHandlersCacheRef.current.get(placement.id)
@@ -522,51 +528,17 @@ export function usePlanDragHandling(
       },
       onDragEnd: (finalPos: Point) => {
         if (crossFloorContinuationRef.current) return
-        // Run orientation first so store is updated before we clear state; one re-render shows both.
-        if (activeFloorId) {
-          const floor = getFloorById(activeFloorId)
-          const walls = floor?.floorPlan?.walls ?? []
-          const hasWalls = walls.length > 0
-          const hasImage = !!planImage
-          if (hasWalls || hasImage) {
-            const endpointId = (placement as PlacementRow).endpointId
-            if (endpointId) {
-              const endpoint = getEndpointById(endpointId)
-              const ctx = hasImage
-                ? { image: planImage, imagePosition: planImagePosition, walls, symbolBaseSizePx: baseSymbolSizePx }
-                : { walls, symbolBaseSizePx: baseSymbolSizePx }
-              const placementCtx = endpoint?.type === 'socket'
-                ? { ...ctx, socketCount: endpoint.socketProps?.socketCount ?? 1 }
-                : ctx
-              // Use the drop position (same one used by drag preview) so commit
-              // cannot snap back to a rotation computed from stale pre-drag data.
-              const placementAtDrop = { ...placement, pos: finalPos }
-              if (endpoint?.type === 'socket') {
-                const suggested = resolveDragEndRotation(
-                  placement.id,
-                  placementAtDrop,
-                  placementCtx,
-                  'left',
-                )
-                if (suggested != null && suggested !== placement.rotationDeg) {
-                  updatePlacement(placement.id, { rotationDeg: suggested })
-                }
-              }
-              if (endpoint?.symbol === 'panel_distribution') {
-                const suggested = resolveDragEndRotation(
-                  placement.id,
-                  placementAtDrop,
-                  placementCtx,
-                  'top',
-                )
-                if (suggested != null && suggested !== placement.rotationDeg) {
-                  updatePlacement(placement.id, { rotationDeg: suggested })
-                }
-              }
-            }
-          }
-        }
-
+        // Commit position and wall-snap rotation together before clearing drag state.
+        commitPlanDrag({
+          toCommit: new Map([[placement.id, finalPos]]),
+          activeFloorId,
+          snapPos: (pos) => pos,
+          planImage,
+          planImagePosition,
+          baseSymbolSizePx,
+          endpointPlacements: 'all',
+          orientPlacementIds: [placement.id],
+        })
         isDraggingRef.current = false
         activeDragPlacementIdsRef.current.clear()
         dragInitialPositionsRef.current.clear()
@@ -586,7 +558,7 @@ export function usePlanDragHandling(
       handlers,
     })
     return handlers
-  }, [clearDragVisuals, initDragLabelOffset, calculateDragLabelPosition, getEndpointById, getFloorById, seedDragLabels, snapPos, updatePlacement])
+  }, [clearDragVisuals, initDragLabelOffset, calculateDragLabelPosition, getEndpointById, getFloorById, seedDragLabels, snapPos])
 
   const createSelectionFrameDragHandlers = useCallback((labelPositions: Map<string, { x: number; y: number }>) => {
     return {
@@ -692,7 +664,6 @@ export function usePlanDragHandling(
       onSelectionFrameDragEnd: (overrideDeltaInPlanSpace?: Point) => {
         if (crossFloorContinuationRef.current) return
         const initialPositions = dragInitialPositionsRef.current
-        const floorPlacements = activeFloorId ? getPlacementsByFloor(activeFloorId) : []
         // Use pointer-based delta when provided (correct plan space); otherwise fall back to Konva delta
         const toCommit = new Map<string, Point>()
         if (overrideDeltaInPlanSpace != null) {
@@ -705,82 +676,15 @@ export function usePlanDragHandling(
         } else {
           dragPositionsCommitRef.current.forEach((pos, id) => toCommit.set(id, pos))
         }
-        const batch: Array<{ id: string; updates: Partial<Placement> }> = []
-        toCommit.forEach((pos, id) => {
-          const snappedPos = snapPos(pos)
-          const row = floorPlacements.find((p: PlacementRow) => p.id === id)
-          const isJunctionPanel = row?.junctionPanelLabel != null
-          const isEarthing = row?.isEarthing === true
-          if (isJunctionPanel) {
-            updateJunctionPanelPlacement(id, { pos: snappedPos })
-          } else if (isEarthing) {
-            updateEarthingPlacement(id, { pos: snappedPos })
-          } else {
-            batch.push({ id, updates: { pos: snappedPos } })
-          }
+        commitPlanDrag({
+          toCommit,
+          activeFloorId,
+          snapPos,
+          planImage,
+          planImagePosition,
+          baseSymbolSizePx,
+          endpointPlacements: 'first',
         })
-        if (batch.length > 0) updatePlacementsBatch(batch)
-        if (activeFloorId) {
-          const floor = getFloorById(activeFloorId)
-          const walls = floor?.floorPlan?.walls ?? []
-          const hasWalls = walls.length > 0
-          const hasImage = !!planImage
-          if (hasWalls || hasImage) {
-            const { selection } = useUIStore.getState()
-            const placementIdsToOrient =
-              selection.type === 'placement'
-                ? selection.ids
-                : selection.type === 'endpoint'
-                  ? selection.ids
-                      .map((endpointId) => {
-                        const endpoint = getEndpointById(endpointId)
-                        const p = endpoint?.placements.find(
-                          (p: Placement) => p.floorId === activeFloorId,
-                        )
-                        return p?.id
-                      })
-                      .filter((id): id is string => id != null)
-                  : []
-            const ctx = hasImage
-              ? { image: planImage, imagePosition: planImagePosition, walls, symbolBaseSizePx: baseSymbolSizePx }
-              : { walls, symbolBaseSizePx: baseSymbolSizePx }
-            placementIdsToOrient.forEach((placementId) => {
-              const floorPlacements = getPlacementsByFloor(activeFloorId)
-              const row = floorPlacements.find((p: PlacementRow) => p.id === placementId)
-              if (!row) return
-              if (row.junctionPanelLabel != null) return
-              if (!row.endpointId) return
-              const endpoint = getEndpointById(row.endpointId)
-              const placement = endpoint?.placements.find((p: Placement) => p.id === placementId)
-              if (!placement || !endpoint) return
-              const placementCtx = endpoint.type === 'socket'
-                ? { ...ctx, socketCount: endpoint.socketProps?.socketCount ?? 1 }
-                : ctx
-              if (endpoint.type === 'socket') {
-                const suggested = resolveDragEndRotation(
-                  placement.id,
-                  placement,
-                  placementCtx,
-                  'left',
-                )
-                if (suggested != null && suggested !== placement.rotationDeg) {
-                  updatePlacement(placement.id, { rotationDeg: suggested })
-                }
-              }
-              if (endpoint.symbol === 'panel_distribution') {
-                const suggested = resolveDragEndRotation(
-                  placement.id,
-                  placement,
-                  placementCtx,
-                  'top',
-                )
-                if (suggested != null && suggested !== placement.rotationDeg) {
-                  updatePlacement(placement.id, { rotationDeg: suggested })
-                }
-              }
-            })
-          }
-        }
         isDraggingRef.current = false
         activeDragPlacementIdsRef.current.clear()
         dragInitialPositionsRef.current.clear()
@@ -790,7 +694,7 @@ export function usePlanDragHandling(
         setLabelRecalcKey((prev) => prev + 1)
       },
     }
-  }, [activeFloorId, baseSymbolSizePx, clearDragVisuals, getEndpointById, getFloorById, getPlacementsByFloor, initDragLabelOffset, calculateDragLabelPosition, planImage, planImagePosition, seedDragLabels, snapPos, updatePlacement, updatePlacementsBatch, updateJunctionPanelPlacement, updateEarthingPlacement])
+  }, [activeFloorId, baseSymbolSizePx, clearDragVisuals, getEndpointById, getPlacementsByFloor, initDragLabelOffset, calculateDragLabelPosition, planImage, planImagePosition, seedDragLabels, snapPos])
 
   return {
     isDraggingRef,

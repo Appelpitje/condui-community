@@ -23,6 +23,8 @@
   },
   "connectivity": {
     "offlineBanner": "You are offline. Local projects remain saved on this device.",
+    "databaseOfflineBanner": "Die Cloud ist vorübergehend nicht verfügbar. Sie können weiterarbeiten; Änderungen werden auf diesem Gerät gespeichert und synchronisiert, sobald die Verbindung wiederhergestellt ist.",
+    "databaseOfflineIndicatorTitle": "Cloud vorübergehend nicht verfügbar",
     "offlineReloadNotReady": "Vermeiden Sie ein Neuladen, bis Sie die App mindestens einmal online in diesem Browser-Tab geöffnet haben.",
     "offlineReloadDevHint": "Das Neuladen im Offline-Modus funktioniert nur mit einem Produktions-Build (npm run build && vite Preview), nicht mit dem Dev-Server.",
     "dismissOfflineBanner": "Offline-Benachrichtigung schließen",
@@ -152,6 +154,48 @@
     "pan": "Pfannen",
     "zoom": "Zoom"
   },
+  "commandPalette": {
+    "placeholder": "Befehle suchen",
+    "empty": "Keine Befehle gefunden",
+    "moveToCircuit": "In Stromkreis verschieben",
+    "reorderBranch": "Zweig neu anordnen",
+    "moveOnBus": "Auf Sammelschiene verschieben",
+    "moveBusLeft": "Auf Sammelschiene nach links verschieben",
+    "moveBusRight": "Auf Sammelschiene nach rechts verschieben",
+    "moveModules": "Verteilermodule verschieben",
+    "resizeModule": "Modulgröße ändern",
+    "connectTo": "Verbinden mit…",
+    "rewire": "Module neu verdrahten",
+    "resizePanel": "Verteilergröße ändern",
+    "autoArrange": "Verteilermodule anordnen",
+    "renameFloor": "Etage umbenennen",
+    "addCircuit": "Stromkreis hinzufügen",
+    "apply": "Anwenden",
+    "unavailable": "Diese Änderung kann nicht angewendet werden. Prüfen Sie die Werte oder öffnen Sie die Aktion erneut.",
+    "fields": {
+      "circuit": "Stromkreis",
+      "position": "Position",
+      "row": "Reihe",
+      "column": "Spalte",
+      "width": "Breite (Module)",
+      "target": "Verbinden mit",
+      "bus": "Sammelschiene",
+      "rows": "Reihen",
+      "columns": "Spalten",
+      "name": "Name",
+      "panel": "Verteiler",
+      "kind": "Stromkreistyp",
+      "direction": "Einspeiseseite",
+      "left": "Links",
+      "right": "Rechts"
+    },
+    "kinds": {
+      "lighting": "Beleuchtung",
+      "sockets": "Steckdosen",
+      "fixed_appliance": "Festes Gerät",
+      "other": "Sonstiges"
+    }
+  },
   "shortcuts": {
     "title": "Hotkeys",
     "intro": "Alle im Editor verwendeten Tastaturkürzel.",
@@ -179,6 +223,7 @@
       "ctrlCmdL": "Strg/Befehl+L",
       "ctrlCmdP": "Strg/Befehl+P",
       "ctrlCmdD": "Strg/Befehl + D",
+      "ctrlCmdK": "Strg/Befehl + K",
       "tab": "Tab",
       "esc": "Esc",
       "space": "Raum",
@@ -222,6 +267,9 @@
       "arrowKeys": "Pfeiltasten"
     },
     "entries": {
+      "openCommandPalette": {
+        "description": "Befehlspalette"
+      },
       "undo": {
         "description": "Rückgängig machen"
       },
@@ -1021,6 +1069,7 @@
       "overCapacity": "{{used}} von {{capacity}} Ausgangskanälen belegt"
     },
     "solarPanel": {
+      "count": "Anzahl der Module",
       "groupTitle": "Marke und Modell",
       "wattage": "Leistung (Wp)",
       "voltage": "Spannung (V)"
@@ -1166,6 +1215,7 @@
     "showHiddenDescription": "Wählen Sie ein oder mehrere Geräte zur Anzeige aus.",
     "supplyPanel": "Netboard",
     "virtualEnclosure": "Netzteilkasten",
+    "moduleEnclosure": "Gehäuse",
     "hideSupplyPanel": "Netzbrett verstecken",
     "rewireTool": "Reset-Tool",
     "rewireModeOn": "Reset-Modus Deaktivieren",
@@ -1201,6 +1251,7 @@
     "syncWithPanelView": "Synchronisierung mit der Verteiler-Ansicht"
   },
   "canvas": {
+    "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Raster anzeigen",
     "snap": "Ausrichten",
     "projectedSnap": "Projektionsausrichtung",

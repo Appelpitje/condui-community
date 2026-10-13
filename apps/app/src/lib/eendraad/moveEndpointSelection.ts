@@ -115,7 +115,8 @@ function movingBranchGroupsForSelection(
   circuit: Circuit,
   draggedEndpointId: string,
   selectedEndpointIds: string[],
-  allowSingle = false
+  allowSingle = false,
+  newId: () => string = generateId
 ): { movingBranches: Branch[]; movedEndpointIds: string[]; movedEndpoints: Endpoint[] } | null {
   const branches = circuit.branches ?? []
   const circuitEndpointIds = new Set(circuit.endpoints.map((endpoint) => endpoint.id))
@@ -147,7 +148,7 @@ function movingBranchGroupsForSelection(
   const byId = new Map(circuit.endpoints.map((endpoint) => [endpoint.id, endpoint]))
   const movingBranches = movingBranchEntries.map(({ branch, selectedEndpointIds }) => ({
     ...branch,
-    id: selectedEndpointIds.length === branch.endpointIds.length ? branch.id : generateId(),
+    id: selectedEndpointIds.length === branch.endpointIds.length ? branch.id : newId(),
     endpointIds: [...selectedEndpointIds],
   }))
   const movedEndpointIds = movingBranches.flatMap((branch) => branch.endpointIds)
@@ -170,7 +171,7 @@ export function moveEndpointSelectionOnCircuit(
   draggedEndpointId: string,
   selectedEndpointIds: string[],
   target: DropTarget,
-  options?: { allowSingle?: boolean }
+  options?: { allowSingle?: boolean; newId?: () => string }
 ): MoveEndpointSelectionResult | null {
   const branches = circuit.branches ?? []
   if (target.circuitId !== circuit.id || branches.length === 0) return null
@@ -179,7 +180,8 @@ export function moveEndpointSelectionOnCircuit(
     circuit,
     draggedEndpointId,
     selectedEndpointIds,
-    options?.allowSingle
+    options?.allowSingle,
+    options?.newId
   )
   if (!moving) return null
   const selected = new Set(moving.movedEndpointIds)
@@ -228,18 +230,31 @@ export function moveEndpointSelectionOnCircuit(
     ...remainingBranches.slice(safeInsertIndex),
   ]
 
-  const unchanged =
-    nextBranches.length === branches.length &&
-    nextBranches.every((branch, index) => branch.id === branches[index]?.id)
-  if (unchanged) return null
+  const orderedEndpoints = applyConverterDcMoveTarget(
+    endpointsInBranchOrder(circuit, nextBranches),
+    selected,
+    target
+  )
+  const branchesUnchanged = JSON.stringify(nextBranches) === JSON.stringify(branches)
+  const endpointsById = new Map(orderedEndpoints.map((endpoint) => [endpoint.id, endpoint]))
+  const converterDcIntentChanged = moving.movedEndpointIds.some((endpointId) =>
+    JSON.stringify(
+      circuit.endpoints.find((endpoint) => endpoint.id === endpointId)?.converterDcConnection
+    ) !==
+    JSON.stringify(endpointsById.get(endpointId)?.converterDcConnection)
+  )
+  if (branchesUnchanged && !converterDcIntentChanged) return null
+
+  // A trunk slot may resolve to the current topology while still looking like a different
+  // endpoint order after branch flattening. Preserve the circuit's endpoint array in that case;
+  // only apply the requested converter-DC intent to the moved endpoints.
+  const nextEndpoints = branchesUnchanged
+    ? applyConverterDcMoveTarget(circuit.endpoints, selected, target)
+    : orderedEndpoints
 
   return {
     branches: nextBranches,
-    endpoints: applyConverterDcMoveTarget(
-      endpointsInBranchOrder(circuit, nextBranches),
-      selected,
-      target
-    ),
+    endpoints: nextEndpoints,
     movedEndpointIds: moving.movedEndpointIds,
   }
 }
@@ -250,20 +265,25 @@ export function moveEndpointSelectionBetweenCircuits(
   draggedEndpointId: string,
   selectedEndpointIds: string[],
   target: DropTarget,
-  options?: { allowSingle?: boolean }
+  options?: { allowSingle?: boolean; newId?: () => string }
 ): MoveEndpointSelectionBetweenCircuitsResult | null {
   if (sourceCircuit.id === targetCircuit.id || target.circuitId !== targetCircuit.id) return null
   const moving = movingBranchGroupsForSelection(
     sourceCircuit,
     draggedEndpointId,
     selectedEndpointIds,
-    options?.allowSingle
+    options?.allowSingle,
+    options?.newId
   )
   if (!moving) return null
-  if (moving.movedEndpoints.some((endpoint) =>
-    endpoint.symbol === 'junction_panel' &&
-    circuitContainsJunctionPanelIdentity(targetCircuit, getJunctionIdentity(endpoint))
-  )) return null
+  if (
+    moving.movedEndpoints.some(
+      (endpoint) =>
+        endpoint.symbol === 'junction_panel' &&
+        circuitContainsJunctionPanelIdentity(targetCircuit, getJunctionIdentity(endpoint))
+    )
+  )
+    return null
 
   const selected = new Set(moving.movedEndpointIds)
   const sourceBranches = (sourceCircuit.branches ?? [])
@@ -284,7 +304,7 @@ export function moveEndpointSelectionBetweenCircuits(
       const { dcBusId: _sourceDcBusId, ...withoutSourceDcBus } = branch
       return withoutSourceDcBus
     })(),
-    id: generateId(),
+    id: options?.newId?.() ?? generateId(),
     label: '',
     ...(target.dcBusId ? { dcBusId: target.dcBusId } : {}),
   }))

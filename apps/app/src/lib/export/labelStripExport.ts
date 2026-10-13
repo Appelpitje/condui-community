@@ -19,7 +19,7 @@ import {
   getProjectElectricalPanels,
   selectProjectAuxiliaryElectricalEnclosures,
 } from '@/lib/projectV2/electrical'
-import { resolveModuleWidthCols } from '@/components/canvas/panel/panelGridLayout'
+import { resolveModuleWidthCols } from '@/lib/panel/panelGridLayout'
 import { DEFAULT_PANEL_GRID_COLUMNS } from '@/lib/panel/panelGridDefaults'
 import { RESIDUAL_CURRENT_DELTA } from '@/lib/protectionLabels'
 import {
@@ -28,7 +28,7 @@ import {
   getPanelLabelValues,
 } from '@/lib/panel/panelLabelContent'
 import { getPanelCanvasOverflowModuleKeys } from './labelStripReadiness'
-import { panelGridModuleRefKey } from '@/components/canvas/panel/panelGridLayout'
+import { panelGridModuleRefKey } from '@/lib/panel/panelGridLayout'
 import { exportLog } from './exportLogger'
 import conduiLogoSvg from '../../../public/logos/Condui_logo.svg?raw'
 

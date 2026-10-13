@@ -4,7 +4,7 @@
  */
 import type { Panel, PanelGridSlot } from '@/types/schema'
 import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'
-import { resolveModuleWidthCols } from './panelGridLayout'
+import { resolveModuleWidthCols } from '@/lib/panel/panelGridLayout'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import {
   MIN_PANEL_GRID_MODULE_WIDTH,

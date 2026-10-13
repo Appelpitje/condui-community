@@ -1,6 +1,6 @@
 import type { Circuit, Endpoint, Panel, ProtectionDevice, TrunkDevice } from '@/types/schema'
 import { DOMOTICA_MIN_ENDPOINT_OUTPUTS, DOMOTICA_MAX_ENDPOINT_OUTPUTS, DOMOTICA_OUTPUT_SPACING } from '@/lib/domoticaLayout'
-import { getCircuitBranches } from './endpointChains'
+import { getCircuitBranches, getStandardCircuitBranches } from './endpointChains'
 import type { BranchLayout, TrunkLayout } from './wireSegments'
 import { calculateBranchWidth, getEndpointLayoutOffsets } from './bottomUpBranchWidths'
 import { getDomoticaNoteBounds } from '@/lib/eendraad/domoticaNotes'
@@ -16,7 +16,6 @@ import { getCircuitBranchPointIndex } from '@/lib/eendraad/circuitPointNumbering
 import {
   CIRCUIT_CONVERTER_OUTPUT_ROW_SPACING,
   getCircuitConverterDcConnectionCount,
-  getCircuitConverterPrimaryEndpointIds,
   isCircuitConverterDcChild,
   supportsCircuitConverterDcConnections,
 } from './circuitConverterGeometry'
@@ -194,25 +193,6 @@ function getNonPanelEndpoints(circuit: Circuit) {
     (e) => e.symbol !== 'panel_distribution' && !isCircuitConverterDcChild(e)
   )
 }
-
-function getStandardCircuitBranches(circuit: Circuit) {
-  const primaryEndpointIds = getCircuitConverterPrimaryEndpointIds(circuit)
-  const dcBusEndpointIds = new Set(
-    (circuit.branches ?? [])
-      .filter((branch) => !!branch.dcBusId)
-      .flatMap((branch) => branch.endpointIds)
-  )
-  return getCircuitBranches(circuit).filter(
-    (branchEndpoints) =>
-      !branchEndpoints.some(
-        (endpoint) =>
-          isCircuitConverterDcChild(endpoint) ||
-          primaryEndpointIds.has(endpoint.id) ||
-          dcBusEndpointIds.has(endpoint.id)
-      )
-  )
-}
-
 function createEmptyBranch(
   circuit: Circuit,
   startX: number,

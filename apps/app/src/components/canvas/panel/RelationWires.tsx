@@ -3,14 +3,14 @@ import { logger } from '@/lib/logger'
 import { useMemo, useRef, useEffect, useCallback } from 'react'
 import { Circle, Line, Text } from 'react-konva'
 import Konva from 'konva'
-import { panelGridModuleRefKey, ROW_GAP, ROW_STRIDE, CELL_W, CELL_H } from './panelGridLayout'
+import { panelGridModuleRefKey, ROW_GAP, ROW_STRIDE, CELL_W, CELL_H } from '@/lib/panel/panelGridLayout'
 import {
   findPanelContainingModuleRef,
   getPanelMainBusSupplyDevice,
   getRelationEdges,
 } from './panelRelationEdges'
 import type { Panel, PanelGridModuleRef } from '@/types/schema'
-import type { ModulePlacement } from './panelGridLayout'
+import type { ModulePlacement } from '@/lib/panel/panelGridLayout'
 import { ensureInstallationFeedTopology, getPanelFeedProjection } from '@/lib/feedTopology'
 import { getPanelIncomingMainBusFeedDevice } from '@/lib/panel/subPanelFeed'
 import { findPanelById } from '@/lib/panel/panelTree'

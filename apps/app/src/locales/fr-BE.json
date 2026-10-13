@@ -23,6 +23,8 @@
   },
   "connectivity": {
     "offlineBanner": "Vous êtes hors ligne. Les projets locaux restent enregistrés sur cet appareil.",
+    "databaseOfflineBanner": "Le cloud est temporairement indisponible. Vous pouvez continuer à travailler ; les modifications sont enregistrées sur cet appareil et synchronisées au retour de la connexion.",
+    "databaseOfflineIndicatorTitle": "Cloud temporairement indisponible",
     "offlineReloadNotReady": "Évitez de recharger tant que vous n'avez pas ouvert l'app au moins une fois en ligne dans cet onglet.",
     "offlineReloadDevHint": "Le rechargement hors ligne ne fonctionne qu'avec une build de production (npm run build && vite preview), pas avec le serveur de dev.",
     "dismissOfflineBanner": "Fermer l'avertissement hors ligne",
@@ -152,6 +154,48 @@
     "pan": "Déplacer",
     "zoom": "Zoomer"
   },
+  "commandPalette": {
+    "placeholder": "Rechercher une commande",
+    "empty": "Aucune commande trouvée",
+    "moveToCircuit": "Déplacer vers un circuit",
+    "reorderBranch": "Réordonner la branche",
+    "moveOnBus": "Déplacer sur le jeu de barres",
+    "moveBusLeft": "Déplacer à gauche sur le jeu de barres",
+    "moveBusRight": "Déplacer à droite sur le jeu de barres",
+    "moveModules": "Déplacer les modules du tableau",
+    "resizeModule": "Redimensionner le module",
+    "connectTo": "Raccorder à…",
+    "rewire": "Recâbler les modules",
+    "resizePanel": "Redimensionner le tableau",
+    "autoArrange": "Organiser les modules du tableau",
+    "renameFloor": "Renommer l’étage",
+    "addCircuit": "Ajouter un circuit",
+    "apply": "Appliquer",
+    "unavailable": "Impossible d’appliquer cette modification. Vérifiez les valeurs ou rouvrez l’action.",
+    "fields": {
+      "circuit": "Circuit",
+      "position": "Position",
+      "row": "Rangée",
+      "column": "Colonne",
+      "width": "Largeur (modules)",
+      "target": "Raccorder à",
+      "bus": "Jeu de barres",
+      "rows": "Rangées",
+      "columns": "Colonnes",
+      "name": "Nom",
+      "panel": "Tableau",
+      "kind": "Type de circuit",
+      "direction": "Côté alimentation",
+      "left": "Gauche",
+      "right": "Droite"
+    },
+    "kinds": {
+      "lighting": "Éclairage",
+      "sockets": "Prises",
+      "fixed_appliance": "Appareil fixe",
+      "other": "Autre"
+    }
+  },
   "shortcuts": {
     "title": "Raccourcis",
     "intro": "Tous les raccourcis utilisés dans l'éditeur.",
@@ -179,6 +223,7 @@
       "ctrlCmdL": "Ctrl / Cmd + L",
       "ctrlCmdP": "Ctrl / Cmd + P",
       "ctrlCmdD": "Ctrl / Cmd + D",
+      "ctrlCmdK": "Ctrl / Cmd + K",
       "tab": "Tab",
       "esc": "Échap",
       "space": "Espace",
@@ -222,6 +267,9 @@
       "arrowKeys": "Touches fléchées"
     },
     "entries": {
+      "openCommandPalette": {
+        "description": "Palette de commandes"
+      },
       "undo": {
         "description": "Annuler"
       },
@@ -1021,6 +1069,7 @@
       "overCapacity": "{{used}} canaux de sortie utilisés sur {{capacity}}"
     },
     "solarPanel": {
+      "count": "Nombre de panneaux",
       "groupTitle": "Marque et modèle",
       "wattage": "Puissance (Wp)",
       "voltage": "Tension (V)"
@@ -1166,6 +1215,7 @@
     "showHiddenDescription": "Sélectionnez un ou plusieurs appareils à afficher.",
     "supplyPanel": "Tableau réseau",
     "virtualEnclosure": "Coffret d'alimentation",
+    "moduleEnclosure": "Coffret",
     "hideSupplyPanel": "Masquer le tableau réseau",
     "rewireTool": "Outil de recâblage",
     "rewireModeOn": "Desactiver Mode recâblage",
@@ -1202,6 +1252,7 @@
     "syncWithPanelView": "Synchroniser avec la vue Tableau"
   },
   "canvas": {
+    "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Grille",
     "snap": "Aligner",
     "projectedSnap": "Alignement projeté",

@@ -1,3 +1,5 @@
+/* eslint react-refresh/only-export-components: off -- Panel placement helper is tested and exported with its UI. */
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -10,7 +12,6 @@ import {
   buildPlanDropAvailableCircuitCodeOptions,
   comparePlanDropCircuitCodes,
   endpointTypeToPlanDropKind,
-  getPlanDropCircuitInsertIndexForCode,
   isEligiblePlanDropTarget,
   orderPlanDropCircuitsForDisplay,
   pickDefaultPlanDropCircuitId,
@@ -18,7 +19,6 @@ import {
   type PlanDropKind,
 } from '@/lib/plan/planDropPicker'
 import { getEndpointTypeFromSymbol } from '@/utils'
-import { createEmptyCircuitOnPanel } from '@/handlers/plan/dropHandlers'
 import type { Circuit } from '@/types/schema'
 import {
   selectProjectElectricalInstallation,
@@ -30,7 +30,6 @@ import {
   EDITOR_TOP_BAR_HEIGHT_PX,
   PLAN_DROP_CIRCUIT_PANEL_Z_INDEX,
 } from '@/constants/layoutConstants'
-import { flushPendingProjectHistory } from '@/stores/slices/projectStoreInternals'
 import { finalizePlanDropCircuitPickerUndoGroup } from '@/lib/plan/planDropCircuitSession'
 
 const CREATE_NEW_ID = '__plan_drop_create_new__'
@@ -223,7 +222,8 @@ function PlanDropCircuitPanelInner({
       rememberedFrame = frameRef.current
     }
     try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId)
+      const target = e.target as HTMLElement
+      target.releasePointerCapture(e.pointerId)
     } catch {
       /* ignore */
     }
@@ -234,9 +234,10 @@ function PlanDropCircuitPanelInner({
   const getProtectionForCircuit = useProjectStore((s: ProjectState) => s.getProtectionForCircuit)
   const lastWorkedCircuitId = useProjectStore((s: ProjectState) => s.lastWorkedCircuitId)
   const findCircuitForEndpoint = useProjectStore((s: ProjectState) => s.findCircuitForEndpoint)
-  const withSingleUndoEntry = useProjectStore((s: ProjectState) => s.withSingleUndoEntry)
 
-  const planDropLastCircuitIdByDropKind = useUIStore((s: UIState) => s.planDropLastCircuitIdByDropKind)
+  const planDropLastCircuitIdByDropKind = useUIStore(
+    (s: UIState) => s.planDropLastCircuitIdByDropKind
+  )
   const setPlanDropPreference = useUIStore((s: UIState) => s.setPlanDropPreference)
 
   const endpointType = getEndpointTypeFromSymbol(symbol)
@@ -280,7 +281,9 @@ function PlanDropCircuitPanelInner({
   )
 
   const automaticCircuitNaming = Boolean(
-    currentProject ? selectProjectElectricalInstallation(currentProject)?.eendraadAutomaticNaming : false
+    currentProject
+      ? selectProjectElectricalInstallation(currentProject)?.eendraadAutomaticNaming
+      : false
   )
 
   const ignoredEndpointIds = useMemo(() => new Set(endpointIds), [endpointIds])
@@ -312,8 +315,7 @@ function PlanDropCircuitPanelInner({
     return orderPlanDropCircuitsForDisplay(
       stableRows,
       (id) => eligibilityMap.eligibilityMap.get(id) === true,
-      (a, b) =>
-        comparePlanDropCircuitCodes(getCircuitIdentifier(a.id), getCircuitIdentifier(b.id))
+      (a, b) => comparePlanDropCircuitCodes(getCircuitIdentifier(a.id), getCircuitIdentifier(b.id))
     )
   }, [circuitRows, eligibilityMap.eligibilityMap, getCircuitIdentifier])
 
@@ -336,35 +338,6 @@ function PlanDropCircuitPanelInner({
     planDropLastCircuitIdByDropKind,
   ])
 
-  const removeAbandonedProvisionalCircuits = useCallback((keepCircuitId: string) => {
-    const { deleteCircuit, getCircuitById } = useProjectStore.getState()
-    for (const circuitId of [...sessionCreatedCircuitIdsRef.current]) {
-      if (circuitId === keepCircuitId) continue
-      const circuit = getCircuitById(circuitId)
-      if (!circuit) {
-        sessionCreatedCircuitIdsRef.current.delete(circuitId)
-        continue
-      }
-      const hasLoad = circuit.endpoints.some((e) => e.symbol !== 'panel_distribution')
-      if (!hasLoad) {
-        deleteCircuit(circuitId)
-        sessionCreatedCircuitIdsRef.current.delete(circuitId)
-      }
-    }
-  }, [])
-
-  const moveCircuitToCodeSortedPosition = useCallback((panelId: string, circuitId: string) => {
-    const store = useProjectStore.getState()
-    const project = store.currentProject
-    if (!project) return
-    const panel = flattenPanels(selectProjectElectricalPanels(project)).find((p) => p.id === panelId)
-    const circuit = store.getCircuitById(circuitId)
-    const code = circuit?.code?.trim()
-    if (!panel || !code) return
-    const insertIndex = getPlanDropCircuitInsertIndexForCode(panel, circuitId, code)
-    store.moveCircuitToMainBus(panelId, circuitId, insertIndex)
-  }, [])
-
   const applyNewCircuitCode = useCallback(
     (rawCode: string) => {
       const targetCircuitId = selectedProvisionalCircuitId
@@ -372,25 +345,20 @@ function PlanDropCircuitPanelInner({
       if (!targetCircuitId || !panelId) return
       const requestedCode = automaticCircuitNaming ? rawCode.trim().toUpperCase() : rawCode.trim()
       if (!requestedCode) return
-
-      flushPendingProjectHistory()
-      withSingleUndoEntry(() => {
-        const store = useProjectStore.getState()
-        const project = store.currentProject
-        if (!project) return false
-        const panel = flattenPanels(selectProjectElectricalPanels(project)).find((p) => p.id === panelId)
-        if (!panel) return false
-        const insertIndex = getPlanDropCircuitInsertIndexForCode(panel, targetCircuitId, requestedCode)
-        store.updateCircuit(targetCircuitId, {
+      const outcome = runProjectCommand(
+        'circuit.setCodeAndPosition',
+        {
+          panelId,
+          circuitId: targetCircuitId,
           code: requestedCode,
-          ...(automaticCircuitNaming ? { eendraadManualCodeLock: true } : {}),
-        })
-        store.moveCircuitToMainBus(panelId, targetCircuitId, insertIndex)
-        return true
-      })
+          manualCodeLock: automaticCircuitNaming,
+        },
+        { label: 'set plan circuit code', source: 'plan_picker' }
+      )
+      if (!outcome) return
       setNewCircuitCodeDraft(requestedCode)
     },
-    [automaticCircuitNaming, selectedPanelId, selectedProvisionalCircuitId, withSingleUndoEntry]
+    [automaticCircuitNaming, selectedPanelId, selectedProvisionalCircuitId]
   )
 
   useEffect(() => {
@@ -405,52 +373,33 @@ function PlanDropCircuitPanelInner({
   const applyCircuitSelection = useCallback(
     (choice: string) => {
       if (!selectedPanelId) return
-
-      flushPendingProjectHistory()
-
-      let targetCircuitId = choice
-      let anyMoved = false
-      let applied = false
-
-      const changed = withSingleUndoEntry(() => {
-        if (choice === CREATE_NEW_ID) {
-          if (selectedProvisionalCircuitId) {
-            targetCircuitId = selectedProvisionalCircuitId
-          } else {
-            const newCircuitId = createEmptyCircuitOnPanel(selectedPanelId, derivedDropKind)
-            if (!newCircuitId) return false
-            sessionCreatedCircuitIdsRef.current.add(newCircuitId)
-            targetCircuitId = newCircuitId
-          }
-        }
-
-        const store = useProjectStore.getState()
-        const primaryEndpointId = endpointIds[0]
-        const currentCircuitId = primaryEndpointId
-          ? store.findCircuitForEndpoint(primaryEndpointId)?.circuit.id
-          : undefined
-
-        for (const endpointId of endpointIds) {
-          const cur = store.findCircuitForEndpoint(endpointId)?.circuit.id
-          if (cur !== targetCircuitId) {
-            store.moveEndpointToCircuit(endpointId, targetCircuitId)
-            anyMoved = true
-          }
-        }
-
-        removeAbandonedProvisionalCircuits(targetCircuitId)
-        if (sessionCreatedCircuitIdsRef.current.has(targetCircuitId)) {
-          moveCircuitToCodeSortedPosition(selectedPanelId, targetCircuitId)
-        }
-        applied = anyMoved || currentCircuitId !== targetCircuitId || choice === CREATE_NEW_ID
-        return applied
-      })
-
-      if (!changed && !applied) return
-
+      const createNew = choice === CREATE_NEW_ID && !selectedProvisionalCircuitId
+      const targetId = choice === CREATE_NEW_ID ? selectedProvisionalCircuitId : choice
+      const outcome = runProjectCommand(
+        'plan.assignCircuit',
+        {
+          panelId: selectedPanelId,
+          endpointIds,
+          circuit: createNew
+            ? { mode: 'new', kind: derivedDropKind }
+            : { mode: 'existing', circuitId: targetId },
+          provisionalCircuitIds: [...sessionCreatedCircuitIdsRef.current],
+          sortCircuit: !!targetId && sessionCreatedCircuitIdsRef.current.has(targetId),
+        },
+        { label: 'assign plan drop to circuit', source: 'plan_picker' }
+      )
+      if (!outcome) return
+      const result = outcome.results[0]
+      const targetCircuitId = result?.related?.find((ref) => ref.kind === 'circuit')?.id
+      if (!result || !targetCircuitId) return
+      for (const ref of result.created) {
+        if (ref.kind === 'circuit') sessionCreatedCircuitIdsRef.current.add(ref.id)
+      }
+      for (const ref of result.removed) {
+        if (ref.kind === 'circuit') sessionCreatedCircuitIdsRef.current.delete(ref.id)
+      }
       setSelectedCircuitId(targetCircuitId)
-
-      if (applied) {
+      if (outcome.changed || choice === CREATE_NEW_ID) {
         setPlanDropPreference(selectedPanelId, derivedDropKind, targetCircuitId)
         onAfterCircuitAssignment?.(targetCircuitId)
       }
@@ -459,12 +408,9 @@ function PlanDropCircuitPanelInner({
       derivedDropKind,
       endpointIds,
       onAfterCircuitAssignment,
-      removeAbandonedProvisionalCircuits,
-      moveCircuitToCodeSortedPosition,
       selectedProvisionalCircuitId,
       selectedPanelId,
       setPlanDropPreference,
-      withSingleUndoEntry,
     ]
   )
 

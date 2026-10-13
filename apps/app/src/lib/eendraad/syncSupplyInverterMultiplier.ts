@@ -4,6 +4,7 @@ import { useUIStore } from '@/stores/uiStore'
 import type { Placement, TrunkDevice } from '@/types/schema'
 import { generateId } from '@/utils'
 import {
+  getSupplyDeviceMaxMultiplier,
   getSupplyDeviceSerialNumbers,
   supportsSupplyDeviceMultiplier,
 } from '@/lib/supplyAssembly/inverterMultipliers'
@@ -41,9 +42,10 @@ export function syncSupplyDeviceMultiplierCount(
   source?: SupplyDeviceMultiplierPlacementSource
 ): boolean {
   const device = deps.getDevice(deviceId)
-  const max = device?.symbol === 'inverter' ? 3 : 99
   if (!device || !supportsSupplyDeviceMultiplier(device)) return false
-  if (!Number.isInteger(target) || target < 1 || target > max) return false
+  if (!Number.isInteger(target) || target < 1 || target > getSupplyDeviceMaxMultiplier(device)) {
+    return false
+  }
 
   const placements = [...(device.placements ?? [])]
   const basePlacement = placements[0]

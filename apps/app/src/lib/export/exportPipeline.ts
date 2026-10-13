@@ -1,3 +1,4 @@
+import { describeExportError } from './describeExportError'
 import { logger } from '@/lib/logger'
 /**
  * Main export pipeline
@@ -778,7 +779,7 @@ export async function exportToPDF(
             pageId: page.id,
             canvasKind: page.scene.kind,
             message: `Failed to export page: ${
-              error instanceof Error ? error.message : String(error)
+              describeExportError(error)
             }`,
             details: { error },
           })
@@ -960,7 +961,7 @@ export async function exportToPDF(
             : 'No pages were exported'
         logger.error(`[Export] Export failed: ${errorMessage}`)
         logger.error(`[Export] Diagnostics:`, diagnostics)
-        throw new ExportError('NO_CONTENT', errorMessage)
+        throw new ExportError('NO_CONTENT', errorMessage, undefined, diagnostics)
       }
 
       let blob = pdf.output('blob')

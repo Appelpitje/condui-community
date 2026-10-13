@@ -76,8 +76,10 @@ const PlanFloorOverlaySingle = memo(function PlanFloorOverlaySingle({
         >
           <Image
             image={bitmap}
-            width={bitmap.width}
-            height={bitmap.height}
+            // Same logical size as the active floor's plan image: PDF pages are
+            // rasterised above 1:1, so the bitmap's pixel size is not the plan size.
+            width={floor.planImportAsset?.width ?? bitmap.width}
+            height={floor.planImportAsset?.height ?? bitmap.height}
             {...{ [PLAN_BACKGROUND_FLOOR_ATTR]: floorId }}
             listening={false}
             opacity={Math.min(planVisibility.groundPlansOpacity ?? 100, 100) / 100}

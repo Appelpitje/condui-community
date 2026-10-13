@@ -1,6 +1,6 @@
 import { clamp } from '@/lib/geometry'
 import { ensureInstallationFeedTopology } from '@/lib/feedTopology'
-import { canDropSymbolOnSupplyConverterDcWire } from '@/handlers/eendraad/dropBehaviors'
+import { canDropSymbolOnSupplyConverterDcWire } from '@/lib/eendraad/dropBehaviors'
 import { generateId } from '@/utils'
 import type { DropTarget } from '@/lib/layout/findDropTarget'
 import {
@@ -8,21 +8,17 @@ import {
   getProjectElectricalPanels,
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
-import type { Circuit, Endpoint, Panel, TrunkDevice, WireSegment } from '@/types/schema'
-import type { Point } from '@/types/ui'
+import type { Circuit, Endpoint, Panel, TrunkDevice } from '@/types/schema'
 import type { ElectricalEnclosureRef } from '@/types/supplyAssembly'
-import type { BottomUpPanelLayout } from '@/lib/layout/bottomUpLayout'
-import { getPanelDiagramId } from '@/lib/layout/bottomUpLayout'
-import { getSupplyEnclosureBoundaryCenter } from '@/lib/layout/supplyEnclosureBoundaryGeometry'
 import {
   getSupplyConverterDcConnectionIndex,
   getSupplyConverterDcPath,
 } from '@/lib/supplyAssembly/converterDcConnections'
+import { moveSupplyDeviceToEnclosureAutomatically } from '@/lib/panel/auxiliarySupplyEnclosures'
 import {
-  moveSupplyDeviceToEnclosureAutomatically,
-  resolveSupplyDeviceMounting,
-} from '@/lib/panel/auxiliarySupplyEnclosures'
-import { findCircuitById, removeEndpointIdsFromCircuit } from '@/lib/eendraad/projectElectricalDomain'
+  findCircuitById,
+  removeEndpointIdsFromCircuit,
+} from '@/lib/eendraad/projectElectricalDomain'
 import { PROTECTION_SYMBOL_IDS } from '@/lib/protectionKind'
 import type { TrunkDeviceType } from '@/types/schema'
 
@@ -105,9 +101,7 @@ function convertEndpointToSupplyTrunkDevice(
     ...(endpoint.batteryProps ? { batteryProps: endpoint.batteryProps } : {}),
     ...(endpoint.solarPanelProps ? { solarPanelProps: endpoint.solarPanelProps } : {}),
     ...(endpoint.domoticaProps ? { domoticaProps: endpoint.domoticaProps } : {}),
-    ...(endpoint.energyConversionProps
-      ? { conversionProps: endpoint.energyConversionProps }
-      : {}),
+    ...(endpoint.energyConversionProps ? { conversionProps: endpoint.energyConversionProps } : {}),
     ...(endpoint.installationDate !== undefined
       ? { installationDate: endpoint.installationDate }
       : {}),
@@ -130,8 +124,7 @@ function getSupplyTargetDevices(
   const panels = getProjectElectricalPanels(project)
   const scope = target.supplyFeedScope ?? 'shared'
   if (scope === 'shared') {
-    return (installation.mainSupply.supplyTrunkDevices ??=
-      [])
+    return (installation.mainSupply.supplyTrunkDevices ??= [])
   }
   if (!target.panelId) return null
   const topology = ensureInstallationFeedTopology(installation, panels)
@@ -140,11 +133,7 @@ function getSupplyTargetDevices(
   return (rootFeed.trunkDevices ??= [])
 }
 
-function applySupplyDcTarget(
-  device: TrunkDevice,
-  target: DropTarget,
-  trunkPosition: number
-): void {
+function applySupplyDcTarget(device: TrunkDevice, target: DropTarget, trunkPosition: number): void {
   const connectionIndex =
     target.supplyConverterDcConnectionIndex ?? (target.supplyConverterDcBranch === 'top' ? 1 : 0)
   device.trunkPosition = trunkPosition
@@ -246,136 +235,6 @@ export function moveEndpointToSupplyDcBus(
   return { device, sourcePanelId: owner.panel.id, targetPanelId: target.panelId }
 }
 
-function supplyDeviceMatchesTargetLane(device: TrunkDevice, target: DropTarget): boolean {
-  const path = device.supplyPath
-  if (target.type === 'supplyConverterDcWire') {
-    const targetConnectionIndex =
-      target.supplyConverterDcConnectionIndex ?? (target.supplyConverterDcBranch === 'top' ? 1 : 0)
-    return (
-      path === getSupplyConverterDcPath(targetConnectionIndex) &&
-      getSupplyConverterDcConnectionIndex(device) === targetConnectionIndex
-    )
-  }
-  if (target.type === 'supplyConverterGridWire') {
-    return path === 'converter-grid' || path === 'backup' || path === 'converter-branch'
-  }
-  if (target.type === 'supplyBackupWire' || target.type === 'supplyBackupOutputWire') {
-    return path === 'backup-output' || path === 'backup'
-  }
-  if (target.type === 'supplyChangeoverGridWire') {
-    return path === 'changeover-grid' || device.symbol === 'source_changeover'
-  }
-  return path == null || path === 'serial' || device.symbol === 'source_changeover'
-}
-
-/** Infer the enclosure region under a one-wire drop from nearby mounted devices. */
-export function resolveSupplyDropMounting(
-  project: ProjectWithOptionalV2Electrical,
-  panelLayout: BottomUpPanelLayout,
-  target: DropTarget,
-  position: Point,
-  wireSegments: WireSegment[] = []
-): ElectricalEnclosureRef {
-  const ownerPanelId = panelLayout.ownerPanelId ?? panelLayout.panel.id
-  const candidates: Array<{
-    mounting: ElectricalEnclosureRef
-    distance: number
-    x: number
-    y: number
-  }> = (panelLayout.supplyDevices ?? [])
-    .filter(({ device }) => supplyDeviceMatchesTargetLane(device, target))
-    .map(({ device, x, y }) => ({
-      mounting: resolveSupplyDeviceMounting(project, device.id),
-      distance: Math.hypot(position.x - x, position.y - y),
-      x,
-      y,
-    }))
-    .filter(
-      (
-        candidate
-      ): candidate is {
-        mounting: ElectricalEnclosureRef
-        distance: number
-        x: number
-        y: number
-      } => candidate.mounting != null
-    )
-
-  if (target.type === 'supplyWire') {
-    if (target.supplyFeedScope === 'shared') {
-      candidates.push({
-        mounting: { kind: 'grid' },
-        distance: Math.hypot(position.x - panelLayout.supply.x, position.y - panelLayout.supply.y),
-        x: panelLayout.supply.x,
-        y: panelLayout.supply.y,
-      })
-    } else {
-      candidates.push({
-        mounting: { kind: 'panel', panelId: ownerPanelId },
-        distance: Math.hypot(
-          position.x - panelLayout.mainBus.x,
-          position.y - panelLayout.mainBus.y
-        ),
-        x: panelLayout.mainBus.x,
-        y: panelLayout.mainBus.y,
-      })
-    }
-  }
-
-  const diagramId = getPanelDiagramId(panelLayout)
-  const nearbyBoundary = wireSegments
-    .filter(
-      (segment) => segment.diagramId === diagramId && segment.supplyEnclosureBoundary === true
-    )
-    .map((segment) => {
-      const center = getSupplyEnclosureBoundaryCenter(segment)
-      const horizontalWire =
-        Math.abs(segment.endPoint.x - segment.startPoint.x) >=
-        Math.abs(segment.endPoint.y - segment.startPoint.y)
-      const perpendicularDistance = horizontalWire
-        ? Math.abs(position.y - center.y)
-        : Math.abs(position.x - center.x)
-      const axisDistance = horizontalWire
-        ? Math.abs(position.x - center.x)
-        : Math.abs(position.y - center.y)
-      return { center, horizontalWire, perpendicularDistance, axisDistance }
-    })
-    .filter((boundary) => boundary.perpendicularDistance <= 24)
-    .sort(
-      (left, right) =>
-        left.perpendicularDistance - right.perpendicularDistance ||
-        left.axisDistance - right.axisDistance
-    )[0]
-
-  if (nearbyBoundary) {
-    const boundaryAxis = nearbyBoundary.horizontalWire
-      ? nearbyBoundary.center.x
-      : nearbyBoundary.center.y
-    const pointerAxis = nearbyBoundary.horizontalWire ? position.x : position.y
-    const sameLane = candidates.filter((candidate) =>
-      nearbyBoundary.horizontalWire
-        ? Math.abs(candidate.y - nearbyBoundary.center.y) <= 50
-        : Math.abs(candidate.x - nearbyBoundary.center.x) <= 50
-    )
-    const sideCandidates = sameLane.filter((candidate) => {
-      const candidateAxis = nearbyBoundary.horizontalWire ? candidate.x : candidate.y
-      return pointerAxis <= boundaryAxis
-        ? candidateAxis <= boundaryAxis
-        : candidateAxis >= boundaryAxis
-    })
-    sideCandidates.sort((left, right) => left.distance - right.distance)
-    if (sideCandidates[0]) return sideCandidates[0].mounting
-  }
-
-  candidates.sort((left, right) => left.distance - right.distance)
-  return (
-    candidates[0]?.mounting ??
-    (target.supplyFeedScope === 'shared'
-      ? { kind: 'grid' }
-      : { kind: 'panel', panelId: ownerPanelId })
-  )
-}
-
 export function isSupplyTrunkDeviceDropTarget(device: TrunkDevice, target: DropTarget): boolean {
   const isDcBranchDevice =
     device.supplyPath === 'converter-dc' || device.supplyPath === 'converter-dc-top'
@@ -415,10 +274,7 @@ export function isSupplyTrunkDeviceDropTarget(device: TrunkDevice, target: DropT
 function getSupplyContainers(project: ProjectWithOptionalV2Electrical) {
   const installation = getProjectElectricalInstallation(project)
   if (!installation) return null
-  const topology = ensureInstallationFeedTopology(
-    installation,
-    getProjectElectricalPanels(project)
-  )
+  const topology = ensureInstallationFeedTopology(installation, getProjectElectricalPanels(project))
   return { installation, topology }
 }
 
@@ -492,8 +348,7 @@ export function moveSupplyTrunkDeviceAtDropTarget(
           (item.supplyDcBusBranchId ?? item.id) === sourceBranchKey)
     )
   const movingDevices = movingEntries.map(({ item }) => item)
-  const targetDcBusId =
-    target.type === 'supplyConverterDcWire' ? target.supplyDcBusId : undefined
+  const targetDcBusId = target.type === 'supplyConverterDcWire' ? target.supplyDcBusId : undefined
   const targetDcBusBranchId =
     target.type === 'supplyConverterDcWire' && targetDcBusId
       ? target.supplyDcBusBranchId
@@ -506,8 +361,7 @@ export function moveSupplyTrunkDeviceAtDropTarget(
     targetDcBusId !== device.supplyDcBusId ||
     (targetDcBusId != null &&
       targetBranchIdForDevice !==
-        (device.supplyDcBusBranchId ??
-          (device.supplyDcBusId != null ? device.id : undefined)))
+        (device.supplyDcBusBranchId ?? (device.supplyDcBusId != null ? device.id : undefined)))
   const targetSupplyPath: TrunkDevice['supplyPath'] =
     target.type === 'supplyConverterDcWire'
       ? getSupplyConverterDcPath(
@@ -543,7 +397,8 @@ export function moveSupplyTrunkDeviceAtDropTarget(
         (target.supplyConverterDcConnectionIndex ??
           (target.supplyConverterDcBranch === 'top' ? 1 : 0))) &&
     (targetSupplyPath !== 'converter-grid' ||
-      (device.converterGridPlacement ?? 'inline') === (target.converterGridPlacement ?? 'inline')) &&
+      (device.converterGridPlacement ?? 'inline') ===
+        (target.converterGridPlacement ?? 'inline')) &&
     (targetSupplyPath !== 'changeover-grid' ||
       (device.changeoverGridPlacement ?? 'inline') ===
         (target.changeoverGridPlacement ?? 'inline')) &&

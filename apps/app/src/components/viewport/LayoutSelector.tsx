@@ -1,3 +1,4 @@
+/* eslint react-refresh/only-export-components: off -- Preset definitions are exported with their selector. */
 import { useTranslation } from 'react-i18next'
 import { isLayoutPresetAvailable, useUIStore } from '@/stores/uiStore'
 import type { LayoutPreset } from '@/types/ui'

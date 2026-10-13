@@ -1,3 +1,29 @@
+import { placeElectricalSymbol } from '@/handlers/eendraad/placeElectricalSymbol'
+import { getAuxiliaryEnclosureLabel } from '@/lib/panel/auxiliaryEnclosureLabel'
+import {
+  editProperties,
+  updateEndpointProperties as updateEndpoint,
+} from '@/handlers/properties/editProperties'
+import {
+  updatePanelGridSlots,
+  updatePanelGrid,
+  updateJunctionPanelGrid,
+  updateSupplyPanelSlots,
+  createAuxiliarySupplyEnclosure,
+  moveSupplyDeviceToAuxiliaryEnclosure,
+  moveSupplyDeviceToPanelEnclosure,
+  moveSupplyDeviceToGridEnclosure,
+  moveTerminalStripToPanel,
+  moveCircuitModule,
+  createCircuitModuleEnclosure,
+  editPanelLayout,
+  rewirePanelModules,
+} from '@/handlers/panel/editPanelLayout'
+import { findRemountableCircuitModule } from '@/lib/panel/circuitModuleMounting'
+import {
+  getJunctionPanelModuleLayout,
+  getJunctionPanelModuleRowOffset,
+} from '@/lib/junctionPanel/moduleLayout'
 import { logger } from '@/lib/logger'
 import {
   useRef,
@@ -43,8 +69,8 @@ import {
   snapTerminalStripPlacementCol,
   snapToGrid,
   type ModulePlacement,
-} from './panelGridLayout'
-import { getModuleDisplayInfo } from './getModuleDisplayInfo'
+} from '@/lib/panel/panelGridLayout'
+import { getModuleDisplayInfo } from '@/lib/panel/getModuleDisplayInfo'
 import ModuleBox, { type ModuleTooltipData } from './ModuleBox'
 import { PanelLabelModeOverlay, type PanelLabelEntityUpdates } from './PanelLabelModeOverlay'
 import RelationWires, { type PanelHierarchyRoute } from './RelationWires'
@@ -53,6 +79,8 @@ import { RewireTool } from './RewireTool'
 import { RewirePreviewWire } from './RewirePreviewWire'
 import { findPanelLibraryDropSlot } from '@/lib/panel/panelLibraryDropSlot'
 import {
+  getPanelSceneSurfaceGrid,
+  PANEL_SCENE_SIBLING_GAP,
   buildDirectPanelFeederConnectors,
   buildFullPanelScene,
   PANEL_SCENE_FRAME_MARGIN,
@@ -62,43 +90,33 @@ import {
   type PanelSceneSurface,
 } from '@/lib/panel/panelScene'
 import { applyPanelSceneFilter, type PanelSceneFilter } from '@/lib/panel/applyPanelSceneFilter'
-import { generateId } from '@/utils'
-import {
-  applyLibraryPresetToEndpoint,
-  getEndpointTypeFromSymbol,
-  getSymbolKeyFromSymbol,
-} from '@/utils/symbolMapping'
-import { findTrunkDeviceInProject, getNextAvailableCircuitCode } from '@/utils/project'
+import { findTrunkDeviceInProject } from '@/utils/project'
 import { addToSelection } from '@/utils/selection'
 import {
+  selectProjectAuxiliaryElectricalEnclosures,
   getProjectElectricalPanels,
-  getEditableProjectElectricalPanels,
 } from '@/lib/projectV2/electrical'
 import {
   getPanelRewireOperation,
   isRootSupplyTailOrSharedSupplyTailRef,
   validatePanelRewireOperation,
 } from '@/lib/panel/panelRewire'
-import { isTerminalStripDevice, resolveTerminalStripModule } from '@/lib/eendraad/projectElectricalDomain'
 import {
-  createDefaultAcCircuitCable,
-  DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS,
-} from '@/lib/wires/circuitWireDefaults'
+  isTerminalStripDevice,
+  resolveTerminalStripModule,
+} from '@/lib/eendraad/projectElectricalDomain'
 import { getVoltagePolesConfig, getProtectionCreationProps } from '@/lib/protectionDefaults'
 import {
   PROTECTION_SYMBOL_IDS,
   protectionTypeFromSymbolId,
-  resolveInitialProtectionBusLabel,
   ROTATING_SWITCH_SYMBOL_ID,
 } from '@/lib/protectionKind'
 import type {
   PanelGridSlot,
   PanelGridModuleRef,
+  Panel,
   ProtectionDevice,
   Circuit,
-  Endpoint,
-  TrunkDevice,
-  Panel,
 } from '@/types/schema'
 import type { ProjectState } from '@/stores/projectStore'
 import type { CanvasDropMeta, Point, Selection as CanvasSelection } from '@/types/ui'
@@ -122,7 +140,7 @@ import {
   MIN_PANEL_GRID_MODULE_WIDTH,
   normalizePanelModuleMeasure,
 } from '@/lib/panel/panelGridUnits'
-import { collectCircuits, getLastAssignableCircuit } from '@/lib/panel/panelTree'
+import { getLastAssignableCircuit } from '@/lib/panel/panelTree'
 import {
   isAuxiliaryMountableSupplyDevice,
   planAuxiliarySupplyEnclosureGrid,
@@ -334,15 +352,6 @@ function ConverterBackupFeedMarker({
   )
 }
 
-function findPanelRecursive(panels: Panel[], id: string): Panel | undefined {
-  for (const panel of panels) {
-    if (panel.id === id) return panel
-    const nested = findPanelRecursive(panel.subPanels ?? [], id)
-    if (nested) return nested
-  }
-  return undefined
-}
-
 function moduleRefMatchesSelection(ref: PanelGridModuleRef, selection: CanvasSelection): boolean {
   if (!selection.type || selection.ids.length === 0) return false
   if (selection.type === 'protection')
@@ -410,121 +419,6 @@ function getModuleSelectionBounds(
     width: maxX - minX + padding * 2,
     height: maxY - minY + padding * 2,
   }
-}
-
-function applyPanelRewireOperation({
-  panel,
-  currentProject,
-  origin,
-  target,
-  rewireModules,
-  placeSupplyModuleAfterInsert,
-  updatePanelGridSlots,
-  updateSupplyPanelSlots,
-}: {
-  panel: Panel | null
-  currentProject: Project | null
-  origin: PanelGridModuleRef
-  target: PanelGridModuleRef | null
-  rewireModules: (originCircuitId: string, targetCircuitId: string) => void
-  placeSupplyModuleAfterInsert: (
-    targetPanel: Panel,
-    targetProject: Project,
-    moduleRef: PanelGridModuleRef,
-    preferredRow?: number,
-    preferredCol?: number
-  ) => { mainSlots: PanelGridSlot[]; supplySlots: PanelGridSlot[] }
-  updatePanelGridSlots: (panelId: string, slots: PanelGridSlot[]) => void
-  updateSupplyPanelSlots: (panelId: string, slots: PanelGridSlot[]) => void
-}): boolean {
-  if (!panel || !currentProject) return false
-  const operation = getPanelRewireOperation(panel, currentProject, origin, target)
-  if (!operation) return false
-
-  if (operation.kind === 'promotePanelToRootSupply') {
-    useProjectStore.getState().movePanelSupply(operation.panelId, { type: 'supply' })
-    useUIStore.getState().setSelection({ type: 'panel', ids: [operation.panelId] })
-    return true
-  }
-
-  if (operation.kind === 'moveSharedSupplyDevice') {
-    useProjectStore.getState().moveSupplyTrunkDevice(operation.targetSupplyId, operation.direction)
-    return true
-  }
-
-  if (
-    operation.kind === 'promoteProtectionToSharedSupply' ||
-    operation.kind === 'promoteProtectionToRootSupply'
-  ) {
-    const deviceId = generateId()
-    const trunkDevice: TrunkDevice = { id: deviceId, ...operation.trunkDevice }
-    useProjectStore.getState().addSupplyTrunkDevice(trunkDevice, operation.insertIndex, {
-      panelId: panel.id,
-      feedScope: operation.kind === 'promoteProtectionToRootSupply' ? 'root' : 'shared',
-    })
-    const nextProject = useProjectStore.getState().currentProject
-    const nextPanel =
-      nextProject != null
-        ? findPanelRecursive(getProjectElectricalPanels(nextProject), panel.id)
-        : undefined
-    if (nextProject && nextPanel) {
-      const { mainSlots, supplySlots } = placeSupplyModuleAfterInsert(
-        nextPanel,
-        nextProject,
-        { kind: 'trunkDevice', id: deviceId, scope: 'supply' },
-        undefined,
-        undefined
-      )
-      updatePanelGridSlots(panel.id, mainSlots)
-      updateSupplyPanelSlots(panel.id, supplySlots)
-    }
-    useProjectStore.setState((state: ProjectState) => {
-      if (!state.currentProject) return
-      const targetPanel = findPanelRecursive(
-        getEditableProjectElectricalPanels(state.currentProject),
-        panel.id
-      )
-      if (!targetPanel) return
-      let circuitRemoved = false
-      const findAndRemove = (candidate: Panel): boolean => {
-        const prot = candidate.protections.find((pr) => pr.id === operation.protectionId)
-        if (prot?.circuits) {
-          const circuitIndex = prot.circuits.findIndex((c) => c.id === operation.circuit.id)
-          if (circuitIndex !== -1) {
-            prot.circuits.splice(circuitIndex, 1)
-            circuitRemoved = true
-            if (prot.circuits.length === 0) {
-              const protIndex = candidate.protections.findIndex(
-                (pr) => pr.id === operation.protectionId
-              )
-              if (protIndex !== -1) candidate.protections.splice(protIndex, 1)
-            }
-            return true
-          }
-        }
-        for (const subPanel of candidate.subPanels) if (findAndRemove(subPanel)) return true
-        return false
-      }
-      for (const rootPanel of getEditableProjectElectricalPanels(state.currentProject))
-        if (findAndRemove(rootPanel)) break
-      if (circuitRemoved) {
-        if (!targetPanel.circuits) targetPanel.circuits = []
-        targetPanel.circuits.push(operation.circuit)
-        state.isDirty = true
-      }
-    })
-    return true
-  }
-
-  if (operation.kind === 'detachCircuitFromSupplyParent') {
-    useProjectStore
-      .getState()
-      .updateCircuit(operation.parentCircuitId, { subCircuitIds: operation.subCircuitIds })
-    return true
-  }
-
-  rewireModules(operation.originCircuitId, operation.targetCircuitId)
-  return true
 }
 
 function getLibraryDropWidthCols(symbol: SymbolMetadata, project: Project | null): number {
@@ -728,7 +622,8 @@ function buildPanelWirePathRegions(surfaces: PanelSceneSurface[]): PanelWirePath
       continue
     }
     if (surface.kind === 'auxiliary' || surface.kind === 'junction_panel') {
-      const routingPanel = surface.panel ??
+      const routingPanel =
+        surface.panel ??
         (surface.enclosure
           ? ({ gridView: surface.enclosure.gridView } as Panel)
           : surface.junctionPanelGridView
@@ -744,7 +639,10 @@ function buildPanelWirePathRegions(surfaces: PanelSceneSurface[]): PanelWirePath
       continue
     }
     const mainContentTop =
-      surface.y + surface.mainPanelY + PANEL_FRAME_MARGIN + getTerminalStripTopOffset(surface.panel)
+      surface.y +
+      surface.mainPanelY +
+      PANEL_FRAME_MARGIN +
+      getTerminalStripTopOffset(getPanelSceneSurfaceGrid(surface))
     const mainRegion = {
       id: `${surface.id}:main`,
       surfaceId: surface.id,
@@ -796,6 +694,8 @@ interface HierarchyDragPreview {
   feedWirePoints?: number[]
   createAuxiliary?: boolean
   deviceIds?: string[]
+  /** Relays, meters or domotica modules that will fill the new virtual enclosure. */
+  circuitModuleRefs?: PanelGridModuleRef[]
   items?: Array<{
     ref: PanelGridModuleRef
     x: number
@@ -826,9 +726,6 @@ export function HierarchyPanelCanvas({
   onMultiFingerSwipe,
   containerRef,
   getPanelGridModules,
-  buildAutoArrangeSlots,
-  applyPanelAutoArrange,
-  placeSupplyModuleAfterInsert,
   panelRelationDebug,
   
   capabilities,
@@ -866,18 +763,6 @@ export function HierarchyPanelCanvas({
   ) => void
   containerRef: RefObject<HTMLDivElement | null>
   getPanelGridModules: ProjectState['getPanelGridModules']
-  buildAutoArrangeSlots: (
-    targetPanel: Panel,
-    targetProject: Project
-  ) => { mainSlots: PanelGridSlot[]; supplySlots: PanelGridSlot[] }
-  applyPanelAutoArrange: ProjectState['applyPanelAutoArrange']
-  placeSupplyModuleAfterInsert: (
-    targetPanel: Panel,
-    targetProject: Project,
-    moduleRef: PanelGridModuleRef,
-    preferredRow?: number,
-    preferredCol?: number
-  ) => { mainSlots: PanelGridSlot[]; supplySlots: PanelGridSlot[] }
   panelRelationDebug: boolean
   
   capabilities?: EditorCapabilities
@@ -896,35 +781,30 @@ export function HierarchyPanelCanvas({
   const canEditProject = capabilities?.canEditProject ?? true
   const canUseRewireTools = capabilities?.canUseRewireTools ?? true
   const leftDragPansCanvas = useSettingsStore((s) => s.leftDragPansCanvas)
-  const updatePanelGridSlots = useProjectStore((s: ProjectState) => s.updatePanelGridSlots)
-  const updatePanelGrid = useProjectStore((s: ProjectState) => s.updatePanelGrid)
-  const updateJunctionPanelGrid = useProjectStore((s: ProjectState) => s.updateJunctionPanelGrid)
-  const updateSupplyPanelSlots = useProjectStore((s: ProjectState) => s.updateSupplyPanelSlots)
-  const createAuxiliarySupplyEnclosure = useProjectStore(
-    (s: ProjectState) => s.createAuxiliarySupplyEnclosure
+  const updateAuxiliaryElectricalEnclosure = useCallback(
+    (id: string, updates: { gridView: import('@/types/schema').PanelGridConfig }) => {
+      const { slots, ...grid } = updates.gridView
+      const { rows, columns, feedFromTop, terminalStripTopRail, terminalStripBottomRail } = grid
+      editPanelLayout({
+        enclosures: [
+          {
+            enclosureId: id,
+            slots,
+            grid: {
+              rows,
+              columns,
+              feedFromTop,
+              ...(terminalStripTopRail != null ? { terminalStripTopRail } : {}),
+              ...(terminalStripBottomRail != null ? { terminalStripBottomRail } : {}),
+            },
+          },
+        ],
+      })
+    },
+    []
   )
-  const moveSupplyDeviceToAuxiliaryEnclosure = useProjectStore(
-    (s: ProjectState) => s.moveSupplyDeviceToAuxiliaryEnclosure
-  )
-  const moveSupplyDeviceToPanelEnclosure = useProjectStore(
-    (s: ProjectState) => s.moveSupplyDeviceToPanelEnclosure
-  )
-  const moveSupplyDeviceToGridEnclosure = useProjectStore(
-    (s: ProjectState) => s.moveSupplyDeviceToGridEnclosure
-  )
-  const moveTerminalStripToPanel = useProjectStore((s: ProjectState) => s.moveTerminalStripToPanel)
-  const updateAuxiliaryElectricalEnclosure = useProjectStore(
-    (s: ProjectState) => s.updateAuxiliaryElectricalEnclosure
-  )
-  const updateProtection = useProjectStore((s: ProjectState) => s.updateProtection)
+
   const getProtectionById = useProjectStore((s: ProjectState) => s.getProtectionById)
-  const updateCircuit = useProjectStore((s: ProjectState) => s.updateCircuit)
-  const updateEndpoint = useProjectStore((s: ProjectState) => s.updateEndpoint)
-  const updateTrunkDevice = useProjectStore((s: ProjectState) => s.updateTrunkDevice)
-  const updateSupplyTrunkDevice = useProjectStore((s: ProjectState) => s.updateSupplyTrunkDevice)
-  const updateGroundTrunkDevice = useProjectStore((s: ProjectState) => s.updateGroundTrunkDevice)
-  const getTrunkDeviceById = useProjectStore((s: ProjectState) => s.getTrunkDeviceById)
-  const rewireModules = useProjectStore((s: ProjectState) => s.rewireModules)
   const [tooltip, setTooltip] = useState<ModuleTooltipData | null>(null)
   void tooltip
   void setTooltip
@@ -951,46 +831,30 @@ export function HierarchyPanelCanvas({
 
   const updateModuleLabel = useCallback(
     (ref: PanelGridModuleRef, updates: PanelLabelEntityUpdates) => {
-      if (!canEditProject) return
+      if (!currentProject) return
       if (ref.kind === 'protection') {
-        const notes = updates.notes
-        const protectionUpdates: PanelLabelEntityUpdates = { ...updates }
-        delete protectionUpdates.notes
         const protection = getProtectionById(ref.id)
         const firstCircuitId = protection?.circuits?.[0]?.id
-        if (notes !== undefined && firstCircuitId) updateCircuit(firstCircuitId, { notes })
-        else if (notes !== undefined) protectionUpdates.notes = notes
-        if (Object.keys(protectionUpdates).length > 0) {
-          updateProtection(ref.id, protectionUpdates)
-        }
+        const { notes, ...protectionUpdates } = updates
+        editProperties({
+          edits: [
+            ...(firstCircuitId && notes !== undefined
+              ? [{ kind: 'circuit' as const, ids: [firstCircuitId], set: { notes } }]
+              : []),
+            ...(Object.keys(protectionUpdates).length
+              ? [{ kind: 'protection' as const, ids: [ref.id], set: protectionUpdates }]
+              : []),
+          ],
+        })
         return
       }
       if (ref.kind === 'domotica') {
         updateEndpoint(ref.endpointId, updates)
         return
       }
-      if (ref.scope === 'supply' || getTrunkDeviceById(ref.id)?.isSupplyDevice) {
-        updateSupplyTrunkDevice(ref.id, updates)
-        return
-      }
-      if (ref.scope === 'ground' || getTrunkDeviceById(ref.id)?.isGroundDevice) {
-        updateGroundTrunkDevice(ref.id, updates)
-        return
-      }
-      const circuitId = ref.circuitId ?? getTrunkDeviceById(ref.id)?.circuit?.id
-      if (circuitId) updateTrunkDevice(circuitId, ref.id, updates)
+      editProperties({ edits: [{ kind: 'trunkDevice', ids: [ref.id], set: updates }] })
     },
-    [
-      canEditProject,
-      getProtectionById,
-      getTrunkDeviceById,
-      updateEndpoint,
-      updateGroundTrunkDevice,
-      updateProtection,
-      updateCircuit,
-      updateSupplyTrunkDevice,
-      updateTrunkDevice,
-    ]
+    [currentProject, getProtectionById]
   )
 
   const fullScene = useMemo(() => {
@@ -1340,28 +1204,12 @@ export function HierarchyPanelCanvas({
     }
 
     try {
-      useProjectStore.getState().withSingleUndoEntry(
-        () =>
-          applyPanelRewireOperation({
-            panel: targetPanel,
-            currentProject,
-            origin: rewireOriginRef,
-            target: rewireTargetRef,
-            rewireModules,
-            placeSupplyModuleAfterInsert,
-            updatePanelGridSlots,
-            updateSupplyPanelSlots,
-          }),
-        { sessionLabel: 'rewire panel module connection' }
-      )
+      rewirePanelModules(targetPanel.id, rewireOriginRef, rewireTargetRef)
     } finally {
       resetHierarchyRewireState()
     }
   }, [
-    currentProject,
-    placeSupplyModuleAfterInsert,
     rewireMode,
-    rewireModules,
     rewireOriginRef,
     rewireOriginSurfaceId,
     rewireTargetRef,
@@ -1369,8 +1217,6 @@ export function HierarchyPanelCanvas({
     rewireTargetValid,
     resolveHierarchyRewirePanel,
     resetHierarchyRewireState,
-    updatePanelGridSlots,
-    updateSupplyPanelSlots,
   ])
 
   const hierarchyRewirePreviewWire = useMemo(() => {
@@ -1519,16 +1365,14 @@ export function HierarchyPanelCanvas({
       confirmLabel: t('common.confirm', 'Confirm'),
       cancelLabel: t('common.cancel', 'Cancel'),
       onConfirm: () => {
-        for (const targetPanel of targetPanels) {
-          const { mainSlots, supplySlots } = buildAutoArrangeSlots(targetPanel, currentProject)
-          applyPanelAutoArrange(targetPanel.id, mainSlots, supplySlots)
-        }
+        editPanelLayout({
+          autoArrange: { panelIds: targetPanels.map((target) => target.id), feedSideDirection },
+        })
       },
     })
   }, [
-    applyPanelAutoArrange,
-    buildAutoArrangeSlots,
     currentProject,
+    feedSideDirection,
     hierarchyPanelsFromSelection,
     openDialog,
     scene,
@@ -1823,12 +1667,17 @@ export function HierarchyPanelCanvas({
     (position: Point, ref: PanelGridModuleRef) => {
       if (!scene || !currentProject) return null
       const stripModule = resolveTerminalStripModule(currentProject, ref)
-      const isTerminalStrip = stripModule != null
+      // Relays, meters and domotica modules move between panels and virtual enclosures
+      // like terminal strips do: the physical placement changes, the circuit does not.
+      const isCircuitModule =
+        stripModule == null && findRemountableCircuitModule(currentProject, ref) != null
+      const isTerminalStrip = stripModule != null || isCircuitModule
       // Endpoint-form strips can move between panels but have no auxiliary mounting.
       const isEndpointStrip = stripModule?.form === 'endpoint'
       const trunkRefId = ref.kind === 'trunkDevice' ? ref.id : ''
       if (!isTerminalStrip && !(ref.kind === 'trunkDevice' && ref.scope === 'supply')) return null
-      if (!isTerminalStrip && !isAuxiliaryMountableSupplyDevice(currentProject, trunkRefId)) return null
+      if (!isTerminalStrip && !isAuxiliaryMountableSupplyDevice(currentProject, trunkRefId))
+        return null
 
       for (const surface of scene.surfaces) {
         if (surface.kind === 'auxiliary' && surface.enclosure) {
@@ -1840,10 +1689,18 @@ export function HierarchyPanelCanvas({
           if (!inside) continue
           if (isEndpointStrip) continue
           const ownerPanelId = surface.enclosure.ownerPanelId
-          const ownerPanel = ownerPanelId
-            ? panelOptions.find((option) => option.panel.id === ownerPanelId)?.panel
-            : panelOptions[0]?.panel
-          if (!ownerPanel || (!isTerminalStrip && !isAuxiliaryMountableSupplyDevice(currentProject, trunkRefId))) return null
+          // An enclosure whose owner board is gone or not in view still accepts modules.
+          const ownerPanel =
+            (ownerPanelId
+              ? panelOptions.find((option) => option.panel.id === ownerPanelId)?.panel
+              : undefined) ??
+            panelOptions.find((option) => option.isRoot && option.panel.isMain)?.panel ??
+            panelOptions[0]?.panel
+          if (
+            !ownerPanel ||
+            (!isTerminalStrip && !isAuxiliaryMountableSupplyDevice(currentProject, trunkRefId))
+          )
+            return null
           return { surface, panel: ownerPanel, area: 'auxiliary' as const }
         }
         if (surface.kind === 'shared_supply') {
@@ -1911,7 +1768,7 @@ export function HierarchyPanelCanvas({
         surface.y +
         (surface.kind === 'panel' ? surface.mainPanelY : 0) +
         PANEL_FRAME_MARGIN +
-        getTerminalStripTopOffset(surface.panel)
+        getTerminalStripTopOffset(getPanelSceneSurfaceGrid(surface))
       const gridLeft = surface.x + PANEL_FRAME_MARGIN
       const localX = position.x - gridLeft
       const localY = position.y - gridTop
@@ -2050,198 +1907,81 @@ export function HierarchyPanelCanvas({
       setDragPreview(null)
       if (!currentProject || !symbolData || typeof symbolData !== 'object') return
       const symbol = symbolData as SymbolMetadata
-      const isModularSocketDrop = isModularSocketLibraryId(symbol.id)
-      const targetSurface = isModularSocketDrop
+      const modular = isModularSocketLibraryId(symbol.id)
+      const surface = modular
         ? detectHierarchyLibraryDropHover(position)
         : detectHierarchyPanelTarget(position)
-      const targetPanel = targetSurface?.panel
-      if (!targetSurface || !targetPanel) return
-      if (isModularSocketDrop && (targetSurface.kind !== 'panel' || !canDropModularSocketOnPanel(targetPanel))) {
+      const panel = surface?.panel
+      if (
+        !surface ||
+        !panel ||
+        (modular && (surface.kind !== 'panel' || !canDropModularSocketOnPanel(panel)))
+      )
         return
-      }
-
-      setSelection({ type: 'panel', ids: [targetPanel.id] })
-
-      const isProtectionDevice = (PROTECTION_SYMBOL_IDS as readonly string[]).includes(symbol.id)
-      const isEnergyMeter = symbol.id === 'energy_meter'
-
-      // Never stack modules: land beside whatever is under the pointer instead.
-      const resolved = resolveHierarchyLibraryDrop(position, symbol, targetSurface)
+      const resolved = resolveHierarchyLibraryDrop(position, symbol, surface)
       if (!resolved?.slot) return
       const { row, col } = resolved.slot
-      const feederCircuitId = resolved.feederProtection?.circuits?.[0]?.id
-
-      if (isModularSocketDrop) {
-        const hitPlacement = targetSurface.placements.find(
+      if ((PROTECTION_SYMBOL_IDS as readonly string[]).includes(symbol.id)) {
+        placeElectricalSymbol({
+          symbolId: symbol.id,
+          target: { type: 'mainBus', panelId: panel.id },
+          panelGrid: {
+            scope: 'main',
+            row,
+            col,
+            ...(resolved.feederProtection?.circuits?.[0]?.id
+              ? { parentCircuitId: resolved.feederProtection.circuits[0].id }
+              : {}),
+          },
+          label: 'place protection from library',
+        })
+        return
+      }
+      if (symbol.id === 'energy_meter') {
+        const circuit = getLastAssignableCircuit(panel)
+        if (!circuit) return
+        placeElectricalSymbol({
+          symbolId: symbol.id,
+          target: {
+            type: 'circuit',
+            panelId: panel.id,
+            circuitId: circuit.id,
+            circuitTrunkSegmentIndex: 0,
+          },
+          panelGrid: { scope: 'main', row, col },
+          label: 'place meter from library',
+        })
+        return
+      }
+      if (modular) {
+        const hit = surface.placements.find(
           (placement) =>
             placement.ref.kind === 'protection' &&
-            position.x >= targetSurface.x + placement.x &&
-            position.x <= targetSurface.x + placement.x + placement.width &&
-            position.y >= targetSurface.y + placement.y &&
-            position.y <= targetSurface.y + placement.y + placement.height
+            position.x >= surface.x + placement.x &&
+            position.x <= surface.x + placement.x + placement.width &&
+            position.y >= surface.y + placement.y &&
+            position.y <= surface.y + placement.y + placement.height
         )
-        const hitProtectionId = hitPlacement?.ref.kind === 'protection' ? hitPlacement.ref.id : undefined
+        const hitProtectionId = hit?.ref.kind === 'protection' ? hit.ref.id : undefined
         const hitProtection = hitProtectionId
-          ? targetPanel.protections.find((protection) => protection.id === hitProtectionId)
+          ? panel.protections.find((protection) => protection.id === hitProtectionId)
           : undefined
-        const protection = findPreferredModularSocketProtection(targetPanel, hitProtection)
+        const protection = findPreferredModularSocketProtection(panel, hitProtection)
         if (!protection) return
-        let targetCircuit = findPreferredModularSocketCircuit(targetPanel, protection)
-        if (!targetCircuit) {
-          const circuitId = generateId()
-          const autoCircuitCode = resolveInitialProtectionBusLabel(
-            protection.type,
-            getNextAvailableCircuitCode(currentProject, targetPanel.id)
-          )
-          targetCircuit = {
-            id: circuitId,
-            code: autoCircuitCode,
-            kind: 'other',
-            cable: createDefaultAcCircuitCable(),
-            endpoints: [],
-            ...DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS,
-          }
-          useProjectStore.getState().addCircuit(targetPanel.id, targetCircuit, protection.id)
-        }
-
-        const endpoint: Endpoint = {
-          id: generateId(),
-          type: getEndpointTypeFromSymbol(symbol) ?? 'socket',
-          symbol: getSymbolKeyFromSymbol(symbol) ?? 'socket_gnd_child',
-          label: '',
-          placements: [],
-        }
-        applyLibraryPresetToEndpoint(symbol, endpoint)
-        useProjectStore.getState().addEndpoint(targetCircuit.id, endpoint)
-
-        const projectAfterDrop = useProjectStore.getState().currentProject
-        const persistedPanel = projectAfterDrop
-          ? findPanelRecursive(getProjectElectricalPanels(projectAfterDrop), targetPanel.id)
-          : undefined
-        const persistedCircuit = persistedPanel
-          ? collectCircuits(persistedPanel).find((circuit) => circuit.id === targetCircuit.id)
-          : undefined
-        if (
-          !persistedPanel ||
-          !persistedCircuit?.endpoints.some((item) => item.id === endpoint.id)
-        ) {
-          logger.error('PanelCanvas hierarchy: Modular socket could not be assigned to the circuit', {
-            panelId: targetPanel.id,
-            circuitId: targetCircuit.id,
-            endpointId: endpoint.id,
-          })
-          return
-        }
-
-        const moduleRef: PanelGridModuleRef = {
-          kind: 'domotica',
-          endpointId: endpoint.id,
-          circuitId: targetCircuit.id,
-        }
-        const existingSlots = persistedPanel.gridView?.slots ?? []
-        useProjectStore
-          .getState()
-          .unhideModuleFromPanel(targetPanel.id, panelGridModuleRefKey(moduleRef))
-        useProjectStore
-          .getState()
-          .updatePanelGridSlots(targetPanel.id, [...existingSlots, { row, col, module: moduleRef }])
-        setSelection({ type: 'endpoint', ids: [endpoint.id] })
-        return
-      }
-
-      if (isProtectionDevice) {
-        const store = useProjectStore.getState()
-        store.withSingleUndoEntry(
-          () => {
-            const protectionType = protectionTypeFromSymbolId(symbol.id) || 'MCB'
-            const defaults = getProtectionCreationProps(currentProject, protectionType)
-            const autoCircuitCode = resolveInitialProtectionBusLabel(
-              protectionType,
-              getNextAvailableCircuitCode(currentProject, targetPanel.id)
-            )
-            const protectionId = generateId()
-            const circuitId = generateId()
-            const protection: ProtectionDevice = {
-              id: protectionId,
-              type: protectionType,
-              label: autoCircuitCode,
-              circuits: [],
-              ...defaults,
-            }
-            useProjectStore.getState().addProtection(targetPanel.id, protection)
-            const circuit: Circuit = {
-              id: circuitId,
-              code: autoCircuitCode,
-              kind: 'other',
-              cable: createDefaultAcCircuitCable(),
-              endpoints: [],
-              ...DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS,
-            }
-            useProjectStore.getState().addCircuit(targetPanel.id, circuit, protectionId)
-            const moduleRef: PanelGridModuleRef = { kind: 'protection', id: protectionId }
-            const existingSlots = targetPanel.gridView?.slots ?? []
-            useProjectStore
-              .getState()
-              .updatePanelGridSlots(
-                targetPanel.id,
-                [...existingSlots, { row, col, module: moduleRef }],
-                { preserveProtectionOrder: true }
-              )
-            // Dropped on an existing protection: feed the new one from it.
-            if (feederCircuitId) {
-              useProjectStore.getState().rewireModules(feederCircuitId, circuitId)
-            }
-            setSelection({ type: 'protection', ids: [protectionId] })
-            return true
+        const circuit = findPreferredModularSocketCircuit(panel, protection)
+        placeElectricalSymbol({
+          symbolId: symbol.id,
+          target: circuit
+            ? { type: 'circuit', panelId: panel.id, circuitId: circuit.id }
+            : { type: 'mainBus', panelId: panel.id },
+          panelGrid: {
+            scope: 'main',
+            row,
+            col,
+            ...(!circuit ? { ensureCircuitForProtectionId: protection.id } : {}),
           },
-          { sessionLabel: 'place protection from library' }
-        )
-        return
-      }
-
-      if (isEnergyMeter) {
-        const targetCircuit = getLastAssignableCircuit(targetPanel)
-        if (!targetCircuit) return
-        const deviceId = generateId()
-        const trunkDevice: TrunkDevice = {
-          id: deviceId,
-          type: 'energy_meter',
-          symbol: 'energy_meter',
-          label: 'kWh',
-          trunkPosition: 0,
-        }
-        useProjectStore.getState().addTrunkDevice(targetCircuit.id, trunkDevice)
-        const projectAfterMeter = useProjectStore.getState().currentProject
-        const persistedPanel = projectAfterMeter
-          ? findPanelRecursive(getProjectElectricalPanels(projectAfterMeter), targetPanel.id)
-          : undefined
-        const persistedCircuit = persistedPanel
-          ? collectCircuits(persistedPanel).find((circuit) => circuit.id === targetCircuit.id)
-          : undefined
-        if (
-          !persistedPanel ||
-          !persistedCircuit?.trunkDevices?.some((device) => device.id === deviceId)
-        ) {
-          logger.error(
-            'PanelCanvas hierarchy: Energy meter could not be assigned to the target panel circuit',
-            { panelId: targetPanel.id, circuitId: targetCircuit.id, deviceId }
-          )
-          return
-        }
-        const moduleRef: PanelGridModuleRef = {
-          kind: 'trunkDevice',
-          id: deviceId,
-          scope: 'circuit',
-          circuitId: targetCircuit.id,
-        }
-        useProjectStore
-          .getState()
-          .unhideModuleFromPanel(targetPanel.id, panelGridModuleRefKey(moduleRef))
-        const existingSlots = persistedPanel.gridView?.slots ?? []
-        useProjectStore
-          .getState()
-          .updatePanelGridSlots(targetPanel.id, [...existingSlots, { row, col, module: moduleRef }])
-        setSelection({ type: 'trunkDevice', ids: [deviceId] })
+          label: 'place modular socket from library',
+        })
       }
     },
     [
@@ -2249,7 +1989,6 @@ export function HierarchyPanelCanvas({
       detectHierarchyLibraryDropHover,
       detectHierarchyPanelTarget,
       resolveHierarchyLibraryDrop,
-      setSelection,
     ]
   )
 
@@ -2300,7 +2039,7 @@ export function HierarchyPanelCanvas({
       const nextWidth = nextColumns * CELL_W + PANEL_FRAME_MARGIN * 2
       const mainContentHeight = nextRows * CELL_H + Math.max(0, nextRows - 1) * ROW_GAP
       const nextHeight =
-        getTerminalStripTopOffset(surface.panel) +
+        getTerminalStripTopOffset(getPanelSceneSurfaceGrid(surface)) +
         mainContentHeight +
         (surface.panel.gridView?.terminalStripBottomRail ? TERMINAL_STRIP_RAIL_H + ROW_GAP : 0) +
         PANEL_FRAME_MARGIN * 2
@@ -2322,18 +2061,15 @@ export function HierarchyPanelCanvas({
     []
   )
 
-  const commitPanelFrameResize = useCallback(
-    (surface: HierarchySurface & { panel: Panel }) => {
-      const preview = panelFrameResizePreviewRef.current
-      panelFrameResizePreviewRef.current = null
-      setPanelFrameResizePreview(null)
-      if (!preview || preview.panelId !== surface.panel.id) return
-      updatePanelGrid(surface.panel.id, {
-        [preview.axis]: preview.value,
-      })
-    },
-    [updatePanelGrid]
-  )
+  const commitPanelFrameResize = useCallback((surface: HierarchySurface & { panel: Panel }) => {
+    const preview = panelFrameResizePreviewRef.current
+    panelFrameResizePreviewRef.current = null
+    setPanelFrameResizePreview(null)
+    if (!preview || preview.panelId !== surface.panel.id) return
+    updatePanelGrid(surface.panel.id, {
+      [preview.axis]: preview.value,
+    })
+  }, [])
 
   const previewJunctionPanelFrameResize = useCallback(
     (surface: HierarchySurface, axis: 'rows' | 'columns', delta: number) => {
@@ -2384,7 +2120,7 @@ export function HierarchyPanelCanvas({
       if (representative?.ref.kind !== 'trunkDevice') return
       updateJunctionPanelGrid(representative.ref.id, { [preview.axis]: preview.value })
     },
-    [updateAuxiliaryElectricalEnclosure, updateJunctionPanelGrid]
+    [updateAuxiliaryElectricalEnclosure]
   )
 
   const isHierarchyRefInSelection = useCallback(
@@ -2467,13 +2203,10 @@ export function HierarchyPanelCanvas({
                 target.surface.y -
                 target.surface.mainPanelY -
                 PANEL_FRAME_MARGIN -
-                getTerminalStripTopOffset(target.surface.panel)
+                getTerminalStripTopOffset(getPanelSceneSurfaceGrid(target.surface))
           const snapped = snapToGrid(localX, localY + CELL_H / 2)
-          const row =
-            target.area === 'supply'
-              ? clamp(targetRows - 1, 0, snapped.row)
-              : clamp(targetRows - 1, 0, snapped.row)
-          const col = clamp(targetMaxCol, 0, snapped.col)
+          const row = clamp(snapped.row, 0, targetRows - 1)
+          const col = clamp(snapped.col, 0, targetMaxCol)
           const targetY =
             target.area === 'supply'
               ? target.surface.y +
@@ -2483,7 +2216,7 @@ export function HierarchyPanelCanvas({
               : target.surface.y +
                 target.surface.mainPanelY +
                 PANEL_FRAME_MARGIN +
-                getTerminalStripTopOffset(target.surface.panel) +
+                getTerminalStripTopOffset(getPanelSceneSurfaceGrid(target.surface)) +
                 row * ROW_STRIDE
           const invalid = target.surface.placements.some((other) => {
             const otherArea =
@@ -2614,6 +2347,154 @@ export function HierarchyPanelCanvas({
         }
       }
 
+      const circuitModule =
+        !placement.inSupplyPanel &&
+        currentProject != null &&
+        resolveTerminalStripModule(currentProject, placement.ref) == null
+          ? findRemountableCircuitModule(currentProject, placement.ref)
+          : undefined
+      if (circuitModule && currentProject && scene) {
+        const canvasPos = { x: surface.x + rawX, y: surface.y + rawY }
+        const target = detectHierarchyModuleDropTarget(canvasPos, placement.ref)
+        const currentSurfaceId = surface.panel?.id ?? surface.id
+        const targetSurfaceId = target?.surface.panel?.id ?? target?.surface.id
+        if (
+          selectedPlacements.length < 2 &&
+          (target?.area === 'main' || target?.area === 'auxiliary') &&
+          (targetSurfaceId !== currentSurfaceId || target.area === 'auxiliary')
+        ) {
+          const targetPanel = target.surface.enclosure
+            ? { ...target.panel, gridView: target.surface.enclosure.gridView }
+            : target.panel
+          const targetMaxCol = Math.max(0, target.surface.cols - moduleCols)
+          const localX = canvasPos.x - target.surface.x - PANEL_FRAME_MARGIN
+          const localY =
+            canvasPos.y -
+            target.surface.y -
+            target.surface.mainPanelY -
+            PANEL_FRAME_MARGIN -
+            getTerminalStripTopOffset(targetPanel)
+          const snapped = snapToGrid(localX, localY + CELL_H / 2)
+          const row = clamp(snapped.row, 0, target.surface.rows - 1)
+          const col = clamp(snapped.col, 0, targetMaxCol)
+          const invalid = target.surface.placements.some((other) => {
+            if (other.terminalStripRail) return false
+            if (other.inSupplyPanel && target.area !== 'auxiliary') return false
+            if (panelGridModuleRefKey(other.ref) === key) return false
+            if (other.row !== row) return false
+            const otherCols = Math.max(
+              MIN_PANEL_GRID_MODULE_WIDTH,
+              normalizePanelModuleMeasure(other.width / CELL_W)
+            )
+            return col < other.col + otherCols && other.col < col + moduleCols
+          })
+          setModuleDragLive({
+            surfaceId: targetSurfaceId ?? currentSurfaceId,
+            x: canvasPos.x,
+            y: canvasPos.y,
+            width: placement.width,
+            height: placement.height,
+            ref: placement.ref,
+          })
+          setModuleDragPreview({
+            surfaceId: targetSurfaceId ?? currentSurfaceId,
+            x: target.surface.x + PANEL_FRAME_MARGIN + col * CELL_W,
+            y:
+              target.surface.y +
+              target.surface.mainPanelY +
+              PANEL_FRAME_MARGIN +
+              getTerminalStripTopOffset(targetPanel) +
+              row * ROW_STRIDE,
+            width: placement.width,
+            height: CELL_H,
+            ref: placement.ref,
+            invalid,
+          })
+          return
+        }
+        const isInsideSurface = scene.surfaces.some(
+          (candidate) =>
+            canvasPos.x >= candidate.x &&
+            canvasPos.x <= candidate.x + candidate.width &&
+            canvasPos.y >= candidate.y &&
+            canvasPos.y <= candidate.y + candidate.height
+        )
+        if (!target && !isInsideSurface) {
+          const creationPlacements =
+            selectedPlacements.length >= 2 ? selectedPlacements : [placement]
+          const creationRefs = creationPlacements.map((candidate) => candidate.ref)
+          const allCircuitModules =
+            (selection.ids.length <= 1 || creationPlacements.length === selection.ids.length) &&
+            creationRefs.every(
+              (ref) =>
+                resolveTerminalStripModule(currentProject, ref) == null &&
+                findRemountableCircuitModule(currentProject, ref) != null
+            )
+          const columns = Math.max(
+            12,
+            creationPlacements.reduce(
+              (sum, candidate) =>
+                sum +
+                Math.max(
+                  MIN_PANEL_GRID_MODULE_WIDTH,
+                  normalizePanelModuleMeasure(candidate.width / CELL_W)
+                ),
+              0
+            )
+          )
+          // The new enclosure will hang beside the board its modules belong to.
+          const ownerPanelId = circuitModule.ownerPanel.id
+          const ownerSurface = scene.surfaces.find(
+            (candidate) => candidate.kind === 'panel' && candidate.panel?.id === ownerPanelId
+          )
+          const previewHeight = CELL_H + PANEL_FRAME_MARGIN * 2
+          const besideX = ownerSurface
+            ? Math.max(
+                ownerSurface.x + ownerSurface.width,
+                ...scene.surfaces
+                  .filter(
+                    (candidate) =>
+                      candidate.enclosure?.kind === 'other' &&
+                      candidate.enclosure.ownerPanelId === ownerPanelId
+                  )
+                  .map((candidate) => candidate.x + candidate.width)
+              ) + PANEL_SCENE_SIBLING_GAP
+            : Math.max(0, canvasPos.x - PANEL_FRAME_MARGIN - placement.width / 2)
+          const besideY = ownerSurface
+            ? hierarchyFeedFromTop
+              ? ownerSurface.y
+              : ownerSurface.y + ownerSurface.height - previewHeight
+            : Math.max(0, canvasPos.y - PANEL_FRAME_MARGIN - CELL_H / 2)
+          setModuleDragLive({
+            surfaceId: surfaceTargetId,
+            x: canvasPos.x,
+            y: canvasPos.y,
+            width: placement.width,
+            height: placement.height,
+            ref: placement.ref,
+            items: creationPlacements.map((candidate) => ({
+              ref: candidate.ref,
+              x: surface.x + candidate.x + (rawX - placement.x),
+              y: surface.y + candidate.y + (rawY - placement.y),
+              width: candidate.width,
+              height: candidate.height,
+            })),
+          })
+          setModuleDragPreview({
+            surfaceId: '__new_auxiliary__',
+            x: besideX,
+            y: besideY,
+            width: Math.min(columns, 18) * CELL_W + PANEL_FRAME_MARGIN * 2,
+            height: previewHeight,
+            ref: placement.ref,
+            createAuxiliary: true,
+            circuitModuleRefs: creationRefs,
+            invalid: !allCircuitModules,
+          })
+          return
+        }
+      }
+
       const isTerminalStrip =
         !placement.inSupplyPanel &&
         currentProject != null &&
@@ -2663,7 +2544,11 @@ export function HierarchyPanelCanvas({
             targetRail
           )
           const invalid = target.surface.placements.some((other) => {
-            if ((other.inSupplyPanel && target.area !== 'auxiliary') || other.terminalStripRail !== targetRail) return false
+            if (
+              (other.inSupplyPanel && target.area !== 'auxiliary') ||
+              other.terminalStripRail !== targetRail
+            )
+              return false
             if (
               panelGridModuleRefKey(other.ref) === key ||
               other.terminalStripMemberRefs?.some((member) => panelGridModuleRefKey(member) === key)
@@ -2822,11 +2707,10 @@ export function HierarchyPanelCanvas({
 
       const localX = rawX - PANEL_FRAME_MARGIN
       const panelLocalY = rawY - surface.mainPanelY
-      const panel =
-        surface.panel ??
-        (surface.enclosure && panelOptions[0]
-          ? { ...panelOptions[0].panel, gridView: surface.enclosure.gridView }
-          : null)
+      const panel = getPanelSceneSurfaceGrid(surface)
+      const junctionRowOffset = surface.junctionPanelGridView
+        ? getJunctionPanelModuleRowOffset(surface.junctionPanelGridView)
+        : 0
       const previewIsTerminal =
         currentProject != null && resolveTerminalStripModule(currentProject, placement.ref) != null
       const previewTopRail =
@@ -2839,9 +2723,13 @@ export function HierarchyPanelCanvas({
         panelLocalY >=
           surface.panelFrameHeight - PANEL_FRAME_MARGIN - TERMINAL_STRIP_RAIL_H - ROW_GAP / 2
       const previewRail = previewTopRail ? 'top' : previewBottomRail ? 'bottom' : undefined
-      const localY = panelLocalY - PANEL_FRAME_MARGIN - getTerminalStripTopOffset(panel)
+      const localY =
+        panelLocalY -
+        PANEL_FRAME_MARGIN -
+        getTerminalStripTopOffset(panel) -
+        junctionRowOffset * ROW_STRIDE
       const snapped = snapToGrid(localX, localY + CELL_H / 2)
-      const row = clamp(snapped.row, 0, surface.rows - 1)
+      const row = clamp(snapped.row, 0, Math.max(0, surface.rows - junctionRowOffset - 1))
       const col = previewIsTerminal
         ? snapTerminalStripPlacementCol(
             localX,
@@ -2854,7 +2742,7 @@ export function HierarchyPanelCanvas({
             shiftKey,
             previewRail
           )
-        : clamp(maxCol, 0, snapped.col)
+        : clamp(snapped.col, 0, maxCol)
       const dx = rawX - placement.x
       const dy = rawY - placement.y
       if (selectedPlacements.length >= 2) {
@@ -2897,7 +2785,7 @@ export function HierarchyPanelCanvas({
             surface.mainPanelY +
             PANEL_FRAME_MARGIN +
             getTerminalStripTopOffset(panel) +
-            (selectedPlacement.row + deltaRow) * ROW_STRIDE,
+            (selectedPlacement.row + deltaRow + junctionRowOffset) * ROW_STRIDE,
           width: selectedPlacement.width,
           height: selectedPlacement.height,
         }))
@@ -2909,13 +2797,13 @@ export function HierarchyPanelCanvas({
             )
             return (
               item.row < 0 ||
-              item.row >= surface.rows ||
+              item.row >= surface.rows - junctionRowOffset ||
               item.col < 0 ||
               item.col > surface.cols - widthCols
             )
           }) ||
           surface.placements.some((other) => {
-            if (other.inSupplyPanel) return false
+            if (other.inSupplyPanel || other.junctionPanelTerminal) return false
             if (
               selectedPlacements.some(
                 (selected) =>
@@ -2945,7 +2833,7 @@ export function HierarchyPanelCanvas({
             surface.mainPanelY +
             PANEL_FRAME_MARGIN +
             getTerminalStripTopOffset(panel) +
-            row * ROW_STRIDE,
+            (row + junctionRowOffset) * ROW_STRIDE,
           width: placement.width,
           height: placement.height,
           ref: placement.ref,
@@ -2955,7 +2843,7 @@ export function HierarchyPanelCanvas({
         return
       }
       const invalid = surface.placements.some((other) => {
-        if (other.inSupplyPanel) return false
+        if (other.inSupplyPanel || other.junctionPanelTerminal) return false
         if (panelGridModuleRefKey(other.ref) === key) return false
         if (other.terminalStripRail !== previewRail) return false
         if (!previewRail && other.row !== row) return false
@@ -2976,7 +2864,7 @@ export function HierarchyPanelCanvas({
             ? 0
             : previewRail === 'bottom'
               ? surface.panelFrameHeight - PANEL_FRAME_MARGIN * 2 - TERMINAL_STRIP_RAIL_H
-              : getTerminalStripTopOffset(panel) + row * ROW_STRIDE),
+              : getTerminalStripTopOffset(panel) + (row + junctionRowOffset) * ROW_STRIDE),
         width: placement.width,
         height: previewRail ? TERMINAL_STRIP_RAIL_H : CELL_H,
         ref: placement.ref,
@@ -2986,6 +2874,7 @@ export function HierarchyPanelCanvas({
     [
       currentProject,
       detectHierarchyModuleDropTarget,
+      hierarchyFeedFromTop,
       isHierarchyRefInSelection,
       panelOptions,
       scene,
@@ -3012,8 +2901,11 @@ export function HierarchyPanelCanvas({
       const preview = moduleDragPreview
       setModuleDragPreview(null)
       setModuleDragLive(null)
-      const panel = surface.panel ?? (surface.enclosure && panelOptions[0]
-        ? { ...panelOptions[0].panel, gridView: surface.enclosure.gridView } : null)
+      const panel =
+        surface.panel ??
+        (surface.enclosure && panelOptions[0]
+          ? { ...panelOptions[0].panel, gridView: surface.enclosure.gridView }
+          : null)
       const surfaceTargetId = panel?.id ?? surface.id
       if (
         preview &&
@@ -3082,10 +2974,14 @@ export function HierarchyPanelCanvas({
           const localY =
             target.area === 'supply'
               ? canvasPos.y - target.surface.y - target.surface.supplyPanelY - PANEL_FRAME_MARGIN
-              : canvasPos.y - target.surface.y - target.surface.mainPanelY - PANEL_FRAME_MARGIN
+              : canvasPos.y -
+                target.surface.y -
+                target.surface.mainPanelY -
+                PANEL_FRAME_MARGIN -
+                getTerminalStripTopOffset(getPanelSceneSurfaceGrid(target.surface))
           const snapped = snapToGrid(localX, localY + CELL_H / 2)
-          const row = clamp(targetRows - 1, 0, snapped.row)
-          const col = clamp(targetMaxCol, 0, snapped.col)
+          const row = clamp(snapped.row, 0, targetRows - 1)
+          const col = clamp(snapped.col, 0, targetMaxCol)
           if (target.area === 'auxiliary') {
             moveSupplyDeviceToAuxiliaryEnclosure(supplyRef.id, target.surface.id, row, col)
             return
@@ -3101,16 +2997,100 @@ export function HierarchyPanelCanvas({
 
         if (surface.kind === 'auxiliary') {
           const localX = rawX - PANEL_FRAME_MARGIN
-          const localY = rawY - PANEL_FRAME_MARGIN
+          const localY =
+            rawY - PANEL_FRAME_MARGIN - getTerminalStripTopOffset(getPanelSceneSurfaceGrid(surface))
           const snapped = snapToGrid(localX, localY + CELL_H / 2)
           moveSupplyDeviceToAuxiliaryEnclosure(
             supplyRef.id,
             surface.id,
             clamp(snapped.row, 0, surface.rows - 1),
-            clamp(maxCol, 0, snapped.col)
+            clamp(snapped.col, 0, maxCol)
           )
           return
         }
+      }
+
+      const circuitModule =
+        !placement.inSupplyPanel &&
+        currentProject != null &&
+        resolveTerminalStripModule(currentProject, placement.ref) == null
+          ? findRemountableCircuitModule(currentProject, placement.ref)
+          : undefined
+      if (circuitModule && currentProject) {
+        if (preview?.createAuxiliary) {
+          const refs = preview.circuitModuleRefs ?? []
+          if (preview.invalid || refs.length === 0) return
+          const enclosureId = createCircuitModuleEnclosure(refs, circuitModule.ownerPanel.id, {
+            x: preview.x,
+            y: preview.y,
+          })
+          if (enclosureId) setSelection({ type: 'auxiliaryEnclosure', ids: [enclosureId] })
+          return
+        }
+        const canvasPos = { x: surface.x + rawX, y: surface.y + rawY }
+        const target = detectHierarchyModuleDropTarget(canvasPos, placement.ref)
+        const currentSurfaceId = surface.panel?.id ?? surface.id
+        const targetSurfaceId = target?.surface.panel?.id ?? target?.surface.id
+        if (
+          selectedPlacements.length < 2 &&
+          (target?.area === 'main' || target?.area === 'auxiliary') &&
+          (targetSurfaceId !== currentSurfaceId || target.area === 'auxiliary')
+        ) {
+          if (preview?.invalid) return
+          const targetPanel = target.surface.enclosure
+            ? { ...target.panel, gridView: target.surface.enclosure.gridView }
+            : target.panel
+          const localX = canvasPos.x - target.surface.x - PANEL_FRAME_MARGIN
+          const localY =
+            canvasPos.y -
+            target.surface.y -
+            target.surface.mainPanelY -
+            PANEL_FRAME_MARGIN -
+            getTerminalStripTopOffset(targetPanel)
+          const snapped = snapToGrid(localX, localY + CELL_H / 2)
+          const row = clamp(snapped.row, 0, target.surface.rows - 1)
+          const col = clamp(snapped.col, 0, Math.max(0, target.surface.cols - moduleCols))
+          moveCircuitModule(
+            placement.ref,
+            target.area === 'auxiliary' && target.surface.enclosure
+              ? { kind: 'auxiliary', enclosureId: target.surface.enclosure.id }
+              : { kind: 'panel', panelId: target.panel.id },
+            row,
+            col
+          )
+          return
+        }
+      }
+
+      if (surface.kind === 'junction_panel' && currentProject && !placement.junctionPanelTerminal) {
+        if (preview?.invalid) return
+        const representative = surface.placements.find((item) => item.junctionPanelTerminal)
+        if (representative?.ref.kind !== 'trunkDevice') return
+        const device = useProjectStore.getState().getTrunkDeviceById(representative.ref.id)?.device
+        if (!device) return
+        const layout = getJunctionPanelModuleLayout(currentProject, device)
+        const snapped = snapToGrid(
+          rawX - PANEL_FRAME_MARGIN,
+          rawY -
+            PANEL_FRAME_MARGIN -
+            getTerminalStripTopOffset(getPanelSceneSurfaceGrid(surface)) -
+            layout.moduleRowOffset * ROW_STRIDE +
+            CELL_H / 2
+        )
+        const row = clamp(snapped.row, 0, Math.max(0, surface.rows - layout.moduleRowOffset - 1))
+        const col = clamp(snapped.col, 0, maxCol)
+        const selectedKeys = new Set(
+          (selectedPlacements.length >= 2 ? selectedPlacements : [placement]).map((item) =>
+            panelGridModuleRefKey(item.ref)
+          )
+        )
+        const slots = layout.slots.map((slot) =>
+          selectedKeys.has(panelGridModuleRefKey(slot.module))
+            ? { ...slot, row: slot.row + row - placement.row, col: slot.col + col - placement.col }
+            : slot
+        )
+        editPanelLayout({ junctionGrids: [{ deviceId: device.id, slots }] })
+        return
       }
 
       if (placement.inSupplyPanel) {
@@ -3220,7 +3200,7 @@ export function HierarchyPanelCanvas({
           rawX - PANEL_FRAME_MARGIN,
           rawY - (surface.supplyPanelY + PANEL_FRAME_MARGIN) + CELL_H / 2
         )
-        const row = clamp(surface.supplyRows - 1, 0, snappedSupply.row)
+        const row = clamp(snappedSupply.row, 0, surface.supplyRows - 1)
         const col = Math.max(0, Math.min(maxCol, Math.round((rawX - PANEL_FRAME_MARGIN) / CELL_W)))
         if (selectedPlacements.length >= 2) {
           const selectedKeys = new Set(
@@ -3350,7 +3330,14 @@ export function HierarchyPanelCanvas({
                 }
               : {}),
           }
-          if (moveTerminalStripToPanel(terminalStrip.id, targetPanel.id, targetSlot, target.surface.enclosure?.id)) {
+          if (
+            moveTerminalStripToPanel(
+              terminalStrip.id,
+              targetPanel.id,
+              targetSlot,
+              target.surface.enclosure?.id
+            )
+          ) {
             setSelection({
               type: terminalStrip.form === 'endpoint' ? 'endpoint' : 'trunkDevice',
               ids: [terminalStrip.id],
@@ -3391,7 +3378,7 @@ export function HierarchyPanelCanvas({
             shiftKey,
             targetTerminalRail
           )
-        : clamp(maxCol, 0, snapped.col)
+        : clamp(snapped.col, 0, maxCol)
       if (selectedPlacements.length >= 2) {
         const selectedKeys = new Set(
           selectedPlacements.map((selected) => panelGridModuleRefKey(selected.ref))
@@ -3464,18 +3451,11 @@ export function HierarchyPanelCanvas({
     },
     [
       currentProject,
-      createAuxiliarySupplyEnclosure,
       detectHierarchyModuleDropTarget,
       isHierarchyRefInSelection,
       moduleDragPreview,
-      moveSupplyDeviceToAuxiliaryEnclosure,
-      moveSupplyDeviceToGridEnclosure,
-      moveSupplyDeviceToPanelEnclosure,
-      moveTerminalStripToPanel,
       panelOptions,
       selection.ids.length,
-      updatePanelGridSlots,
-      updateSupplyPanelSlots,
       setSelection,
     ]
   )
@@ -3517,7 +3497,7 @@ export function HierarchyPanelCanvas({
         normalizePanelModuleMeasure(placement.width / CELL_W)
       )
       const row = clamp(snapped.row, 0, surface.rows - 1)
-      const col = clamp(Math.max(0, surface.cols - moduleCols), 0, snapped.col)
+      const col = clamp(snapped.col, 0, Math.max(0, surface.cols - moduleCols))
 
       const store = useProjectStore.getState()
       let duplicateRef: PanelGridModuleRef | null = null
@@ -3590,18 +3570,44 @@ export function HierarchyPanelCanvas({
       if (placement.ref.kind === 'domotica') {
         const endpoint = useProjectStore.getState().getEndpointById(placement.ref.endpointId)
         if (endpoint && isModularSocket(endpoint)) {
-          const maxWidthCols = Math.max(2, (placement.inSupplyPanel ? surface.supplyCols : surface.cols) - placement.col)
+          const maxWidthCols = Math.max(
+            2,
+            (placement.inSupplyPanel ? surface.supplyCols : surface.cols) - placement.col
+          )
           const snappedWidth = snapModularSocketModuleWidthWithin(newWidthCols, maxWidthCols)
           const nextCount = socketCountForModularWidth(snappedWidth)
           if (getModularSocketCount(endpoint) !== nextCount) {
             updateEndpoint(placement.ref.endpointId, {
-              socketProps: withModularSocketProps(endpoint.socketProps, nextCount),
+              socketProps: {
+                ...withModularSocketProps(endpoint.socketProps, nextCount),
+                socketCount: nextCount,
+              },
             })
           }
           return
         }
       }
 
+      if (surface.kind === 'junction_panel' && currentProject && !placement.junctionPanelTerminal) {
+        const representative = surface.placements.find((item) => item.junctionPanelTerminal)
+        if (representative?.ref.kind !== 'trunkDevice') return
+        const device = useProjectStore.getState().getTrunkDeviceById(representative.ref.id)?.device
+        if (!device) return
+        const layout = getJunctionPanelModuleLayout(currentProject, device)
+        editPanelLayout({
+          junctionGrids: [
+            {
+              deviceId: device.id,
+              slots: layout.slots.map((slot) =>
+                panelGridModuleRefKey(slot.module) === key
+                  ? { ...slot, moduleWidth: newWidthCols, moduleWidthManual: true }
+                  : slot
+              ),
+            },
+          ],
+        })
+        return
+      }
       if (surface.kind === 'auxiliary' && surface.enclosure) {
         updateAuxiliaryElectricalEnclosure(surface.id, {
           gridView: {
@@ -3644,11 +3650,14 @@ export function HierarchyPanelCanvas({
           module: placement.ref,
           moduleWidth: newWidthCols,
           moduleWidthManual: true,
+          ...(placement.terminalStripRail
+            ? { terminalStripRail: placement.terminalStripRail }
+            : {}),
         })
       }
       updatePanelGridSlots(panel.id, nextMainSlots)
     },
-    [updateAuxiliaryElectricalEnclosure, updateEndpoint, updatePanelGridSlots, updateSupplyPanelSlots]
+    [currentProject, updateAuxiliaryElectricalEnclosure]
   )
 
   const getHierarchyMaxWidth = useCallback(
@@ -3674,7 +3683,7 @@ export function HierarchyPanelCanvas({
     ) =>
       canResizeModulePlacement(
         placement,
-        surface.placements,
+        surface.placements.filter((other) => !other.junctionPanelTerminal),
         newWidthCols,
         placement.inSupplyPanel ? surface.supplyCols : surface.cols
       ),
@@ -3763,8 +3772,11 @@ export function HierarchyPanelCanvas({
                     y={0}
                     width={surface.width}
                     height={surface.height}
-                    stroke={selectedSupplyPanelIds.includes(PANEL_SCENE_SHARED_SUPPLY_ID)
-                      ? colors.moduleBorderSelected : colors.panelSupplyStroke}
+                    stroke={
+                      selectedSupplyPanelIds.includes(PANEL_SCENE_SHARED_SUPPLY_ID)
+                        ? colors.moduleBorderSelected
+                        : colors.panelSupplyStroke
+                    }
                     strokeWidth={3}
                     fill={colors.panelFrameFill}
                     cornerRadius={4}
@@ -3855,6 +3867,7 @@ export function HierarchyPanelCanvas({
                       (surface.kind === 'junction_panel' &&
                         surface.placements.some(
                           (placement) =>
+                            placement.junctionPanelTerminal != null &&
                             placement.ref.kind === 'trunkDevice' &&
                             selection.type === 'trunkDevice' &&
                             selection.ids.includes(placement.ref.id)
@@ -3868,6 +3881,7 @@ export function HierarchyPanelCanvas({
                       (surface.kind === 'junction_panel' &&
                         surface.placements.some(
                           (placement) =>
+                            placement.junctionPanelTerminal != null &&
                             placement.ref.kind === 'trunkDevice' &&
                             selection.type === 'trunkDevice' &&
                             selection.ids.includes(placement.ref.id)
@@ -3899,8 +3913,12 @@ export function HierarchyPanelCanvas({
                               event.cancelBubble = true
                               setSelection({
                                 type: 'trunkDevice',
+                                // The junction panel itself, not the modules hanging in it.
                                 ids: surface.placements.flatMap((placement) =>
-                                  placement.ref.kind === 'trunkDevice' ? [placement.ref.id] : []
+                                  placement.junctionPanelTerminal &&
+                                  placement.ref.kind === 'trunkDevice'
+                                    ? [placement.ref.id]
+                                    : []
                                 ),
                               })
                             }
@@ -3917,8 +3935,12 @@ export function HierarchyPanelCanvas({
                               event.cancelBubble = true
                               setSelection({
                                 type: 'trunkDevice',
+                                // The junction panel itself, not the modules hanging in it.
                                 ids: surface.placements.flatMap((placement) =>
-                                  placement.ref.kind === 'trunkDevice' ? [placement.ref.id] : []
+                                  placement.junctionPanelTerminal &&
+                                  placement.ref.kind === 'trunkDevice'
+                                    ? [placement.ref.id]
+                                    : []
                                 ),
                               })
                             }
@@ -3929,7 +3951,16 @@ export function HierarchyPanelCanvas({
                     x={8}
                     y={8}
                     width={surface.width - 16}
-                    text={surface.label || t('panelCanvas.virtualEnclosure', 'Supply enclosure')}
+                    text={
+                      surface.label ||
+                      getAuxiliaryEnclosureLabel(
+                        surface.enclosure ?? undefined,
+                        t,
+                        currentProject
+                          ? selectProjectAuxiliaryElectricalEnclosures(currentProject)
+                          : undefined
+                      )
+                    }
                     fontSize={14}
                     fontStyle="bold"
                     fontFamily={fontFamily}
@@ -3938,19 +3969,20 @@ export function HierarchyPanelCanvas({
                   />
                   {((surface.kind === 'junction_panel' &&
                     surface.junctionPanelGridView?.terminalStripTopRail) ||
-                    (surface.kind === 'auxiliary' && surface.enclosure?.gridView.terminalStripTopRail)) && (
-                      <Rect
-                        x={PANEL_FRAME_MARGIN}
-                        y={PANEL_FRAME_MARGIN}
-                        width={surface.contentWidth}
-                        height={TERMINAL_STRIP_RAIL_H}
-                        fill="transparent"
-                        stroke={colors.panelFrameStroke}
-                        opacity={0.2}
-                        strokeWidth={1}
-                        listening={false}
-                      />
-                    )}
+                    (surface.kind === 'auxiliary' &&
+                      surface.enclosure?.gridView.terminalStripTopRail)) && (
+                    <Rect
+                      x={PANEL_FRAME_MARGIN}
+                      y={PANEL_FRAME_MARGIN}
+                      width={surface.contentWidth}
+                      height={TERMINAL_STRIP_RAIL_H}
+                      fill="transparent"
+                      stroke={colors.panelFrameStroke}
+                      opacity={0.2}
+                      strokeWidth={1}
+                      listening={false}
+                    />
+                  )}
                   {Array.from({ length: surface.rows }).map((_, rowIndex) => (
                     <Rect
                       key={`auxiliary-rail-${surface.id}-${rowIndex}`}
@@ -3958,8 +3990,9 @@ export function HierarchyPanelCanvas({
                       y={
                         PANEL_FRAME_MARGIN +
                         ((surface.kind === 'junction_panel' &&
-                        surface.junctionPanelGridView?.terminalStripTopRail) ||
-                        (surface.kind === 'auxiliary' && surface.enclosure?.gridView.terminalStripTopRail)
+                          surface.junctionPanelGridView?.terminalStripTopRail) ||
+                        (surface.kind === 'auxiliary' &&
+                          surface.enclosure?.gridView.terminalStripTopRail)
                           ? TERMINAL_STRIP_RAIL_H + ROW_GAP
                           : 0) +
                         rowIndex * ROW_STRIDE
@@ -3981,16 +4014,18 @@ export function HierarchyPanelCanvas({
                           PANEL_FRAME_MARGIN + colIndex * CELL_W,
                           PANEL_FRAME_MARGIN +
                             ((surface.kind === 'junction_panel' &&
-                            surface.junctionPanelGridView?.terminalStripTopRail) ||
-                            (surface.kind === 'auxiliary' && surface.enclosure?.gridView.terminalStripTopRail)
+                              surface.junctionPanelGridView?.terminalStripTopRail) ||
+                            (surface.kind === 'auxiliary' &&
+                              surface.enclosure?.gridView.terminalStripTopRail)
                               ? TERMINAL_STRIP_RAIL_H + ROW_GAP
                               : 0) +
                             rowIndex * ROW_STRIDE,
                           PANEL_FRAME_MARGIN + colIndex * CELL_W,
                           PANEL_FRAME_MARGIN +
                             ((surface.kind === 'junction_panel' &&
-                            surface.junctionPanelGridView?.terminalStripTopRail) ||
-                            (surface.kind === 'auxiliary' && surface.enclosure?.gridView.terminalStripTopRail)
+                              surface.junctionPanelGridView?.terminalStripTopRail) ||
+                            (surface.kind === 'auxiliary' &&
+                              surface.enclosure?.gridView.terminalStripTopRail)
                               ? TERMINAL_STRIP_RAIL_H + ROW_GAP
                               : 0) +
                             rowIndex * ROW_STRIDE +
@@ -4005,25 +4040,27 @@ export function HierarchyPanelCanvas({
                   )}
                   {((surface.kind === 'junction_panel' &&
                     surface.junctionPanelGridView?.terminalStripBottomRail) ||
-                    (surface.kind === 'auxiliary' && surface.enclosure?.gridView.terminalStripBottomRail)) && (
-                      <Rect
-                        x={PANEL_FRAME_MARGIN}
-                        y={surface.height - PANEL_FRAME_MARGIN - TERMINAL_STRIP_RAIL_H}
-                        width={surface.contentWidth}
-                        height={TERMINAL_STRIP_RAIL_H}
-                        fill="transparent"
-                        stroke={colors.panelFrameStroke}
-                        opacity={0.2}
-                        strokeWidth={1}
-                        listening={false}
-                      />
-                    )}
+                    (surface.kind === 'auxiliary' &&
+                      surface.enclosure?.gridView.terminalStripBottomRail)) && (
+                    <Rect
+                      x={PANEL_FRAME_MARGIN}
+                      y={surface.height - PANEL_FRAME_MARGIN - TERMINAL_STRIP_RAIL_H}
+                      width={surface.contentWidth}
+                      height={TERMINAL_STRIP_RAIL_H}
+                      fill="transparent"
+                      stroke={colors.panelFrameStroke}
+                      opacity={0.2}
+                      strokeWidth={1}
+                      listening={false}
+                    />
+                  )}
                   {(surface.kind === 'junction_panel' || surface.kind === 'auxiliary') &&
                     canDragItems &&
                     (surface.kind === 'auxiliary'
                       ? selectedAuxiliaryEnclosureIds.includes(surface.id)
                       : surface.placements.some(
                           (placement) =>
+                            placement.junctionPanelTerminal != null &&
                             placement.ref.kind === 'trunkDevice' &&
                             selection.type === 'trunkDevice' &&
                             selection.ids.includes(placement.ref.id)
@@ -4343,7 +4380,7 @@ export function HierarchyPanelCanvas({
                         x={PANEL_FRAME_MARGIN}
                         y={
                           PANEL_FRAME_MARGIN +
-                          getTerminalStripTopOffset(surface.panel) +
+                          getTerminalStripTopOffset(getPanelSceneSurfaceGrid(surface)) +
                           rowIndex * (CELL_H + ROW_GAP)
                         }
                         width={surface.contentWidth}
@@ -4362,11 +4399,11 @@ export function HierarchyPanelCanvas({
                           points={[
                             PANEL_FRAME_MARGIN + colIndex * CELL_W,
                             PANEL_FRAME_MARGIN +
-                              getTerminalStripTopOffset(surface.panel) +
+                              getTerminalStripTopOffset(getPanelSceneSurfaceGrid(surface)) +
                               rowIndex * (CELL_H + ROW_GAP),
                             PANEL_FRAME_MARGIN + colIndex * CELL_W,
                             PANEL_FRAME_MARGIN +
-                              getTerminalStripTopOffset(surface.panel) +
+                              getTerminalStripTopOffset(getPanelSceneSurfaceGrid(surface)) +
                               rowIndex * (CELL_H + ROW_GAP) +
                               CELL_H,
                           ]}

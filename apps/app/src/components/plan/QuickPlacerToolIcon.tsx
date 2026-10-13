@@ -1,3 +1,4 @@
+/* eslint react-refresh/only-export-components: off -- The pulse state helper and hook belong to this icon. */
 import { useEffect, useMemo, useState } from 'react'
 import { QuickPlacerIcon } from '@/components/icons/UiIcons'
 import { getAwaitingSituationPlanPlacements } from '@/lib/plan/hiddenSituationPlanPlacements'

@@ -4,6 +4,7 @@ import type { Endpoint, Placement } from '@/types/schema'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import { readLegacyCompatibilityFloors } from '@/lib/projectV2/buildingFloors'
+import { getEndpointMultiplierPlacementChanges } from '@/lib/properties/propertyActions'
 
 export interface SyncEndpointMultiplierDeps {
   getEndpointById: (id: string) => Endpoint | undefined
@@ -27,16 +28,6 @@ export function syncEndpointMultiplierCount(
 
   const current = latestEndpoint.placements.length
 
-  if (target < current) {
-    const placementIdsToRemove = latestEndpoint.placements
-      .slice(target)
-      .map((placement) => placement.id)
-    if (placementIdsToRemove.length > 0) {
-      deps.deletePlacements(placementIdsToRemove)
-    }
-    return true
-  }
-
   if (target === current) return true
 
   const floorId =
@@ -45,24 +36,18 @@ export function syncEndpointMultiplierCount(
     deps.getFallbackFloorId()
   if (!floorId) return false
 
-  const basePlacement =
-    latestEndpoint.placements.find((p) => p.floorId === floorId) ??
-    latestEndpoint.placements[0]
-  if (!basePlacement) return false
-
-  const start = current
-  for (let i = start; i < target; i++) {
-    const step = i - start + 1
-    deps.addPlacement(latestEndpoint.id, {
-      ...basePlacement,
-      id: generateId(),
-      floorId,
-      pos: {
-        x: basePlacement.pos.x + 24 * step,
-        y: basePlacement.pos.y + 24 * step,
-      },
-    })
+  const changes = getEndpointMultiplierPlacementChanges(
+    latestEndpoint.placements,
+    target,
+    floorId,
+    generateId
+  )
+  if (!changes) return false
+  if (changes.removeIds.length) {
+    deps.deletePlacements(changes.removeIds)
+    return true
   }
+  for (const placement of changes.add) deps.addPlacement(latestEndpoint.id, placement)
   return true
 }
 

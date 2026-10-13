@@ -9,6 +9,8 @@
  * - Single endpoint exception: goes straight up (no horizontal branch)
  */
 
+import { getCircuitConverterPrimaryEndpointIds, isCircuitConverterDcChild } from './circuitConverterGeometry'
+import type { Circuit } from '@/types/schema'
 import { isInBetweenEndpoint } from '@/utils/symbolMapping'
 import type { Endpoint } from '@/types/schema'
 
@@ -272,4 +274,23 @@ export function getChainLayoutDirection(chain: EndpointChain): 'straight' | 'bra
     return 'straight'
   }
   return 'branch'
+}
+
+/** Branch rows used by both the canvas layout and command target ownership checks. */
+export function getStandardCircuitBranches(circuit: Circuit) {
+  const primaryEndpointIds = getCircuitConverterPrimaryEndpointIds(circuit)
+  const dcBusEndpointIds = new Set(
+    (circuit.branches ?? [])
+      .filter((branch) => !!branch.dcBusId)
+      .flatMap((branch) => branch.endpointIds)
+  )
+  return getCircuitBranches(circuit).filter(
+    (branchEndpoints) =>
+      !branchEndpoints.some(
+        (endpoint) =>
+          isCircuitConverterDcChild(endpoint) ||
+          primaryEndpointIds.has(endpoint.id) ||
+          dcBusEndpointIds.has(endpoint.id)
+      )
+  )
 }

@@ -63,6 +63,7 @@ import {
 import { applyWireInset } from './wireInsets'
 import { applyRotatedWireInset } from './rotatedWireInsets'
 import { CIRCUIT_WIRE_LABEL_BASE_SPAN, TERMINAL_STRIP_WIRE_LABEL_SPAN } from './trunkDeviceSpacing'
+import { markCircuitEnclosureTransitions } from './circuitEnclosureTransitions'
 import { isSharedJunctionSymbol } from '@/lib/junctionIdentity'
 import {
   DOMOTICA_BRANCH_LEAD,
@@ -482,6 +483,7 @@ export function deriveWires(
 
   stampWireSegmentAnchors(segments, panels, installation, supplyAssemblies)
   applyWireRunsToSegments(segments, wireRuns, installation?.defaultCableKind, panels)
+  markCircuitEnclosureTransitions(segments, panels)
   return segments
 }
 
@@ -926,6 +928,23 @@ function derivePanelWires(
     [firstEnclosure, secondEnclosure].sort().join('|')
   const markAssemblyEnclosureBoundaries = (): void => {
     if (!supplyAssembly) return
+    // Distance from the utility source orients each separator in the direction of supply.
+    const supplyDepth = new Map<string, number>()
+    const queue = supplyAssembly.nodes
+      .filter((node) => node.kind === 'utility-source')
+      .map((node) => node.id)
+    for (const id of queue) supplyDepth.set(id, 0)
+    for (let index = 0; index < queue.length; index++) {
+      const nodeId = queue[index]!
+      for (const candidate of supplyAssembly.connections) {
+        const [first, second] = candidate.endpoints
+        const next =
+          first.nodeId === nodeId ? second.nodeId : second.nodeId === nodeId ? first.nodeId : undefined
+        if (!next || supplyDepth.has(next)) continue
+        supplyDepth.set(next, supplyDepth.get(nodeId)! + 1)
+        queue.push(next)
+      }
+    }
     for (const connection of supplyAssembly.connections) {
       const endpointNodes = connection.endpoints.map(({ nodeId }) =>
         supplyAssembly.nodes.find((candidate) => candidate.id === nodeId)
@@ -955,6 +974,12 @@ function derivePanelWires(
       }, undefined)
       if (markerSegment) {
         markerSegment.supplyEnclosureBoundary = true
+        const reversed =
+          (supplyDepth.get(connection.endpoints[0].nodeId) ?? 0) >
+          (supplyDepth.get(connection.endpoints[1].nodeId) ?? 0)
+        markerSegment.enclosureTransition = reversed
+          ? { from: toEnclosure, to: fromEnclosure }
+          : { from: fromEnclosure, to: toEnclosure }
         // A direct converter's grid and load paths meet at one visible T. Collapse
         // repeated ownership transitions there, while retaining both genuinely
         // independent inputs of a source changeover.
@@ -3671,7 +3696,7 @@ function derivePanelWires(
   if (supplyNode && renderedSupplyDeviceNodes.length > 0) {
     const horizontalDeviceLanes: Array<{
       y: number
-      devices: Array<{ x: number; enclosure: string }>
+      devices: Array<{ x: number; enclosure: string; order: number }>
     }> = []
     for (const node of renderedSupplyDeviceNodes) {
       const device = node.domainRef as TrunkDevice | undefined
@@ -3684,7 +3709,11 @@ function derivePanelWires(
         lane = { y: node.bounds.y, devices: [] }
         horizontalDeviceLanes.push(lane)
       }
-      lane.devices.push({ x: node.bounds.x, enclosure })
+      lane.devices.push({
+        x: node.bounds.x,
+        enclosure,
+        order: device?.trunkPosition ?? lane.devices.length,
+      })
     }
     for (const lane of horizontalDeviceLanes) {
       lane.devices.sort((left, right) => left.x - right.x)
@@ -3711,6 +3740,12 @@ function derivePanelWires(
         }, undefined)
         if (markerSegment) {
           markerSegment.supplyEnclosureBoundary = true
+          // Lower trunk positions sit closer to the grid connection.
+          const [upstream, downstream] = left.order <= right.order ? [left, right] : [right, left]
+          markerSegment.enclosureTransition = {
+            from: upstream.enclosure,
+            to: downstream.enclosure,
+          }
           const midpointX = (left.x + right.x) / 2
           markerSegment.supplySeparatorX = Math.max(
             midpointX,

@@ -1,6 +1,6 @@
 import JSZip from 'jszip'
 import type { ProjectV2 } from '@/types/projectV2'
-import i18n from '@/i18n'
+import i18n from '@/lib/i18n/domainI18n'
 import { shortProjectIdLabel } from '@/utils/project'
 import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
 import { selectProjectElectricalPanels } from '@/lib/projectV2/electrical'

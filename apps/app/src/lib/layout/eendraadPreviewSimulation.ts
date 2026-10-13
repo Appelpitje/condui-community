@@ -13,7 +13,7 @@ import {
   canDropSymbolOnSupplyConverterDcWire,
   dropBehaviors,
   isEmptyProtectionCircuitForDcDrop,
-} from '@/handlers/eendraad/dropBehaviors'
+} from '@/lib/eendraad/dropBehaviors'
 import { symbolSupportsWireDomain, type SymbolMetadata } from '@/lib/symbols'
 import type { DropTarget } from '@/lib/layout/findDropTarget'
 import {
@@ -85,7 +85,7 @@ import {
   refreshBranchDropTargetAfterInsert,
   resolveSmartSwitchExpansion,
   shouldApplySmartSwitchExpansion,
-} from '@/handlers/eendraad/smartSwitchDrop'
+} from '@/lib/eendraad/smartSwitchDrop'
 import { clamp } from '@/lib/geometry'
 import {
   findOrdinaryCircuitDcBusForOutput,

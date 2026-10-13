@@ -1,4 +1,4 @@
-import type { ModulePlacement } from './panelGridLayout'
+import type { ModulePlacement } from '@/lib/panel/panelGridLayout'
 
 export type WirePathPoint = { x: number; y: number }
 

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { GripVertical, Plus, Trash2, Pencil, Check, X, Eye, EyeOff, Copy } from 'lucide-react'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useDialogStore } from '@/stores/dialogStore'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import type { Floor } from '@/types/schema'
 import { generateId } from '@/utils'
 import { readLegacyCompatibilityFloors } from '@/lib/projectV2/buildingFloors'
@@ -38,7 +39,6 @@ function FloorSelectionDialog({
   const { t } = useTranslation()
   const currentProject = useProjectStore((s: ProjectState) => s.currentProject)
   const addFloor = useProjectStore((s: ProjectState) => s.addFloor)
-  const updateFloor = useProjectStore((s: ProjectState) => s.updateFloor)
   const deleteFloor = useProjectStore((s: ProjectState) => s.deleteFloor)
   const reorderFloors = useProjectStore((s: ProjectState) => s.reorderFloors)
   const togglePlanFloorOverlayFloor = useProjectStore(
@@ -179,7 +179,7 @@ function FloorSelectionDialog({
     if (!editingFloorId) return
     const trimmed = editingFloorName.trim()
     if (!trimmed) return
-    updateFloor(editingFloorId, { name: trimmed })
+    runProjectCommand('floor.rename', { floorId: editingFloorId, name: trimmed })
     setEditingFloorId(null)
     setEditingFloorName('')
   }

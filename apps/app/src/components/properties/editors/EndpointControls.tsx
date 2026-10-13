@@ -36,6 +36,7 @@ import {
   polesFromConfig,
 } from '@/constants/poleConfig'
 import { useProjectStore } from '@/stores/projectStore'
+import { editProperties } from '@/handlers/properties/editProperties'
 import { labelClass, selectClass, visibilityToggleClass } from '../shared/propertiesSharedUtils'
 import type { TFunction } from 'i18next'
 import { CERTIFICATION_LISTING_VISIBILITY_KEY } from '@/lib/certificationLabels'
@@ -343,7 +344,6 @@ export function DomoticaEndpointFields({
   onUpdate: (id: string, updates: Partial<Endpoint>) => void
   t: (key: string, defaultValue?: string) => string
 }) {
-  const deleteEndpoints = useProjectStore((state) => state.deleteEndpoints)
   const getEndpointById = useProjectStore((state) => state.getEndpointById)
   const findCircuitForEndpoint = useProjectStore((state) => state.findCircuitForEndpoint)
   const dom = endpoint.domoticaProps || {}
@@ -378,10 +378,9 @@ export function DomoticaEndpointFields({
     // Output wires stay empty until the user drops something onto them.
     const endpointChildIds = [...existingEndpointChildIds]
 
-    if (endpointChildIds.length > nextEndpointCount) {
-      const removed = endpointChildIds.splice(nextEndpointCount)
-      if (removed.length > 0) deleteEndpoints(removed)
-    }
+    const removed = endpointChildIds.length > nextEndpointCount
+      ? endpointChildIds.splice(nextEndpointCount)
+      : []
 
     // Ensure per-output wire arrays exist and match the new counts so domotica
     // outputs get independent wire properties rather than reusing the trunk.
@@ -409,14 +408,21 @@ export function DomoticaEndpointFields({
 
     const nextEndpointOutputWires = ensureWireArray(dom.endpointOutputWires, nextEndpointCount)
 
-    onUpdate(endpointId, {
-      domoticaProps: {
-        ...dom,
-        ...next,
-        endpointCount: nextEndpointCount,
-        endpointChildEndpointIds: endpointChildIds,
-        endpointOutputWires: nextEndpointOutputWires,
-      },
+    editProperties({
+      edits: [{
+        kind: 'endpoint',
+        ids: [endpointId],
+        set: {
+          domoticaProps: {
+            ...dom,
+            ...next,
+            endpointCount: nextEndpointCount,
+            endpointChildEndpointIds: endpointChildIds,
+            endpointOutputWires: nextEndpointOutputWires,
+          },
+        },
+      }],
+      actions: removed.length > 0 ? [{ kind: 'deleteEndpoints', endpointIds: removed }] : undefined,
     })
   }
 

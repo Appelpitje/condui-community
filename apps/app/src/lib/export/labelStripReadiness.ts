@@ -4,7 +4,7 @@ import {
   getPanelGridPlacements,
   panelGridModuleRefKey,
   resolveModuleWidthCols,
-} from '@/components/canvas/panel/panelGridLayout'
+} from '@/lib/panel/panelGridLayout'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import { panelModulesToGridUnits } from '@/lib/panel/panelGridUnits'
 

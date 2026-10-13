@@ -1,3 +1,6 @@
+import type { GeneralProjectPropertyPatch } from '@/lib/properties/generalPropertyFamilies'
+import type { InstallationPropertyPatch } from '@/handlers/properties/editProperties'
+import { updateInstallationAddressAndSite } from '@/handlers/properties/editGeneralProperties'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, Eye, EyeOff, MapPin } from 'lucide-react'
@@ -12,7 +15,7 @@ import {
   inspectionAgencyContactFromEntry,
   type InspectionAgencyCatalogEntry,
 } from '@/lib/inspectionAgencyCatalog'
-import { useProjectStore, type ProjectState } from '@/stores/projectStore'
+import { type ProjectState } from '@/stores/projectStore'
 import type { CableSpec, Installation } from '@/types/schema'
 import {
   PROJECT_DEFAULT_CABLE_KINDS,
@@ -32,13 +35,6 @@ import { resolveInstallationProfile } from '@/lib/installationProfile'
 const ADDRESS_AUTOCOMPLETE_DEBOUNCE_MS = 650
 
 type Project = NonNullable<ProjectState['currentProject']>
-type ProjectWithOptionalSite = Project & {
-  site?: {
-    address?: Installation['address']
-    geocoding?: GeoapifyAddressSuggestion['geocoding']
-    location?: GeoapifyAddressSuggestion['location']
-  }
-}
 function InstallationStreetAutocomplete({
   disabled,
   value,
@@ -174,8 +170,8 @@ export function ProjectProperties({
   isTemplate = false,
 }: {
   project: Project | null
-  updateProject: (updates: Partial<Project['project']>) => void
-  updateInstallation: (updates: Partial<Installation>) => void
+  updateProject: (updates: GeneralProjectPropertyPatch) => void
+  updateInstallation: (updates: InstallationPropertyPatch) => void
   readOnly?: boolean
   isTemplate?: boolean
 }) {
@@ -196,13 +192,13 @@ export function ProjectProperties({
   const customer = projectInfo?.customer
   const inspectionAgency = projectInfo?.inspectionAgency
   const updateProject = useCallback(
-    (updates: Partial<Project['project']>) => {
+    (updates: GeneralProjectPropertyPatch) => {
       if (!readOnly) applyProjectUpdate(updates)
     },
     [applyProjectUpdate, readOnly]
   )
   const updateInstallation = useCallback(
-    (updates: Partial<Installation>) => {
+    (updates: InstallationPropertyPatch) => {
       if (!readOnly) applyInstallationUpdate(updates)
     },
     [applyInstallationUpdate, readOnly]
@@ -300,13 +296,6 @@ export function ProjectProperties({
                     name: v,
                     customer: {
                       name: v,
-                      companyNumber: customer?.companyNumber,
-                      email: customer?.email,
-                      mobile: customer?.mobile,
-                      phone: customer?.phone,
-                      meterEanCode: customer?.meterEanCode,
-                      address: customer?.address,
-                      siteAddress: customer?.siteAddress,
                     },
                   })
                 }
@@ -361,31 +350,13 @@ export function ProjectProperties({
                   disabled={readOnly}
                   value={installation.address.street}
                   onStreetCommit={(street) => {
-                    updateInstallation({
-                      address: { ...installation.address, street },
-                    })
-                    useProjectStore.setState((state: ProjectState) => {
-                      const current = state.currentProject as ProjectWithOptionalSite | null
-                      if (!current?.site) return
-                      delete current.site.location
-                      delete current.site.geocoding
-                      state.isDirty = true
-                    })
+                    if (!readOnly) updateInstallationAddressAndSite({ street }, { location: null, geocoding: null })
                   }}
                   onSelect={(suggestion) => {
-                    updateInstallation({
+                    if (!readOnly) updateInstallationAddressAndSite(suggestion.address, {
                       address: suggestion.address,
-                    })
-                    useProjectStore.setState((state: ProjectState) => {
-                      const current = state.currentProject as ProjectWithOptionalSite | null
-                      if (!current) return
-                      current.site = {
-                        ...(current.site ?? {}),
-                        address: suggestion.address,
-                        geocoding: suggestion.geocoding,
-                        location: suggestion.location,
-                      }
-                      state.isDirty = true
+                      geocoding: suggestion.geocoding,
+                      location: suggestion.location,
                     })
                   }}
                 />
@@ -399,7 +370,7 @@ export function ProjectProperties({
                       value={installation.address.postalCode}
                       onCommit={(v) =>
                         updateInstallation({
-                          address: { ...installation.address, postalCode: v },
+                          address: { postalCode: v },
                         })
                       }
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
@@ -414,7 +385,7 @@ export function ProjectProperties({
                       value={installation.address.city}
                       onCommit={(v) =>
                         updateInstallation({
-                          address: { ...installation.address, city: v },
+                          address: { city: v },
                         })
                       }
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
@@ -428,7 +399,7 @@ export function ProjectProperties({
                   <select
                     value={installation.address.country}
                     disabled={readOnly}
-                    onChange={(e) => updateInstallation({ address: { ...installation.address, country: e.target.value } })}
+                    onChange={(e) => updateInstallation({ address: { country: e.target.value } })}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="BE">{t('installation.countryBelgium', 'Belgium')}</option>
@@ -460,12 +431,6 @@ export function ProjectProperties({
                     customer: {
                       name: project.project.name ?? '',
                       companyNumber: v.trim() === '' ? undefined : v,
-                      email: customer?.email,
-                      mobile: customer?.mobile,
-                      phone: customer?.phone,
-                      meterEanCode: customer?.meterEanCode,
-                      address: customer?.address,
-                      siteAddress: customer?.siteAddress,
                     },
                   })
                 }
@@ -479,13 +444,7 @@ export function ProjectProperties({
                   updateProject({
                     customer: {
                       name: project.project.name ?? '',
-                      companyNumber: customer?.companyNumber,
                       email: v.trim() === '' ? undefined : v,
-                      mobile: customer?.mobile,
-                      phone: customer?.phone,
-                      meterEanCode: customer?.meterEanCode,
-                      address: customer?.address,
-                      siteAddress: customer?.siteAddress,
                     },
                   })
                 }
@@ -504,13 +463,7 @@ export function ProjectProperties({
                     updateProject({
                       customer: {
                         name: project.project.name ?? '',
-                        companyNumber: customer?.companyNumber,
-                        email: customer?.email,
                         mobile: v.trim() === '' ? undefined : v,
-                        phone: customer?.phone,
-                        meterEanCode: customer?.meterEanCode,
-                        address: customer?.address,
-                        siteAddress: customer?.siteAddress,
                       },
                     })
                   }
@@ -528,13 +481,7 @@ export function ProjectProperties({
                     updateProject({
                       customer: {
                         name: project.project.name ?? '',
-                        companyNumber: customer?.companyNumber,
-                        email: customer?.email,
-                        mobile: customer?.mobile,
                         phone: v.trim() === '' ? undefined : v,
-                        meterEanCode: customer?.meterEanCode,
-                        address: customer?.address,
-                        siteAddress: customer?.siteAddress,
                       },
                     })
                   }
@@ -765,11 +712,6 @@ export function ProjectProperties({
                   updateProject({
                     inspectionAgency: {
                       name: v,
-                      companyNumber: inspectionAgency?.companyNumber,
-                      email: inspectionAgency?.email,
-                      mobile: inspectionAgency?.mobile,
-                      phone: inspectionAgency?.phone,
-                      address: inspectionAgency?.address,
                     },
                   })
                 }
@@ -791,17 +733,8 @@ export function ProjectProperties({
                     onCommit={(v) =>
                       updateProject({
                         inspectionAgency: {
-                          name: inspectionAgency?.name ?? '',
-                          companyNumber: inspectionAgency?.companyNumber,
-                          email: inspectionAgency?.email,
-                          mobile: inspectionAgency?.mobile,
-                          phone: inspectionAgency?.phone,
                           address: {
                             street: v,
-                            number: inspectionAgency?.address?.number,
-                            postalCode: inspectionAgency?.address?.postalCode ?? '',
-                            city: inspectionAgency?.address?.city ?? '',
-                            country: inspectionAgency?.address?.country ?? '',
                           },
                         },
                       })
@@ -820,17 +753,8 @@ export function ProjectProperties({
                       onCommit={(v) =>
                         updateProject({
                           inspectionAgency: {
-                            name: inspectionAgency?.name ?? '',
-                            companyNumber: inspectionAgency?.companyNumber,
-                            email: inspectionAgency?.email,
-                            mobile: inspectionAgency?.mobile,
-                            phone: inspectionAgency?.phone,
                             address: {
-                              street: inspectionAgency?.address?.street ?? '',
-                              number: inspectionAgency?.address?.number,
                               postalCode: v,
-                              city: inspectionAgency?.address?.city ?? '',
-                              country: inspectionAgency?.address?.country ?? '',
                             },
                           },
                         })
@@ -848,17 +772,8 @@ export function ProjectProperties({
                       onCommit={(v) =>
                         updateProject({
                           inspectionAgency: {
-                            name: inspectionAgency?.name ?? '',
-                            companyNumber: inspectionAgency?.companyNumber,
-                            email: inspectionAgency?.email,
-                            mobile: inspectionAgency?.mobile,
-                            phone: inspectionAgency?.phone,
                             address: {
-                              street: inspectionAgency?.address?.street ?? '',
-                              number: inspectionAgency?.address?.number,
-                              postalCode: inspectionAgency?.address?.postalCode ?? '',
                               city: v,
-                              country: inspectionAgency?.address?.country ?? '',
                             },
                           },
                         })
@@ -877,16 +792,7 @@ export function ProjectProperties({
                     onCommit={(v) =>
                       updateProject({
                         inspectionAgency: {
-                          name: inspectionAgency?.name ?? '',
-                          companyNumber: inspectionAgency?.companyNumber,
-                          email: inspectionAgency?.email,
-                          mobile: inspectionAgency?.mobile,
-                          phone: inspectionAgency?.phone,
                           address: {
-                            street: inspectionAgency?.address?.street ?? '',
-                            number: inspectionAgency?.address?.number,
-                            postalCode: inspectionAgency?.address?.postalCode ?? '',
-                            city: inspectionAgency?.address?.city ?? '',
                             country: v,
                           },
                         },
@@ -917,12 +823,7 @@ export function ProjectProperties({
                 onCommit={(v) =>
                   updateProject({
                     inspectionAgency: {
-                      name: inspectionAgency?.name ?? '',
                       companyNumber: v.trim() === '' ? undefined : v,
-                      email: inspectionAgency?.email,
-                      mobile: inspectionAgency?.mobile,
-                      phone: inspectionAgency?.phone,
-                      address: inspectionAgency?.address,
                     },
                   })
                 }
@@ -935,12 +836,7 @@ export function ProjectProperties({
                 onCommit={(v) =>
                   updateProject({
                     inspectionAgency: {
-                      name: inspectionAgency?.name ?? '',
-                      companyNumber: inspectionAgency?.companyNumber,
                       email: v.trim() === '' ? undefined : v,
-                      mobile: inspectionAgency?.mobile,
-                      phone: inspectionAgency?.phone,
-                      address: inspectionAgency?.address,
                     },
                   })
                 }
@@ -958,12 +854,7 @@ export function ProjectProperties({
                   onCommit={(v) =>
                     updateProject({
                       inspectionAgency: {
-                        name: inspectionAgency?.name ?? '',
-                        companyNumber: inspectionAgency?.companyNumber,
-                        email: inspectionAgency?.email,
                         mobile: v.trim() === '' ? undefined : v,
-                        phone: inspectionAgency?.phone,
-                        address: inspectionAgency?.address,
                       },
                     })
                   }
@@ -980,12 +871,7 @@ export function ProjectProperties({
                   onCommit={(v) =>
                     updateProject({
                       inspectionAgency: {
-                        name: inspectionAgency?.name ?? '',
-                        companyNumber: inspectionAgency?.companyNumber,
-                        email: inspectionAgency?.email,
-                        mobile: inspectionAgency?.mobile,
                         phone: v.trim() === '' ? undefined : v,
-                        address: inspectionAgency?.address,
                       },
                     })
                   }

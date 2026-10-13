@@ -180,6 +180,10 @@ class ProjectHistoryCoordinator {
   private pendingTimer: ReturnType<typeof globalThis.setTimeout> | null = null
   private pendingProject: Project | null = null
 
+  hasPending(): boolean {
+    return this.pendingProject != null
+  }
+
   isRecordingEnabled(): boolean {
     return this.recordingSuppressionDepth === 0
   }

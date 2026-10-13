@@ -1,4 +1,4 @@
-import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import {
   getProjectElectricalInstallation,
   getProjectElectricalPanels,
@@ -95,7 +95,7 @@ export function collectJunctionPanelOccurrences(
     visitPanel(panel)
   }
   const installation = getProjectElectricalInstallation(project)
-  for (const device of getAllSupplyTrunkDevices(project)) {
+  for (const device of queryAllSupplyTrunkDevices(project)) {
     add(device, { kind: 'trunkDevice', id: device.id, scope: 'supply' })
   }
   for (const device of installation?.groundTrunkDevices ?? []) {
@@ -150,8 +150,12 @@ export function updateSharedJunctionPanelGrid(
     return false
   }
   const identity = (target.junctionIdentity ?? target.label ?? '').trim().toUpperCase()
+  const installation = getProjectElectricalInstallation(project)
   const devices: TrunkDevice[] = [
-    ...getAllSupplyTrunkDevices(project),
+    ...queryAllSupplyTrunkDevices(project),
+    // Update stored topology copies too, without normalizing unrelated supply data.
+    ...(installation?.feedTopology?.sharedFeed.trunkDevices ?? []),
+    ...(installation?.feedTopology?.rootFeeds ?? []).flatMap((feed) => feed.trunkDevices ?? []),
     ...collectAllGroundTrunkDevices(
       getProjectElectricalPanels(project),
       getProjectElectricalInstallation(project)
@@ -164,16 +168,25 @@ export function updateSharedJunctionPanelGrid(
     ]
     for (const circuit of circuits) devices.push(...(circuit.trunkDevices ?? []))
   }
+  const configured = target.junctionPanelGridView
+    ? target
+    : devices.find(
+        (device) =>
+          identity && getJunctionPanelIdentity(device) === identity && device.junctionPanelGridView
+      )
+  const sharedGrid = getJunctionPanelGridView(configured ?? target)
   let changed = false
   for (const device of devices) {
     if (device.type !== 'junction_panel' && device.symbol !== 'junction_panel') continue
     const candidateIdentity = (device.junctionIdentity ?? device.label ?? '').trim().toUpperCase()
     if (device.id !== deviceId && (!identity || candidateIdentity !== identity)) continue
-    device.junctionPanelGridView = {
-      ...getJunctionPanelGridView(device),
+    const next = {
+      ...sharedGrid,
       ...updates,
-      slots: updates.slots ?? device.junctionPanelGridView?.slots ?? [],
+      slots: updates.slots ?? sharedGrid.slots,
     }
+    if (JSON.stringify(getJunctionPanelGridView(device)) === JSON.stringify(next)) continue
+    device.junctionPanelGridView = next
     changed = true
   }
   return changed

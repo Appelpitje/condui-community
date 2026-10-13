@@ -1,7 +1,7 @@
+import { updateDoorProperties, updateWindowProperties } from '@/handlers/properties/editGeneralProperties'
 import { useTranslation } from 'react-i18next'
 import { DebouncedNumberInput } from '@/components/forms'
 import CustomDropdown from '@/components/common/CustomDropdown'
-import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useUIStore, type UIState } from '@/stores/uiStore'
 import { usePlanGrid, resolvePlanCanvasPxPerMeter } from '@/hooks/plan'
 import type { Door, Window, Floor } from '@/types/schema'
@@ -15,8 +15,6 @@ interface OpeningPropertiesProps {
 
 export function OpeningProperties({ opening, kind, floor }: OpeningPropertiesProps) {
   const { t } = useTranslation()
-  const updateDoor = useProjectStore((s: ProjectState) => s.updateDoor)
-  const updateWindow = useProjectStore((s: ProjectState) => s.updateWindow)
   const planView = useUIStore((s: UIState) => s.planView)
   const gridSize = usePlanGrid(floor, planView, true)
 
@@ -30,16 +28,16 @@ export function OpeningProperties({ opening, kind, floor }: OpeningPropertiesPro
   const handleWidthCommit = (value: number) => {
     const widthPx = (value / 100) * canvasPxPerMeter
     if (kind === 'door') {
-      updateDoor(opening.id, { width: widthPx })
+      updateDoorProperties(opening.id, { width: widthPx })
     } else {
-      updateWindow(opening.id, { width: widthPx })
+      updateWindowProperties(opening.id, { width: widthPx })
     }
   }
 
   const handleSwingAngleCommit = (value: number) => {
     if (kind !== 'door') return
     const clamped = clamp(value, 1, 100)
-    updateDoor(opening.id, { swingAngleDeg: clamped })
+    updateDoorProperties(opening.id, { swingAngleDeg: clamped })
   }
   const handleSwingChange = (value: string) => {
     if (kind !== 'door') return
@@ -47,13 +45,13 @@ export function OpeningProperties({ opening, kind, floor }: OpeningPropertiesPro
       value === 'left' || value === 'right' || value === 'none' || value === 'double'
         ? value
         : 'right'
-    updateDoor(opening.id, { swing })
+    updateDoorProperties(opening.id, { swing })
   }
 
   const handleDirectionChange = (nextValue: string) => {
     if (kind !== 'door') return
     const value = nextValue === 'out' ? 'out' : 'in'
-    updateDoor(opening.id, { direction: value })
+    updateDoorProperties(opening.id, { direction: value })
   }
 
   return (

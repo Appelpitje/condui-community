@@ -1,7 +1,7 @@
 import { Text } from 'react-konva'
 import { useThemeColors } from '@/lib/theme/hooks'
 import { useCanvasFontFamily } from '@/editions/community/communityHooks'
-import { getLabelBoxSize } from '@/utils/plan/labelPositioning'
+import { getLabelBoxSize } from '@/lib/plan/planLabelMetrics'
 
 interface PlacementLabelProps {
   endpoint: { label?: string }

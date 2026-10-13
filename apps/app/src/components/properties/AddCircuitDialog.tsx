@@ -3,18 +3,15 @@
  * Creates protection + circuit on the given panel at the end of the main bus, then assigns the endpoint.
  */
 import React, { useState, useEffect } from 'react'
+import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
-import { generateId } from '@/utils'
-import {
-  createDefaultAcCircuitCable,
-  DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS,
-} from '@/lib/wires/circuitWireDefaults'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import {
   getVoltagePolesConfig,
   getProtectionCreationProps,
   DEFAULT_RCBO_SENSITIVITY_MA,
-  BE_STANDARD_BREAKER_RATINGS_A,
+  getProtectionRatingOptions,
 } from '@/lib/protectionDefaults'
 import CustomDropdown from '@/components/common/CustomDropdown'
 import {
@@ -24,7 +21,7 @@ import {
   polesFromConfig,
   polesConfigToDisplay,
 } from '@/constants/poleConfig'
-import type { ProtectionDevice, Circuit, ProtectionType, PolesConfig } from '@/types/schema'
+import type { ProtectionType, PolesConfig } from '@/types/schema'
 import { flattenPanels } from '@/utils/eendraad/panelHelpers'
 import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
 
@@ -54,9 +51,7 @@ export default function AddCircuitDialog({
 }: AddCircuitDialogProps) {
   const { t } = useTranslation()
   const currentProject = useProjectStore((s: ProjectState) => s.currentProject)
-  const addProtection = useProjectStore((s: ProjectState) => s.addProtection)
-  const addCircuit = useProjectStore((s: ProjectState) => s.addCircuit)
-  const updateEndpoint = useProjectStore((s: ProjectState) => s.updateEndpoint)
+  const installationProfile = useInstallationProfile()
 
   const panels = flattenPanels(currentProject ? getProjectElectricalPanels(currentProject) : [])
   const polesConfig = getVoltagePolesConfig(currentProject)
@@ -98,11 +93,7 @@ export default function AddCircuitDialog({
       ? POLE_CONFIG_OPTIONS_RCBO
       : POLE_CONFIG_OPTIONS_MCB
 
-  const ratingOptions = isRCD
-    ? [25, 40, 63, 80, 100, 125]
-    : isRCBO || isMCB
-      ? [...BE_STANDARD_BREAKER_RATINGS_A]
-      : null
+  const ratingOptions = getProtectionRatingOptions(protectionType, installationProfile)
 
   const sensitivityOptions = isRCBO ? [10, 30, 100, 300] : [10, 30, 100, 300, 500]
 
@@ -124,47 +115,35 @@ export default function AddCircuitDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const protectionId = generateId()
-    const circuitId = generateId()
     const poles = polesFromConfig(polesConfigLocal)
 
     const labelTrimmed = label.trim()
-    const protection: ProtectionDevice = {
-      id: protectionId,
-      type: protectionType,
-      label: labelTrimmed,
-      circuits: [],
-      polesConfig: polesConfigLocal,
-      poles,
-      ratingA: typeof ratingA === 'number' ? ratingA : undefined,
-      curve: hasCurve ? (curve as 'B' | 'C' | 'D' | 'K' | 'Z') : undefined,
-      sensitivityMa: hasResidual
-        ? typeof sensitivityMa === 'number'
-          ? sensitivityMa
-          : protectionType === 'RCBO'
-            ? DEFAULT_RCBO_SENSITIVITY_MA
-            : undefined
-        : undefined,
-      residualCurrentType: hasResidual
-        ? (residualCurrentType as 'AC' | 'A' | 'F' | 'B')
-        : undefined,
-      breakingCapacityKa: hasCurve ? breakingCapacityKa : undefined,
-      breakingCapacityOption: hasCurve ? breakingCapacityOption : undefined,
-    }
-
-    const circuit: Circuit = {
-      id: circuitId,
-      code: labelTrimmed,
-      kind: 'empty',
-      cable: createDefaultAcCircuitCable(),
-      endpoints: [],
-      ...DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS,
-    }
-
-    addProtection(selectedPanelId, protection)
-    addCircuit(selectedPanelId, circuit, protectionId)
-    updateEndpoint(endpointId, { circuitId })
-    onCreated(circuitId)
+    const outcome = runProjectCommand('electrical.createCircuitAndAssign', {
+      panelId: selectedPanelId,
+      endpointId,
+      protection: {
+        type: protectionType,
+        label: labelTrimmed,
+        polesConfig: polesConfigLocal,
+        poles,
+        ratingA: typeof ratingA === 'number' ? ratingA : undefined,
+        curve: hasCurve ? (curve as 'B' | 'C' | 'D' | 'K' | 'Z') : undefined,
+        sensitivityMa: hasResidual
+          ? typeof sensitivityMa === 'number'
+            ? sensitivityMa
+            : protectionType === 'RCBO'
+              ? DEFAULT_RCBO_SENSITIVITY_MA
+              : undefined
+          : undefined,
+        residualCurrentType: hasResidual
+          ? (residualCurrentType as 'AC' | 'A' | 'F' | 'B')
+          : undefined,
+        breakingCapacityKa: hasCurve ? breakingCapacityKa : undefined,
+        breakingCapacityOption: hasCurve ? breakingCapacityOption : undefined,
+      },
+    }, { label: 'Create circuit and assign endpoint' })
+    const circuitId = outcome?.results[0]?.created.find((entity) => entity.kind === 'circuit')?.id
+    if (circuitId) onCreated(circuitId)
   }
 
   return (

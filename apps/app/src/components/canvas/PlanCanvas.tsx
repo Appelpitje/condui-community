@@ -14,6 +14,7 @@ import {
   usePlanDragVisualStore,
 } from '@/stores/planDragVisualStore'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { useDialog } from '@/hooks/useDialog'
 import { useSettingsStore } from '@/stores/settingsStore'
 import {
@@ -35,7 +36,6 @@ import {
 } from '@/lib/plan/planCanvasPointSelection'
 import {
   createFloorPlanClipboardPayload,
-  pasteFloorPlanClipboardPayload,
   selectWallsForFloorPlanClipboard,
   type FloorPlanClipboardPayload,
 } from '@/lib/plan/floorPlanClipboard'
@@ -513,7 +513,6 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
   const dialog = useDialog()
   const applyPlanRescale = useProjectStore((s: ProjectState) => s.applyPlanRescale)
   const updatePlacement = useProjectStore((s: ProjectState) => s.updatePlacement)
-  const addPlacement = useProjectStore((s: ProjectState) => s.addPlacement)
   const updateSitplanNote = useProjectStore((s: ProjectState) => s.updateSitplanNote)
   const updateWall = useProjectStore((s: ProjectState) => s.updateWall)
   const deleteWall = useProjectStore((s: ProjectState) => s.deleteWall)
@@ -1372,31 +1371,6 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
     }
   }, [planCanvasViewportPx?.height, planCanvasViewportPx?.width, planView.pan, planView.zoom])
 
-  const pasteClipboardPayloadToFloor = useCallback(
-    (
-      payload: FloorPlanClipboardPayload,
-      targetFloorId: string,
-      copyOpenings = true,
-      targetCenter?: Point2
-    ) => {
-      const targetFloor = getFloorById(targetFloorId)
-      if (!targetFloor) return null
-      const result = pasteFloorPlanClipboardPayload({
-        payload,
-        targetFloorId,
-        targetPxPerMeter: calculatePxPerMeter(targetFloor) ?? 100,
-        targetFloorPlan: targetFloor.floorPlan,
-        generateId,
-        copyOpenings,
-        targetCenter,
-      })
-      updateFloor(targetFloorId, { floorPlan: result.floorPlan })
-      result.placements.forEach(({ endpointId, placement }) => addPlacement(endpointId, placement))
-      return result
-    },
-    [addPlacement, getFloorById, updateFloor]
-  )
-
   const handleGraphicElementSelect = useCallback(
     (elementId: string, event?: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }) => {
       if (!isFloorPlanMode || activeTool !== 'select') return
@@ -1435,11 +1409,13 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
       if (targetFloorIds.length === 0) return
       const payload = createClipboardPayloadFromSelection()
       if (!payload) return
-      targetFloorIds.forEach((targetFloorId) =>
-        pasteClipboardPayloadToFloor(payload, targetFloorId, options.copyOpenings)
-      )
+      runProjectCommand('plan.copyToFloor', {
+        payload,
+        targetFloorIds,
+        copyOpenings: options.copyOpenings,
+      })
     },
-    [createClipboardPayloadFromSelection, pasteClipboardPayloadToFloor]
+    [createClipboardPayloadFromSelection]
   )
 
   const handleCopyFloorPlanSelection = useCallback(() => {
@@ -1450,41 +1426,34 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
   }, [createClipboardPayloadFromSelection])
 
   const handlePasteFloorPlanSelection = useCallback(() => {
-    if (!activeFloorId || !floorPlanClipboardRef.current) return false
-    const resultRef: {
-      current: ReturnType<typeof pasteFloorPlanClipboardPayload> | null
-    } = { current: null }
-    withSingleUndoEntry(
-      () => {
-        resultRef.current = pasteClipboardPayloadToFloor(
-          floorPlanClipboardRef.current!,
-          activeFloorId,
-          true,
-          floorPlanClipboardRef.current!.sourceFloorId === activeFloorId
-            ? getPlanViewportCenter()
-            : undefined
-        )
-        return resultRef.current != null
+    const payload = floorPlanClipboardRef.current
+    if (!activeFloorId || !payload) return false
+    const outcome = runProjectCommand(
+      'plan.copyToFloor',
+      {
+        payload,
+        targetFloorIds: [activeFloorId],
+        copyOpenings: true,
+        ...(payload.sourceFloorId === activeFloorId
+          ? { targetCenter: getPlanViewportCenter() }
+          : {}),
       },
-      { sessionLabel: 'paste-floor-plan-selection' }
+      { label: 'paste-floor-plan-selection' }
     )
-    const result = resultRef.current
-    if (!result) return false
-    if (result.wallIds.length > 0) applySelection({ type: 'wall', ids: result.wallIds })
-    else if (result.stairIds.length > 0) applySelection({ type: 'stair', ids: result.stairIds })
-    else if (result.graphicElementIds.length > 0) {
-      applySelection({ type: 'graphicElement', ids: result.graphicElementIds })
-    } else if (result.placementIds.length > 0) {
-      applySelection({ type: 'placement', ids: result.placementIds })
+    const select = outcome?.results[0]?.select ?? []
+    if (!outcome?.changed) return false
+    const selectionTypeByKind = {
+      wall: 'wall',
+      stair: 'stair',
+      element: 'graphicElement',
+      placement: 'placement',
+    } as const
+    const kind = select[0]?.kind as keyof typeof selectionTypeByKind | undefined
+    if (kind && kind in selectionTypeByKind) {
+      applySelection({ type: selectionTypeByKind[kind], ids: select.map((ref) => ref.id) })
     }
     return true
-  }, [
-    activeFloorId,
-    applySelection,
-    getPlanViewportCenter,
-    pasteClipboardPayloadToFloor,
-    withSingleUndoEntry,
-  ])
+  }, [activeFloorId, applySelection, getPlanViewportCenter])
   const buildEncodedFloorPointIds = useCallback(
     (wallPoints: Map<string, number[]>, stairPoints: Map<string, number[]>): string[] => {
       const ids: string[] = []
@@ -4748,10 +4717,10 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
         // Let the now-cancelled Konva drag-end event run while the continuation guard is still
         // active, then make the pointer-driven positions authoritative.
         queueMicrotask(() => {
-          useProjectStore.getState().movePlanPlacementsToFloor(
-            Array.from(positions, ([id, pos]) => ({ id, pos })),
-            session.floorId
-          )
+          runProjectCommand('plan.moveToFloor', {
+            floorId: session.floorId,
+            moves: Array.from(positions, ([placementId, pos]) => ({ placementId, pos })),
+          })
           finishCrossFloorDrag()
         })
       }
@@ -4936,7 +4905,7 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
       baseSymbolSizePx,
       createSingleDragHandlers,
       labelPositions,
-      planImage,
+      planImageForAnalysis,
       planImagePosition,
     ]
   )

@@ -20,7 +20,7 @@ import {
   toggleProtectionLabelVisibility,
   type ProtectionLabelKey,
 } from '@/lib/protectionLabels'
-import { isProtectionOnSupplyPanel } from '@/components/canvas/panel/panelGridLayout'
+import { isProtectionOnSupplyPanel } from '@/lib/panel/panelGridLayout'
 import { AutomaticNamingOverrideControl } from '../shared/AutomaticNamingOverrideControl'
 import {
   ProtectionDeviceElectricalFields,
@@ -29,13 +29,13 @@ import {
 import { InstallDateField } from '../shared/propertiesShared'
 import { installationDateUpdateFromYear } from '@/lib/installDates'
 import {
-  ensureInstallDateTargetColors,
   labelClass,
   panelStringT,
   selectClass,
   visibilityToggleClass,
 } from '../shared/propertiesSharedUtils'
 import { getProjectElectricalInstallation } from '@/lib/projectV2/electrical'
+import { editProperties } from '@/handlers/properties/editProperties'
 // Protection Properties Component
 export function ProtectionProperties({
   protectionId,
@@ -55,11 +55,6 @@ export function ProtectionProperties({
   const installation = currentProject
     ? getProjectElectricalInstallation(currentProject)
     : undefined
-  const updateInstallation = useProjectStore((state: ProjectState) => state.updateInstallation)
-  const withSingleUndoEntry = useProjectStore((state: ProjectState) => state.withSingleUndoEntry)
-  const applyAutomaticNaming = useProjectStore(
-    (state: ProjectState) => state.applyAutomaticEendraadNamingAllPanels
-  )
   const openDialog = useDialogStore((state) => state.openDialog)
   const panelForProtection = useProjectStore((state: ProjectState) =>
     state.getPanelForProtection(protectionId)
@@ -71,6 +66,7 @@ export function ProtectionProperties({
   const firstCircuit = circuitsOfProtection?.[0] ? getCircuitById(circuitsOfProtection[0].id) : null
   const labelInputRef = useRef<HTMLInputElement>(null)
   const [focusCustomLabel, setFocusCustomLabel] = useState(false)
+  const [customLabelDraft, setCustomLabelDraft] = useState(false)
   const [labelDraft, setLabelDraft] = useState(protection?.label ?? '')
   const protectionTypeOptions = useMemo(() => getProtectionTypeDropdownOptions(panelStringT(t), 'panel'), [t])
 
@@ -119,37 +115,46 @@ export function ProtectionProperties({
 
   useEffect(() => {
     setLabelDraft(protection?.label ?? '')
+    setCustomLabelDraft(false)
   }, [protection?.label, protectionId])
 
   const setCustomLabel = (focusInput = true) => {
-    withSingleUndoEntry(() => {
-      for (const circuit of circuitsOfProtection ?? []) {
-        updateCircuit(circuit.id, { eendraadManualCodeLock: true })
-      }
-      return true
-    })
+    const ids = (circuitsOfProtection ?? []).map((circuit) => circuit.id)
+    if (ids.length > 0) {
+      editProperties({
+        edits: [{ kind: 'circuit', ids, set: { eendraadManualCodeLock: true } }],
+      })
+    }
     if (focusInput) setFocusCustomLabel(true)
   }
 
   const useAutomaticLabel = () => {
-    withSingleUndoEntry(() => {
-      for (const circuit of circuitsOfProtection ?? []) {
-        updateCircuit(circuit.id, { eendraadManualCodeLock: undefined })
-      }
-      applyAutomaticNaming()
-      return true
-    })
+    const ids = (circuitsOfProtection ?? []).map((circuit) => circuit.id)
+    if (ids.length > 0) {
+      editProperties({
+        edits: [{ kind: 'circuit', ids, set: { eendraadManualCodeLock: undefined } }],
+        refreshAutomaticNaming: true,
+      })
+    }
   }
 
   const commitProtectionLabel = (value: string) => {
+    if (customLabelDraft && firstCircuit) {
+      editProperties({
+        edits: [{ kind: 'protection', ids: [protectionId], set: { label: value } }],
+        actions: [{ kind: 'lockCircuitRowForCode', circuitId: firstCircuit.id }],
+        refreshAutomaticNaming: true,
+      })
+      setCustomLabelDraft(false)
+      return
+    }
     if (!automaticNamingRow && !manualLabelOverride) {
       onUpdate(protectionId, { label: value })
       return
     }
-    withSingleUndoEntry(() => {
-      onUpdate(protectionId, { label: value })
-      applyAutomaticNaming()
-      return true
+    editProperties({
+      edits: [{ kind: 'protection', ids: [protectionId], set: { label: value } }],
+      refreshAutomaticNaming: true,
     })
   }
 
@@ -171,35 +176,35 @@ export function ProtectionProperties({
   }
 
   const applyInstallDateTargets = (targets: InstallDateTarget[], year: number | undefined) => {
-    withSingleUndoEntry(() => {
-      ensureInstallDateTargetColors(currentProject, targets, year)
-      for (const target of targets) {
-        const inheritedYear = currentProject
-          ? getInstallDateTargetInheritedYear(currentProject, target)
-          : undefined
-        const requestedYear = target.preserveYear ?? year
-        const targetYear =
-          target.clearOverride || (!target.forceOverride && requestedYear === inheritedYear)
-            ? undefined
-            : requestedYear
-        const dateUpdate = installationDateUpdateFromYear(targetYear)
-        if (target.type === 'protection') onUpdate(target.id, dateUpdate)
-        else if (target.type === 'circuit') updateCircuit(target.id, dateUpdate)
-        else if (target.type === 'endpoint')
-          useProjectStore.getState().updateEndpoint(target.id, dateUpdate)
-        else if (target.type === 'trunkDevice') {
-          const result = useProjectStore.getState().getTrunkDeviceById(target.id)
-          if (result?.isSupplyDevice) {
-            if (result.supplyFeedScope === 'shared') continue
-            useProjectStore.getState().updateSupplyTrunkDevice(target.id, dateUpdate)
-          } else if (result?.isGroundDevice) {
-            useProjectStore.getState().updateGroundTrunkDevice(target.id, dateUpdate)
-          } else if (result?.circuit) {
-            useProjectStore.getState().updateTrunkDevice(result.circuit.id, target.id, dateUpdate)
-          }
-        }
-      }
-      return true
+    const grouped = new Map<
+      string,
+      { kind: 'protection' | 'circuit' | 'endpoint' | 'trunkDevice'; ids: string[]; set: ReturnType<typeof installationDateUpdateFromYear> }
+    >()
+    for (const target of targets) {
+      if (target.type === 'panel') continue
+      if (
+        target.type === 'trunkDevice' &&
+        useProjectStore.getState().getTrunkDeviceById(target.id)?.supplyFeedScope === 'shared'
+      ) continue
+      const inheritedYear = currentProject
+        ? getInstallDateTargetInheritedYear(currentProject, target)
+        : undefined
+      const requestedYear = target.preserveYear ?? year
+      const targetYear =
+        target.clearOverride || (!target.forceOverride && requestedYear === inheritedYear)
+          ? undefined
+          : requestedYear
+      const set = installationDateUpdateFromYear(targetYear)
+      const key = `${target.type}:${JSON.stringify(set)}`
+      const existing = grouped.get(key)
+      if (existing) existing.ids.push(target.id)
+      else grouped.set(key, { kind: target.type, ids: [target.id], set })
+    }
+    editProperties({
+      edits: [...grouped.values()].map(({ kind, ids, set }) => ({ kind, ids, set })),
+      seedInstallDateColors: currentProject
+        ? { targets: targets.filter((target) => target.type !== 'panel'), year }
+        : undefined,
     })
   }
 
@@ -212,10 +217,7 @@ export function ProtectionProperties({
       ? Number(updates.installationDate.slice(0, 4))
       : updates.rulesetDateOverride
     if (year == null || !currentProject) {
-      withSingleUndoEntry(() => {
-        onUpdate(protectionId, updates)
-        return true
-      })
+      onUpdate(protectionId, updates)
       return
     }
     const applyMode = (mode: InstallDatePropagationMode) =>
@@ -291,8 +293,11 @@ export function ProtectionProperties({
               type="button"
               onClick={() => {
                 const hide = firstCircuit.eendraadLetterVisible !== false
-                for (const r of circuitsOfProtection ?? []) {
-                  updateCircuit(r.id, { eendraadLetterVisible: hide ? false : true })
+                const ids = (circuitsOfProtection ?? []).map((r) => r.id)
+                if (ids.length > 0) {
+                  editProperties({
+                    edits: [{ kind: 'circuit', ids, set: { eendraadLetterVisible: !hide } }],
+                  })
                 }
               }}
               className={visibilityToggleClass(firstCircuit.eendraadLetterVisible !== false)}
@@ -314,7 +319,7 @@ export function ProtectionProperties({
             onDraftChange={(value) => {
               setLabelDraft(value)
               if (automaticNamingRow && !manualLabelOverride) {
-                setCustomLabel(false)
+                setCustomLabelDraft(true)
               }
             }}
             onCommit={commitProtectionLabel}
@@ -404,11 +409,13 @@ export function ProtectionProperties({
             <button
               type="button"
               onClick={() =>
-                updateInstallation({
-                  circuitNotesOrientation:
-                    (installation?.circuitNotesOrientation ?? 'horizontal') === 'horizontal'
-                      ? 'vertical'
-                      : 'horizontal',
+                editProperties({
+                  installation: {
+                    circuitNotesOrientation:
+                      (installation?.circuitNotesOrientation ?? 'horizontal') === 'horizontal'
+                        ? 'vertical'
+                        : 'horizontal',
+                  },
                 })
               }
               className="one-wire-visibility-toggle p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400"

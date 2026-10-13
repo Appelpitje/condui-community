@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom'
 import { Image, Group, Line, Path, Rect, Text } from 'react-konva'
 import type Konva from 'konva'
 import { useProjectStore } from '@/stores/projectStore'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import type { ProjectState } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import { usePlanDragPosition, usePlanDragRotation } from '@/stores/planDragVisualStore'
@@ -1269,15 +1270,13 @@ function PlacementSymbolInner({
           onMultiSelectDragEnd?.()
         } else if (suppressKonvaDragEndRef.current) {
           e.target.position({ x: pos.x, y: pos.y })
+        } else if (onDragEnd) {
+          // The plan drag handler commits the move (with wall-snap rotation) as one command.
+          onDragEnd(newPos)
         } else {
-          if (isJunctionPanel) {
-            useProjectStore.getState().updateJunctionPanelPlacement(placement.id, { pos: newPos })
-          } else if (isEarthing) {
-            useProjectStore.getState().updateEarthingPlacement(placement.id, { pos: newPos })
-          } else {
-            useProjectStore.getState().updatePlacement(placement.id, { pos: newPos })
-          }
-          onDragEnd?.(newPos)
+          runProjectCommand('plan.movePlacements', {
+            moves: [{ placementId: placement.id, pos: newPos }],
+          })
         }
       }}
       onClick={handleClick}

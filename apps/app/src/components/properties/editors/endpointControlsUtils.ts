@@ -1,5 +1,6 @@
-import type { SymbolKey } from '@/types/schema'
+import type { Endpoint, SymbolKey } from '@/types/schema'
 import { getSymbolsByCategory } from '@/lib/symbols'
+import { isInBetweenEndpoint } from '@/utils/symbolMapping'
 
 export const APPLIANCE_SYMBOLS = [
   ...getSymbolsByCategory('appliances'),
@@ -11,6 +12,30 @@ export const APPLIANCE_SYMBOLS = [
 export const HVAC_TYPE_SYMBOLS: SymbolKey[] = getSymbolsByCategory('hvac').map(
   (sym) => sym.id as SymbolKey
 )
+
+/** Fixed-appliance symbols that are not appliances; picking an appliance type would replace them. */
+const NON_APPLIANCE_FIXED_SYMBOLS = new Set<string>([
+  'junction_box',
+  'junction_panel',
+  'terminal_strip',
+  'domotica',
+  'energy_meter',
+  'solar_panel',
+  'battery',
+  'transformer',
+  'rectifier',
+  'inverter',
+  'dc_dc_converter',
+])
+
+/** Whether the appliance-type dropdown applies to this endpoint. */
+export function hasApplianceTypePicker(endpoint: Endpoint): boolean {
+  return (
+    endpoint.type === 'fixed_appliance' &&
+    !isInBetweenEndpoint(endpoint) &&
+    !NON_APPLIANCE_FIXED_SYMBOLS.has(endpoint.symbol ?? '')
+  )
+}
 
 /** Normalize legacy socket symbol keys for display (old projects may have socket_230v/socket_3phase) */
 export function normalizeSocketSymbol(symbol: SymbolKey | string | undefined): SymbolKey {

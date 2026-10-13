@@ -6,6 +6,7 @@ import type { LayoutNode, LayoutTree } from '@/lib/layout/layoutTree'
 import type { Point } from '@/types/ui'
 import { endpointSupportsMultiplier, getEndpointMultiplier } from '@/utils/endpointMultipliers'
 import {
+  getSupplyDeviceMaxMultiplier,
   getSupplyDeviceMultiplier,
   supportsSupplyDeviceMultiplier,
 } from '@/lib/supplyAssembly/inverterMultipliers'
@@ -94,15 +95,6 @@ function getDefaultEndpointForLibrarySymbol(symbolId: string): Endpoint | null {
   return endpoint
 }
 
-/** Settings on an existing endpoint must match the library item before a drop can merge into it. */
-export function endpointMergeSettingsMatchLibrarySymbol(
-  symbolId: string,
-  endpoint: Endpoint
-): boolean {
-  const incoming = getDefaultEndpointForLibrarySymbol(symbolId)
-  return !!incoming && getEndpointMergeSettings(endpoint) === getEndpointMergeSettings(incoming)
-}
-
 export function endpointMergeSettingsMatchEndpoints(
   left: Endpoint,
   right: Endpoint
@@ -132,25 +124,30 @@ function droppedSymbolMatchesEndpoint(droppedSymbolId: string, endpoint: Endpoin
   return endpoint.symbol === droppedSymbolId
 }
 
-function hasSameSymbolButDifferentSettings(droppedSymbolId: string, endpoint: Endpoint): boolean {
-  return droppedSymbolMatchesEndpoint(droppedSymbolId, endpoint) &&
-    !endpointMergeSettingsMatchLibrarySymbol(droppedSymbolId, endpoint)
-}
-
 export function canIncrementSameSymbolAddMoreTarget(
   droppedSymbolId: string,
   target: SameSymbolAddMoreTarget
 ): boolean {
   if (target.endpoint) {
+    // A library item is more generic than a tuned endpoint, so it always adds one more of it.
     return (
       droppedSymbolMatchesEndpoint(droppedSymbolId, target.endpoint) &&
-      endpointMergeSettingsMatchLibrarySymbol(droppedSymbolId, target.endpoint) &&
       endpointSupportsMultiplier(target.endpoint)
     )
   }
   return (
     target.trunkDevice.symbol === droppedSymbolId &&
     supportsSupplyDeviceMultiplier(target.trunkDevice)
+  )
+}
+
+/** Whether one more unit can be added: there is a plan placement to copy and room below the maximum. */
+export function canGrowSameSymbolAddMoreTarget(target: SameSymbolAddMoreTarget): boolean {
+  if (target.endpoint) return target.endpoint.placements.length > 0
+  const device = target.trunkDevice
+  return (
+    (device.placements?.length ?? 0) > 0 &&
+    getSupplyDeviceMultiplier(device) < getSupplyDeviceMaxMultiplier(device)
   )
 }
 
@@ -224,7 +221,10 @@ function supportsSameSymbolTarget(
   return null
 }
 
-/** Find multiplier-capable symbols themselves, rather than their surrounding wire hit zones. */
+/**
+ * Find multiplier-capable symbols themselves, rather than their surrounding wire hit zones.
+ * Targets that cannot grow are left out, so the preview never offers a drop that does nothing.
+ */
 export function findSameSymbolAddMoreLayoutTargets(
   symbolId: string,
   layoutTree: LayoutTree,
@@ -233,7 +233,7 @@ export function findSameSymbolAddMoreLayoutTargets(
   const matches: SameSymbolAddMoreLayoutTarget[] = []
   const visit = (node: LayoutNode) => {
     const target = supportsSameSymbolTarget(symbolId, node)
-    if (target) {
+    if (target && canGrowSameSymbolAddMoreTarget(target)) {
       const bounds = getMultiplierBadgeBounds(node)
       const center = {
         x: (bounds.left + bounds.right) / 2,
@@ -311,9 +311,6 @@ export function incrementSameSymbolAddMoreTarget(
   target: SameSymbolAddMoreTarget,
   deps: SameSymbolAddMoreDeps
 ): SameSymbolAddMoreResult {
-  if (target.endpoint && hasSameSymbolButDifferentSettings(droppedSymbolId, target.endpoint)) {
-    return 'blocked'
-  }
   if (!canIncrementSameSymbolAddMoreTarget(droppedSymbolId, target)) return 'not-applicable'
   if (target.endpoint) {
     const endpoint = target.endpoint
@@ -334,9 +331,6 @@ export function incrementSameSymbolAddMoreTargetWithUndo(
   target: SameSymbolAddMoreTarget | null,
   deps: SameSymbolAddMoreUndoDeps
 ): SameSymbolAddMoreResult {
-  if (target?.endpoint && hasSameSymbolButDifferentSettings(droppedSymbolId, target.endpoint)) {
-    return 'blocked'
-  }
   if (!target || !canIncrementSameSymbolAddMoreTarget(droppedSymbolId, target)) {
     return 'not-applicable'
   }

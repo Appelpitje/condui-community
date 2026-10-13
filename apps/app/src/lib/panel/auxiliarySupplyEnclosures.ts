@@ -1,10 +1,6 @@
 import { getAllCircuits, isTerminalStripDevice } from '@/lib/eendraad/projectElectricalDomain'
-import {
-  panelGridModuleRefKey,
-  resolveModuleWidthCols,
-} from '@/components/canvas/panel/panelGridLayout'
-import { findFirstFreeMainOrOverflowSlot } from '@/components/canvas/panel/autoArrangeLayout'
-import { ensureInstallationFeedTopology } from '@/lib/feedTopology'
+import { panelGridModuleRefKey, resolveModuleWidthCols } from '@/lib/panel/panelGridLayout'
+import { findFirstFreeMainOrOverflowSlot } from '@/lib/panel/autoArrangeLayout'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import {
   selectProjectAuxiliaryElectricalEnclosures,
@@ -18,6 +14,7 @@ import { supplyNodeReferencesDevice } from '@/lib/supplyAssembly/deviceReference
 import type { Panel, PanelGridModuleRef, PanelGridSlot, Point2, TrunkDevice } from '@/types/schema'
 import type { AuxiliaryElectricalEnclosure, ElectricalEnclosureRef } from '@/types/supplyAssembly'
 import { MIN_PANEL_GRID_MODULE_WIDTH } from '@/lib/panel/panelGridUnits'
+import { releaseCircuitModulesFromEnclosure } from '@/lib/panel/circuitModuleMounting'
 
 export const MIN_AUXILIARY_COLUMNS = 12
 const DEFAULT_AUXILIARY_COLUMNS = 18
@@ -61,6 +58,11 @@ function getKnownSupplyDevices(project: ProjectWithOptionalV2Electrical): TrunkD
   })
 }
 
+/** Ids of the supply-side trunk devices (grid connection and board feeds). */
+export function getKnownSupplyDeviceIds(project: ProjectWithOptionalV2Electrical): string[] {
+  return getKnownSupplyDevices(project).map((device) => device.id)
+}
+
 function removeSupplyDeviceFromVisualSlots(
   project: ProjectWithOptionalV2Electrical,
   deviceId: string
@@ -74,6 +76,35 @@ function removeSupplyDeviceFromVisualSlots(
   for (const enclosure of selectProjectAuxiliaryElectricalEnclosures(project)) {
     enclosure.gridView.slots = removeModuleFromSlots(enclosure.gridView.slots, key)
   }
+}
+
+export function getSupplyDeviceSlot(
+  project: ProjectWithOptionalV2Electrical,
+  deviceId: string
+): PanelGridSlot | undefined {
+  const key = panelGridModuleRefKey(supplyModuleRef(deviceId))
+  let found: PanelGridSlot | undefined
+  visitPanels(getProjectElectricalPanels(project), (panel) => {
+    found ??= [...(panel.gridView?.slots ?? []), ...(panel.gridView?.supplyPanelSlots ?? [])].find(
+      (slot) => panelGridModuleRefKey(slot.module) === key
+    )
+  })
+  return (
+    found ??
+    selectProjectAuxiliaryElectricalEnclosures(project)
+      .flatMap((enclosure) => enclosure.gridView.slots)
+      .find((slot) => panelGridModuleRefKey(slot.module) === key)
+  )
+}
+
+function supplyDeviceWidthProps(
+  project: ProjectWithOptionalV2Electrical,
+  deviceId: string
+): Pick<PanelGridSlot, 'moduleWidth' | 'moduleWidthManual'> {
+  const previous = getSupplyDeviceSlot(project, deviceId)
+  return previous?.moduleWidthManual && previous.moduleWidth != null
+    ? { moduleWidth: previous.moduleWidth, moduleWidthManual: true }
+    : {}
 }
 
 export function getSupplyDeviceMounting(
@@ -111,14 +142,15 @@ export function resolveSupplyDeviceMounting(
   if (explicit) return explicit
   const installation = getProjectElectricalInstallation(project)
   if (!installation) return undefined
-  const topology = ensureInstallationFeedTopology(
-    installation,
-    getProjectElectricalPanels(project)
-  )
-  if (topology.sharedFeed.trunkDevices?.some((device) => device.id === deviceId)) {
+  const topology = installation.feedTopology
+  const sharedDevices = [
+    ...(installation.mainSupply.supplyTrunkDevices ?? []),
+    ...(topology?.sharedFeed.trunkDevices ?? []),
+  ]
+  if (sharedDevices.some((device) => device.id === deviceId)) {
     return { kind: 'grid' }
   }
-  const rootFeed = topology.rootFeeds.find((feed) =>
+  const rootFeed = topology?.rootFeeds.find((feed) =>
     feed.trunkDevices?.some((device) => device.id === deviceId)
   )
   return rootFeed ? { kind: 'panel', panelId: rootFeed.panelId } : undefined
@@ -161,6 +193,15 @@ export function setSupplyDeviceMounting(
   const device = getKnownSupplyDevices(project).find((candidate) => candidate.id === deviceId)
   if (!device) return false
   device.panelMounting = enclosure
+  // The shared-feed projection may hold a separate copy after hydration/Immer.
+  // Persist the physical device's mounting consistently on every stored carrier.
+  const installation = getProjectElectricalInstallation(project)!
+  for (const candidate of [
+    ...(installation.mainSupply.supplyTrunkDevices ?? []),
+    ...(installation.feedTopology?.sharedFeed.trunkDevices ?? []),
+    ...(installation.feedTopology?.rootFeeds.flatMap((feed) => feed.trunkDevices ?? []) ?? []),
+  ])
+    if (candidate.id === deviceId) candidate.panelMounting = enclosure
   // Older project versions stored this fact on mirrored assembly nodes. Clear that
   // compatibility copy once the physical device owns the canonical mounting.
   for (const assembly of selectProjectSupplyAssemblies(project)) {
@@ -238,12 +279,14 @@ export function moveSupplyDeviceToEnclosureAutomatically(
     return true
   }
 
-  const grid = targetPanel!.gridView ?? (targetPanel!.gridView = {
-    rows: DEFAULT_PANEL_GRID_ROWS,
-    columns: DEFAULT_PANEL_GRID_COLUMNS,
-    feedFromTop: false,
-    slots: [],
-  })
+  const grid =
+    targetPanel!.gridView ??
+    (targetPanel!.gridView = {
+      rows: DEFAULT_PANEL_GRID_ROWS,
+      columns: DEFAULT_PANEL_GRID_COLUMNS,
+      feedFromTop: false,
+      slots: [],
+    })
   const slots = enclosure.kind === 'grid' ? (grid.supplyPanelSlots ??= []) : grid.slots
   const occupied = slots.map((slot) => ({
     row: slot.row,
@@ -261,7 +304,10 @@ export function moveSupplyDeviceToEnclosureAutomatically(
     grid.feedFromTop
   )
   slots.push({ row: spot.row, col: spot.col, module: ref })
-  if (enclosure.kind === 'panel' && getKnownSupplyDevices(project).find((device) => device.id === deviceId)?.symbol !== 'inverter') {
+  if (
+    enclosure.kind === 'panel' &&
+    getKnownSupplyDevices(project).find((device) => device.id === deviceId)?.symbol !== 'inverter'
+  ) {
     const key = panelGridModuleRefKey(ref)
     grid.hiddenModuleKeys = grid.hiddenModuleKeys?.filter((candidate) => candidate !== key)
     grid.shownModuleKeys = [...new Set([...(grid.shownModuleKeys ?? []), key])]
@@ -283,7 +329,10 @@ export function planAuxiliarySupplyEnclosureGrid(
 
   const widths = uniqueDeviceIds.map((deviceId) => {
     const ref = supplyModuleRef(deviceId)
-    return Math.max(MIN_PANEL_GRID_MODULE_WIDTH, resolveModuleWidthCols(ref, project))
+    return Math.max(
+      MIN_PANEL_GRID_MODULE_WIDTH,
+      resolveModuleWidthCols(ref, project, getSupplyDeviceSlot(project, deviceId))
+    )
   })
   const columns = Math.max(
     MIN_AUXILIARY_COLUMNS,
@@ -302,7 +351,12 @@ export function planAuxiliarySupplyEnclosureGrid(
       row += 1
       col = 0
     }
-    slots.push({ row, col, module: supplyModuleRef(deviceId) })
+    slots.push({
+      row,
+      col,
+      module: supplyModuleRef(deviceId),
+      ...supplyDeviceWidthProps(project, deviceId),
+    })
     col += width
   })
   return {
@@ -361,14 +415,19 @@ export function moveSupplyDeviceToAuxiliaryEnclosure(
     (candidate) => candidate.id === enclosureId
   )
   if (!enclosure) return false
+  const manual = supplyDeviceWidthProps(project, deviceId)
   if (!setSupplyDeviceMounting(project, deviceId, { kind: 'auxiliary', enclosureId })) return false
   enclosure.gridView.rows = Math.max(1, enclosure.gridView.rows)
   enclosure.gridView.columns = Math.max(MIN_AUXILIARY_COLUMNS, enclosure.gridView.columns)
   removeSupplyDeviceFromVisualSlots(project, deviceId)
-  enclosure.gridView.slots.push({ row, col, module: supplyModuleRef(deviceId) })
+  enclosure.gridView.slots.push({ row, col, module: supplyModuleRef(deviceId), ...manual })
   const key = panelGridModuleRefKey(supplyModuleRef(deviceId))
-  enclosure.gridView.hiddenModuleKeys = enclosure.gridView.hiddenModuleKeys?.filter((candidate) => candidate !== key)
-  enclosure.gridView.shownModuleKeys = [...new Set([...(enclosure.gridView.shownModuleKeys ?? []), key])]
+  enclosure.gridView.hiddenModuleKeys = enclosure.gridView.hiddenModuleKeys?.filter(
+    (candidate) => candidate !== key
+  )
+  enclosure.gridView.shownModuleKeys = [
+    ...new Set([...(enclosure.gridView.shownModuleKeys ?? []), key]),
+  ]
   return true
 }
 
@@ -381,6 +440,7 @@ export function moveSupplyDeviceToPanelEnclosure(
 ): boolean {
   const panel = findPanel(getProjectElectricalPanels(project), panelId)
   if (!panel?.gridView) return false
+  const manual = supplyDeviceWidthProps(project, deviceId)
   if (!setSupplyDeviceMounting(project, deviceId, { kind: 'panel', panelId })) return false
   removeSupplyDeviceFromVisualSlots(project, deviceId)
   const ref = supplyModuleRef(deviceId)
@@ -389,7 +449,7 @@ export function moveSupplyDeviceToPanelEnclosure(
     (candidate) => candidate !== key
   )
   panel.gridView.shownModuleKeys = [...new Set([...(panel.gridView.shownModuleKeys ?? []), key])]
-  panel.gridView.slots.push({ row, col, module: ref })
+  panel.gridView.slots.push({ row, col, module: ref, ...manual })
   return true
 }
 
@@ -402,15 +462,26 @@ export function moveSupplyDeviceToGridEnclosure(
 ): boolean {
   const panel = findPanel(getProjectElectricalPanels(project), panelId)
   if (!panel?.gridView) return false
+  const manual = supplyDeviceWidthProps(project, deviceId)
   if (!setSupplyDeviceMounting(project, deviceId, { kind: 'grid' })) return false
   removeSupplyDeviceFromVisualSlots(project, deviceId)
   panel.gridView.supplyPanelSlots ??= []
-  panel.gridView.supplyPanelSlots.push({ row, col, module: supplyModuleRef(deviceId) })
+  panel.gridView.supplyPanelSlots.push({ row, col, module: supplyModuleRef(deviceId), ...manual })
   const key = panelGridModuleRefKey(supplyModuleRef(deviceId))
-  const ownerPanel = getProjectElectricalPanels(project).find((candidate) => candidate.isMain) ?? panel
-  ownerPanel.gridView ??= { rows: DEFAULT_PANEL_GRID_ROWS, columns: DEFAULT_PANEL_GRID_COLUMNS, feedFromTop: false, slots: [] }
-  ownerPanel.gridView.hiddenModuleKeys = ownerPanel.gridView.hiddenModuleKeys?.filter((candidate) => candidate !== key)
-  ownerPanel.gridView.shownModuleKeys = [...new Set([...(ownerPanel.gridView.shownModuleKeys ?? []), key])]
+  const ownerPanel =
+    getProjectElectricalPanels(project).find((candidate) => candidate.isMain) ?? panel
+  ownerPanel.gridView ??= {
+    rows: DEFAULT_PANEL_GRID_ROWS,
+    columns: DEFAULT_PANEL_GRID_COLUMNS,
+    feedFromTop: false,
+    slots: [],
+  }
+  ownerPanel.gridView.hiddenModuleKeys = ownerPanel.gridView.hiddenModuleKeys?.filter(
+    (candidate) => candidate !== key
+  )
+  ownerPanel.gridView.shownModuleKeys = [
+    ...new Set([...(ownerPanel.gridView.shownModuleKeys ?? []), key]),
+  ]
   return true
 }
 
@@ -423,9 +494,19 @@ export function deleteAuxiliarySupplyEnclosure(
   if (index < 0) return false
   const enclosure = enclosures[index]!
   // A physical terminal strip must be moved out before its enclosure is removed.
-  if (getProjectElectricalPanels(project).some((panel) => getAllCircuits(panel).some((circuit) =>
-    (circuit.trunkDevices ?? []).some((device) => isTerminalStripDevice(device) &&
-      device.panelMounting?.kind === 'auxiliary' && device.panelMounting.enclosureId === enclosureId)))) return false
+  if (
+    getProjectElectricalPanels(project).some((panel) =>
+      getAllCircuits(panel).some((circuit) =>
+        (circuit.trunkDevices ?? []).some(
+          (device) =>
+            isTerminalStripDevice(device) &&
+            device.panelMounting?.kind === 'auxiliary' &&
+            device.panelMounting.enclosureId === enclosureId
+        )
+      )
+    )
+  )
+    return false
   const deviceIds = getAuxiliaryEnclosureSupplyDeviceIds(project, enclosureId)
   const ownerPanel = enclosure.ownerPanelId
     ? findPanel(getProjectElectricalPanels(project), enclosure.ownerPanelId)
@@ -505,6 +586,7 @@ export function deleteAuxiliarySupplyEnclosure(
       }
     }
   }
+  releaseCircuitModulesFromEnclosure(project, enclosureId)
   enclosures.splice(index, 1)
   return true
 }

@@ -1,3 +1,4 @@
+import { editProperties } from '@/handlers/properties/editProperties'
 import type { TFunction } from 'i18next'
 import type { Circuit, SymbolKey } from '@/types/schema'
 import type { SynergridCatalogFocus } from '@/lib/synergridCatalog'
@@ -9,7 +10,7 @@ import {
   getInstallYearColorKey,
   pickInstallYearColor,
 } from '@/lib/installDates'
-import { useProjectStore, type ProjectState } from '@/stores/projectStore'
+import { type ProjectState } from '@/stores/projectStore'
 
 export const selectClass =
   'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500'
@@ -72,6 +73,6 @@ export function ensureInstallDateTargetColors(
     changedColors = true
   }
   if (changedColors) {
-    useProjectStore.getState().updateProject({ installDateColors: nextColors })
+    editProperties({ seedInstallDateColors: { targets, year } })
   }
 }

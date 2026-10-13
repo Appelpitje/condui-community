@@ -15,7 +15,7 @@
 
 import type { Placement, Rotation, SituationPlanRotation, Wall } from '@/types/schema'
 import { clamp } from '@/lib/geometry'
-import { MULTI_SOCKET_OFFSET, SYMBOL_SIZE } from '@/components/canvas/eendraad/canvasSymbols'
+import { MULTI_SOCKET_OFFSET, SYMBOL_SIZE } from '@/lib/canvas/symbolGeometry'
 import {
   getClosestPointOnCurvedWall,
   getWallPathPoints,
@@ -259,6 +259,8 @@ export function getQuadrantWallScores(
     const key = '__EENDRA_PLAN_IMAGE_CACHE__'
     let c: Cache | null = g[key] ?? null
     if (!c) {
+      // Image analysis needs a DOM canvas; headless callers fall back to wall heuristics.
+      if (typeof document === 'undefined') return null
       const canvas = document.createElement('canvas')
       const ctx2d = canvas.getContext('2d', { willReadFrequently: true })
       if (!ctx2d) return null

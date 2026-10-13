@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import { useTranslation } from 'react-i18next'
 import { Eye, EyeOff } from 'lucide-react'
 import { DebouncedTextInput } from '@/components/forms'
@@ -237,6 +238,7 @@ export function WireRouteAndCableForm({
   lengthHint?: ReactNode
   t: (key: string, defaultValue?: string) => string
 }) {
+  const installationProfile = useInstallationProfile()
   const phaseFeatureEnabled =
     showPhaseAssignment && !isDC && !!phaseSystem && supportsExplicitPhaseSelection(phaseSystem)
   const phaseOptions =
@@ -261,8 +263,15 @@ export function WireRouteAndCableForm({
     ? [...new Set([1, 2, 3, 4, state.cable.conductors])]
         .filter((count) => Number.isInteger(count) && count > 0)
         .sort((a, b) => a - b)
-        .map((count) => ({ value: String(count), label: String(count), conductors: count, hasPE: false }))
-    : groundConductor ? [{ value: '1G', label: 'PE', conductors: 1, hasPE: true }] : getWireConductorOptions(isDC)
+        .map((count) => ({
+          value: String(count),
+          label: String(count),
+          conductors: count,
+          hasPE: false,
+        }))
+    : groundConductor
+      ? [{ value: '1G', label: 'PE', conductors: 1, hasPE: true }]
+      : getWireConductorOptions(isDC)
   const selectedConductorValue = busbar
     ? String(state.cable.conductors)
     : resolveConductorDropdownValue(state.cable, isDC)
@@ -274,7 +283,9 @@ export function WireRouteAndCableForm({
     : getAcWireTypeOptions(t('wires.other', 'Other'))
   const wireTypes = onMediumChange
     ? [...cableTypes, { value: 'busbar', label: t('structure.busbar', 'Busbar') }]
-    : busbar ? [{ value: 'busbar', label: t('structure.busbar', 'Busbar') }] : cableTypes
+    : busbar
+      ? [{ value: 'busbar', label: t('structure.busbar', 'Busbar') }]
+      : cableTypes
   const changeCableType = (value: string) => {
     if (value === 'busbar') {
       onMediumChange?.('busbar', { ...state.cable, kind: 'other', customKind: 'busbar' })
@@ -286,7 +297,7 @@ export function WireRouteAndCableForm({
   }
   const thicknessOptions = busbar
     ? [...new Set([...COMB_BUSBAR_SECTION_OPTIONS, state.cable.sectionMm2])].sort((a, b) => a - b)
-    : getWireSectionOptions(isDC)
+    : getWireSectionOptions(isDC, installationProfile)
   const fireClassOptions: Array<NonNullable<CableSpec['fireClass']>> = [
     'Aca',
     'B1ca',
@@ -338,112 +349,127 @@ export function WireRouteAndCableForm({
     (isDC ? state.showFireClassLabel === true : state.showFireClassLabel !== false) &&
     !!state.cable.fireClass
 
-  if (phaseOnly && phaseOptions.length === 0) return null
-
-  if (busbar) return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2 text-xs font-medium text-gray-600 dark:text-gray-400">
-        <div>{t('wires.type', 'Type')}</div>
-        <div>{t('wires.conductors', 'Geleiders')}</div>
-        <div>{t('wires.thickness', 'Dikte')}</div>
+  const phaseControl = phaseOptions.length > 0 && phaseSystem && (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          {t('wires.phase', 'Phase')}
+        </label>
+        <button
+          type="button"
+          disabled={!phaseLabelAvailable}
+          onClick={() => onChange({ showPhaseLabel: !(state.showPhaseLabel === true) })}
+          className={visibilityToggleClass(phaseLabelAvailable && state.showPhaseLabel === true)}
+          title={
+            state.showPhaseLabel === true
+              ? t('wires.hidePhaseLabel', 'Hide phase on one-wire')
+              : t('wires.showPhaseLabel', 'Show phase on one-wire')
+          }
+          aria-label={
+            state.showPhaseLabel === true
+              ? t('wires.hidePhaseLabel', 'Hide phase on one-wire')
+              : t('wires.showPhaseLabel', 'Show phase on one-wire')
+          }
+        >
+          {state.showPhaseLabel === true ? (
+            <Eye className="w-4 h-4" />
+          ) : (
+            <EyeOff className="w-4 h-4" />
+          )}
+        </button>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      {phaseLocked ? (
+        <div className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+          {formatPhaseAssignment(effectivePhaseAssignment)}
+        </div>
+      ) : (
         <CustomDropdown
-          value="busbar"
-          onChange={changeCableType}
-          options={wireTypes}
+          value={phaseSelectionValue}
+            ariaLabel={t('wires.phase', 'Phase')}
+          onChange={(nextValue) => {
+            onChange({
+              phaseAssignment: getPhaseAssignmentForOptionValue(
+                nextValue,
+                phaseSystem,
+                effectivePhaseConstraint
+              ),
+            })
+          }}
+          options={phaseOptions.map((option) => ({
+            value: option.value,
+            label:
+              option.assignment == null
+                ? state.phaseConstraint?.inheritedAssignment
+                  ? `${t(
+                      state.phaseConstraint.inheritedAssignment.source === 'derived_from_busbar'
+                        ? 'wires.phaseAutomatic'
+                        : 'wires.phaseInherited',
+                      state.phaseConstraint.inheritedAssignment.source === 'derived_from_busbar'
+                        ? 'Automatic'
+                        : 'Inherited'
+                    )} ${formatPhaseAssignment(state.phaseConstraint.inheritedAssignment)}`
+                  : t('wires.phaseAll', 'All phases')
+                : formatPhaseAssignment(option.assignment),
+          }))}
+          placeholder={t('wires.phaseSelect', 'Select phase')}
+          className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
         />
-        <CustomDropdown
-          value={selectedConductorValue}
-          onChange={(value) => onChange({ cable: {
-            ...state.cable, kind: 'other', customKind: 'busbar',
-            conductors: Number(value), hasPE: false,
-          } })}
-          options={conductorOptions.map(({ value, label }) => ({ value, label }))}
-        />
-        <CustomDropdown
-          value={String(state.cable.sectionMm2)}
-          onChange={(value) => onChange({ cable: {
-            ...state.cable, kind: 'other', customKind: 'busbar',
-            sectionMm2: Number(value), hasPE: false,
-          } })}
-          options={thicknessOptions.map((section) => ({ value: String(section), label: `${section} mm²` }))}
-        />
-      </div>
+      )}
     </div>
   )
 
-  return (
-    <div className={phaseOnly ? 'space-y-4 [&>div:not(:first-child)]:hidden' : 'space-y-4'}>
-      {phaseOptions.length > 0 && phaseSystem && (
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              {t('wires.phase', 'Phase')}
-            </label>
-            <button
-              type="button"
-              disabled={!phaseLabelAvailable}
-              onClick={() => onChange({ showPhaseLabel: !(state.showPhaseLabel === true) })}
-              className={visibilityToggleClass(
-                phaseLabelAvailable && state.showPhaseLabel === true
-              )}
-              title={
-                state.showPhaseLabel === true
-                  ? t('wires.hidePhaseLabel', 'Hide phase on one-wire')
-                  : t('wires.showPhaseLabel', 'Show phase on one-wire')
-              }
-              aria-label={
-                state.showPhaseLabel === true
-                  ? t('wires.hidePhaseLabel', 'Hide phase on one-wire')
-                  : t('wires.showPhaseLabel', 'Show phase on one-wire')
-              }
-            >
-              {state.showPhaseLabel === true ? (
-                <Eye className="w-4 h-4" />
-              ) : (
-                <EyeOff className="w-4 h-4" />
-              )}
-            </button>
-          </div>
-          {phaseLocked ? (
-            <div className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-              {formatPhaseAssignment(effectivePhaseAssignment)}
-            </div>
-          ) : (
-            <CustomDropdown
-              value={phaseSelectionValue}
-              onChange={(nextValue) => {
-                onChange({
-                  phaseAssignment: getPhaseAssignmentForOptionValue(
-                    nextValue,
-                    phaseSystem,
-                    effectivePhaseConstraint
-                  ),
-                })
-              }}
-              options={phaseOptions.map((option) => ({
-                value: option.value,
-                label:
-                  option.assignment == null
-                    ? state.phaseConstraint?.inheritedAssignment
-                      ? `${t(
-                          state.phaseConstraint.inheritedAssignment.source === 'derived_from_busbar'
-                            ? 'wires.phaseAutomatic'
-                            : 'wires.phaseInherited',
-                          state.phaseConstraint.inheritedAssignment.source === 'derived_from_busbar'
-                            ? 'Automatic'
-                            : 'Inherited'
-                        )} ${formatPhaseAssignment(state.phaseConstraint.inheritedAssignment)}`
-                      : t('wires.phaseAll', 'All phases')
-                    : formatPhaseAssignment(option.assignment),
-              }))}
-              placeholder={t('wires.phaseSelect', 'Select phase')}
-              className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-            />
-          )}
+  if (phaseOnly) return phaseControl || null
+
+  if (busbar)
+    return (
+      <div className="space-y-2">
+        <div className="grid grid-cols-3 gap-2 text-xs font-medium text-gray-600 dark:text-gray-400">
+          <div>{t('wires.type', 'Type')}</div>
+          <div>{t('wires.conductors', 'Geleiders')}</div>
+          <div>{t('wires.thickness', 'Dikte')}</div>
         </div>
-      )}
+        <div className="grid grid-cols-3 gap-2">
+          <CustomDropdown value="busbar" onChange={changeCableType} options={wireTypes} />
+          <CustomDropdown
+            value={selectedConductorValue}
+            onChange={(value) =>
+              onChange({
+                cable: {
+                  ...state.cable,
+                  kind: 'other',
+                  customKind: 'busbar',
+                  conductors: Number(value),
+                  hasPE: false,
+                },
+              })
+            }
+            options={conductorOptions.map(({ value, label }) => ({ value, label }))}
+          />
+          <CustomDropdown
+            value={String(state.cable.sectionMm2)}
+            onChange={(value) =>
+              onChange({
+                cable: {
+                  ...state.cable,
+                  kind: 'other',
+                  customKind: 'busbar',
+                  sectionMm2: Number(value),
+                  hasPE: false,
+                },
+              })
+            }
+            options={thicknessOptions.map((section) => ({
+              value: String(section),
+              label: `${section} mm²`,
+            }))}
+          />
+        </div>
+      </div>
+    )
+
+  return (
+    <div className="space-y-4">
+      {phaseControl}{' '}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           {t('wires.inTube', 'Tube')}
@@ -467,7 +493,6 @@ export function WireRouteAndCableForm({
           </button>
         </div>
       </div>
-
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           {t('wires.routeLabel', 'Wire route')}
@@ -546,7 +571,6 @@ export function WireRouteAndCableForm({
           ))}
         </div>
       </div>
-
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
           {t('wires.wireTypeLabel', 'Wire type')}
@@ -569,7 +593,6 @@ export function WireRouteAndCableForm({
           {isWireLabelVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
         </button>
       </div>
-
       <div className="space-y-2">
         <div className="grid grid-cols-3 gap-2 text-xs font-medium text-gray-600 dark:text-gray-400">
           <div>{t('wires.type', 'Type')}</div>
@@ -627,7 +650,6 @@ export function WireRouteAndCableForm({
         )}
         {cableHint}
       </div>
-
       <div>
         <div className="flex items-center gap-2 mb-2">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -678,15 +700,16 @@ export function WireRouteAndCableForm({
           className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
         />
       </div>
-
-      {showLength && <WireLengthField
-        wireLengthM={state.wireLengthM}
-        showWireLengthLabel={state.showWireLengthLabel}
-        onChange={onChange}
-        placeholder={lengthPlaceholder}
-        hint={lengthHint}
-        t={t}
-      />}
+      {showLength && (
+        <WireLengthField
+          wireLengthM={state.wireLengthM}
+          showWireLengthLabel={state.showWireLengthLabel}
+          onChange={onChange}
+          placeholder={lengthPlaceholder}
+          hint={lengthHint}
+          t={t}
+        />
+      )}
     </div>
   )
 }

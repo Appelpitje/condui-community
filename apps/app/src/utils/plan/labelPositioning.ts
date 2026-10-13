@@ -11,6 +11,8 @@ import {
   PLAN_LABEL_FONT_SIZE_AT_FALLBACK,
 } from '@/constants/planConstants'
 import { getPlacementWorldBounds } from '@/utils/plan/placementBounds'
+import { getLabelBoxSize, getPlanLabelClearance } from '@/lib/plan/planLabelMetrics'
+export { getLabelBoxSize } from '@/lib/plan/planLabelMetrics'
 
 export type LabelDirection = 'right' | 'left' | 'below' | 'above'
 
@@ -26,54 +28,6 @@ const OPPOSITE_DIR: Record<LabelDirection, LabelDirection> = {
   left: 'right',
   above: 'below',
   below: 'above',
-}
-
-let measureCanvas: HTMLCanvasElement | null = null
-let measureCtx: CanvasRenderingContext2D | null = null
-
-export function getLabelBoxSize(
-  text: string,
-  fontSize: number,
-  fontFamily: string
-): { width: number; height: number } {
-  const fallback = () => {
-    const approxWidth = text.length * fontSize * 0.6
-    const height = fontSize * 1.1
-    // Small padding so text doesn't touch the edge
-    return { width: approxWidth + 2, height }
-  }
-
-  if (typeof document === 'undefined') {
-    return fallback()
-  }
-
-  if (!measureCanvas) {
-    measureCanvas = document.createElement('canvas')
-    measureCtx = measureCanvas.getContext('2d')
-  }
-
-  if (!measureCtx) {
-    return fallback()
-  }
-
-  const ctx = measureCtx
-  ctx.font = `${fontSize}px ${fontFamily}`
-  const metrics = ctx.measureText(text)
-
-  const rawWidth =
-    metrics.actualBoundingBoxLeft != null && metrics.actualBoundingBoxRight != null
-      ? metrics.actualBoundingBoxRight + metrics.actualBoundingBoxLeft
-      : metrics.width
-
-  const ascent =
-    metrics.actualBoundingBoxAscent != null ? metrics.actualBoundingBoxAscent : fontSize * 0.8
-  const descent =
-    metrics.actualBoundingBoxDescent != null ? metrics.actualBoundingBoxDescent : fontSize * 0.2
-
-  const paddedWidth = rawWidth + 2
-  const height = ascent + descent + 2
-
-  return { width: paddedWidth, height }
 }
 
 function centerToBox(
@@ -119,10 +73,10 @@ export function calculateLabelPositions(
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>()
   const labelBoxes: Array<{ id: string; x: number; y: number; width: number; height: number }> = []
-  const labelGap = 2 // Positive gap so labels do not overlap symbol bounds
-  const labelSpacing = 4
   const labelFontSize =
     PLAN_LABEL_FONT_SIZE_AT_FALLBACK * (baseSymbolSizePx / PLAN_SYMBOL_FALLBACK_PX)
+  const labelGap = getPlanLabelClearance(labelFontSize)
+  const labelSpacing = labelFontSize / 3
 
   const placementInfoById = new Map<
     string,
@@ -315,7 +269,7 @@ export function calculateLabelPositions(
         }
       }
 
-      const symbolPadding = labelSpacing + 4
+      const symbolPadding = labelGap
       let hasSymbolCollision = false
       let symbolOverlapArea = 0
       placements.forEach((otherPlacement) => {

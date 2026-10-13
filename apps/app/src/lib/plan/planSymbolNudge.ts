@@ -1,4 +1,5 @@
 import { useProjectStore } from '@/stores/projectStore'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { useUIStore } from '@/stores/uiStore'
 import { calculatePxPerMeter } from '@/hooks/plan/usePlanScale'
 import { resolveSelectionToEndpointIds } from '@/lib/plan/selectionResolvers'
@@ -238,41 +239,23 @@ export type CommitPlanSymbolNudgeParams = {
 
 /** Commit a completed nudge session in one undo entry. Snap is intentionally ignored. */
 export function commitPlanSymbolNudge(params: CommitPlanSymbolNudgeParams): boolean {
-  const { rows, deltaCanvas, activeFloorId } = params
+  const { rows, deltaCanvas } = params
   if (deltaCanvas.x === 0 && deltaCanvas.y === 0) return false
 
   const movable = rows.filter((row) => !row.locked)
   if (movable.length === 0) return false
 
-  const store = useProjectStore.getState()
-  const floorPlacements = activeFloorId ? store.getPlacementsByFloor(activeFloorId) : []
-
-  let changed = false
-  store.withSingleUndoEntry(
-    () => {
-      for (const row of movable) {
-        const nextPos = {
-          x: row.startPos.x + deltaCanvas.x,
-          y: row.startPos.y + deltaCanvas.y,
-        }
-        const floorRow = floorPlacements.find((p: Placement) => p.id === row.placementId)
-        const ext = floorRow as Placement & { junctionPanelLabel?: string; isEarthing?: boolean }
-        if (ext?.junctionPanelLabel != null) {
-          store.updateJunctionPanelPlacement(row.placementId, { pos: nextPos })
-          changed = true
-        } else if (ext?.isEarthing === true) {
-          store.updateEarthingPlacement(row.placementId, { pos: nextPos })
-          changed = true
-        } else {
-          store.updatePlacement(row.placementId, { pos: nextPos })
-          changed = true
-        }
-      }
-      return changed
+  const outcome = runProjectCommand(
+    'plan.movePlacements',
+    {
+      moves: movable.map((row) => ({
+        placementId: row.placementId,
+        pos: { x: row.startPos.x + deltaCanvas.x, y: row.startPos.y + deltaCanvas.y },
+      })),
     },
-    { sessionLabel: 'nudge plan symbols' }
+    { label: 'nudge plan symbols' }
   )
-  return changed
+  return outcome?.changed ?? false
 }
 
 export function isPlanCanvasVisibleInLayout(): boolean {

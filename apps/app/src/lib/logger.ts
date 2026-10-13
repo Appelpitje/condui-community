@@ -1,4 +1,5 @@
-export const IS_DEV = import.meta.env.DEV
+/** Guarded so the logger also loads outside Vite (plain Node scripts, headless commands). */
+export const IS_DEV = import.meta.env?.DEV === true
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -6,7 +7,7 @@ type LogSink = (level: LogLevel, args: unknown[]) => void
 
 function isDebugEnabled(): boolean {
   try {
-    return localStorage.getItem('condui_debug') !== null
+    return globalThis.localStorage?.getItem('condui_debug') != null
   } catch {
     return false
   }

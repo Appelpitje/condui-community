@@ -1,26 +1,15 @@
-import { current } from 'immer'
-import { trackSupplyAssemblyMutation } from '@/lib/analytics/supplyAssemblyAnalytics'
-import {
-  editProjectAuxiliaryElectricalEnclosures,
-  editProjectSupplyAssemblies,
-} from '@/lib/projectV2/electrical'
 import type { ProjectSliceCreator } from './projectStoreTypes'
+import { trackSupplyAssemblyMutation } from '@/lib/analytics/supplyAssemblyAnalytics'
+import { MIN_AUXILIARY_COLUMNS, createAuxiliarySupplyEnclosure as createAuxiliarySupplyEnclosureInProject, deleteAuxiliarySupplyEnclosure as deleteAuxiliarySupplyEnclosureInProject, moveSupplyDeviceToAuxiliaryEnclosure as moveSupplyDeviceToAuxiliaryEnclosureInProject, moveSupplyDeviceToGridEnclosure as moveSupplyDeviceToGridEnclosureInProject, moveSupplyDeviceToPanelEnclosure as moveSupplyDeviceToPanelEnclosureInProject } from '@/lib/panel/auxiliarySupplyEnclosures'
+import { reconcileInvalidPanelFeedOrganizationsInProject } from '@/lib/panel/panelFeedOrganization'
+import { dismissEmptySharedSupplyFrame } from '@/lib/panel/sharedSupplyFrame'
+import { addSupplyAssemblyInProject, replaceSupplyAssemblyInProject } from '@/lib/projectMutations/storeActions'
+import { editProjectAuxiliaryElectricalEnclosures, editProjectSupplyAssemblies } from '@/lib/projectV2/electrical'
+import { disconnectSupplyInverterGridInputInProject } from '@/lib/supplyAssembly/disconnectInverterGridInput'
 import type { ProjectV2 } from '@/types/projectV2'
 import type { OffGridSupplyAssembly } from '@/types/supplyAssembly'
 import { generateId } from '@/utils'
-import {
-  createAuxiliarySupplyEnclosure as createAuxiliarySupplyEnclosureInProject,
-  deleteAuxiliarySupplyEnclosure as deleteAuxiliarySupplyEnclosureInProject,
-  moveSupplyDeviceToAuxiliaryEnclosure as moveSupplyDeviceToAuxiliaryEnclosureInProject,
-  moveSupplyDeviceToGridEnclosure as moveSupplyDeviceToGridEnclosureInProject,
-  moveSupplyDeviceToPanelEnclosure as moveSupplyDeviceToPanelEnclosureInProject,
-  MIN_AUXILIARY_COLUMNS,
-} from '@/lib/panel/auxiliarySupplyEnclosures'
-import { reconcileInvalidPanelFeedOrganizationsInProject } from '@/lib/panel/panelFeedOrganization'
-import { disconnectSupplyInverterGridInputInProject } from '@/lib/supplyAssembly/disconnectInverterGridInput'
-import { dismissEmptySharedSupplyFrame } from '@/lib/panel/sharedSupplyFrame'
-import { initializeDirectConverterPanelBranches, reconcileSupplyAssemblyBranchProtections } from '@/lib/supplyAssembly/editorIntegration'
-import { resolveAssemblyPanelInput } from '@/lib/supplyAssembly/electricalTopology'
+import { current } from 'immer'
 
 function markProjectChanged(state: { currentProject: ProjectV2 | null; isDirty: boolean }): void {
   if (!state.currentProject) return
@@ -44,12 +33,7 @@ export const createSupplyAssemblySlice: ProjectSliceCreator = (set, get) => ({
     let created = false
     set((state) => {
       if (!state.currentProject) return
-      const assemblies = editProjectSupplyAssemblies(state.currentProject)
-      if (assemblies.some(({ id }) => id === assembly.id)) return
-      assemblies.push(assembly)
-      initializeDirectConverterPanelBranches(state.currentProject, assemblies[assemblies.length - 1]!)
-      const input = resolveAssemblyPanelInput(state.currentProject, assembly.incomingAttachment)
-      if (input) reconcileSupplyAssemblyBranchProtections(state.currentProject, input.panelId)
+      if (!addSupplyAssemblyInProject(state.currentProject, assembly).changed) return
       markProjectChanged(state)
       created = true
     })
@@ -65,13 +49,7 @@ export const createSupplyAssemblySlice: ProjectSliceCreator = (set, get) => ({
     let replaced = false
     set((state) => {
       if (!state.currentProject) return
-      const assemblies = editProjectSupplyAssemblies(state.currentProject)
-      const index = assemblies.findIndex((candidate) => candidate.id === id)
-      if (index < 0) return
-      if (assembly.id !== id && assemblies.some((candidate) => candidate.id === assembly.id)) return
-      assemblies[index] = assembly
-      const input = resolveAssemblyPanelInput(state.currentProject, assembly.incomingAttachment)
-      if (input) reconcileSupplyAssemblyBranchProtections(state.currentProject, input.panelId)
+      if (!replaceSupplyAssemblyInProject(state.currentProject, id, assembly).changed) return
       markProjectChanged(state)
       replaced = true
     })

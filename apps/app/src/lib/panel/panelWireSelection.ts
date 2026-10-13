@@ -1,4 +1,4 @@
-import type { ModulePlacement } from '@/components/canvas/panel/panelGridLayout'
+import type { ModulePlacement } from '@/lib/panel/panelGridLayout'
 import type { PanelGridModuleRef } from '@/types/schema'
 import type { Selection } from '@/types/ui'
 

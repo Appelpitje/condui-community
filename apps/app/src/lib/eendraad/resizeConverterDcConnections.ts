@@ -1,19 +1,12 @@
-import { getSupplyFeedDevicesForPanel } from '@/lib/feedTopology'
 import {
   CIRCUIT_CONVERTER_MAX_CONNECTIONS,
   CIRCUIT_CONVERTER_MIN_CONNECTIONS,
-  getCircuitConverterDcConnectionCount,
   getCircuitConverterPrimaryBranch,
   supportsCircuitConverterDcConnections,
 } from '@/lib/layout/circuitConverterGeometry'
-import {
-  getProjectElectricalInstallation,
-  getProjectElectricalPanels,
-} from '@/lib/projectV2/electrical'
 import { getSupplyConverterDcConnectionIndex } from '@/lib/supplyAssembly/converterDcConnections'
-import { useProjectStore } from '@/stores/projectStore'
 import type { Circuit, Endpoint, TrunkDevice } from '@/types/schema'
-import { generateId } from '@/utils'
+import { generateId } from '@/utils/project'
 import { endpointSupportsMultiplier } from '@/utils/endpointMultipliers'
 
 export function clampConverterDcConnectionCount(count: number): number {
@@ -23,7 +16,7 @@ export function clampConverterDcConnectionCount(count: number): number {
   )
 }
 
-function isDcBusConverterEndpoint(endpoint: Endpoint | undefined): endpoint is Endpoint {
+export function isDcBusConverterEndpoint(endpoint: Endpoint | undefined): endpoint is Endpoint {
   return endpoint?.symbol === 'dc_dc_converter' || endpoint?.symbol === 'inverter'
 }
 
@@ -194,7 +187,7 @@ export function getOrdinaryConverterResizeTrunkDeviceIds(
   })
 }
 
-function resizeNestedOrdinaryConverterOwnership(
+export function resizeNestedOrdinaryConverterOwnership(
   circuit: Circuit,
   converterId: string,
   newCount: number
@@ -252,7 +245,7 @@ function resizeNestedOrdinaryConverterOwnership(
   }
 }
 
-function getNestedSupplyConverterBranchDevices(
+export function getNestedSupplyConverterBranchDevices(
   devices: TrunkDevice[],
   converter: TrunkDevice
 ): TrunkDevice[] {
@@ -340,108 +333,4 @@ export function moveOrdinaryConverterDcBusesToLastOutput(
     }
   })
   return moved ? { ...circuit, trunkDevices } : circuit
-}
-
-/** Resize a converter and remove everything owned by lanes that disappear. */
-export function resizeConverterDcConnections(deviceId: string, requestedCount: number): boolean {
-  const store = useProjectStore.getState()
-  const found = store.getTrunkDeviceById(deviceId)
-  const device = found?.device
-  const newCount = clampConverterDcConnectionCount(requestedCount)
-
-  if (!found || !device || !supportsCircuitConverterDcConnections(device)) {
-    const endpoint = store.getEndpointById(deviceId)
-    const endpointOwner = endpoint ? store.findCircuitForEndpoint(deviceId) : undefined
-    if (!isDcBusConverterEndpoint(endpoint) || !endpointOwner || newCount <= 1) return false
-    const migrated = promoteDcBusConverterEndpoint(endpointOwner.circuit, endpoint.id, newCount)
-    if (!migrated) return false
-    return store.withSingleUndoEntry(() => {
-      store.updateCircuit(endpointOwner.circuit.id, {
-        endpoints: migrated.endpoints,
-        branches: migrated.branches,
-      })
-      return true
-    })
-  }
-
-  const previousCount = getCircuitConverterDcConnectionCount(device)
-  if (newCount === previousCount) return false
-  return store.withSingleUndoEntry(() => {
-    const conversionProps = { ...(device.conversionProps ?? {}), dcConnectionCount: newCount }
-
-    if (found.circuit) {
-      const isNestedDcBusConverter = (found.circuit.branches ?? []).some((branch) =>
-        branch.branchDevices?.some((candidate) => candidate.id === deviceId)
-      )
-      const resizedCircuit = isNestedDcBusConverter
-        ? resizeNestedOrdinaryConverterOwnership(found.circuit, deviceId, newCount)
-        : moveOrdinaryConverterDcBusesToLastOutput(found.circuit, deviceId, previousCount, newCount)
-      // Only the main-bus (non-nested) converter renders its first branch as an
-      // in-line lane-zero chain, so that is the only case that grows the broken
-      // horizontal wires when parallel branches are present.
-      const collapsedCircuit = isNestedDcBusConverter
-        ? resizedCircuit
-        : (collapsePrimaryBranchIntoMultiplier(resizedCircuit, deviceId, newCount) ?? resizedCircuit)
-      if (collapsedCircuit !== found.circuit) {
-        store.updateCircuit(found.circuit.id, {
-          trunkDevices: collapsedCircuit.trunkDevices,
-          endpoints: collapsedCircuit.endpoints,
-          branches: collapsedCircuit.branches,
-        })
-      }
-      const endpointIds = getOrdinaryConverterResizeEndpointIds(collapsedCircuit, deviceId, newCount)
-      if (endpointIds.length > 0) store.deleteEndpoints(endpointIds)
-      const trunkDeviceIds = getOrdinaryConverterResizeTrunkDeviceIds(
-        collapsedCircuit,
-        deviceId,
-        newCount
-      )
-      trunkDeviceIds.forEach((trunkDeviceId) =>
-        useProjectStore.getState().deleteTrunkDevice(found.circuit!.id, trunkDeviceId)
-      )
-      store.updateTrunkDevice(found.circuit.id, deviceId, { conversionProps })
-      return true
-    }
-
-    if (found.isSupplyDevice && store.currentProject) {
-      const installation = getProjectElectricalInstallation(store.currentProject)
-      const panels = getProjectElectricalPanels(store.currentProject)
-      if (!installation) return false
-      const devices = getSupplyFeedDevicesForPanel(
-        installation,
-        panels,
-        found.supplyPanelId ?? panels[0]?.id ?? '',
-        found.supplyFeedScope ?? 'root'
-      )
-      if (device.supplyDcBusId) {
-        const branchDevices = getNestedSupplyConverterBranchDevices(devices, device)
-        const converterIndex = branchDevices.findIndex((candidate) => candidate.id === deviceId)
-        const downstream = branchDevices.slice(converterIndex + 1)
-        for (const candidate of downstream) {
-          const connection = candidate.converterDcConnection
-          if (connection?.converterId === deviceId && connection.connectionIndex >= newCount) {
-            useProjectStore.getState().deleteSupplyTrunkDevice(candidate.id)
-          } else if (newCount === 1 && connection?.converterId === deviceId) {
-            useProjectStore.getState().updateSupplyTrunkDevice(candidate.id, {
-              converterDcConnection: undefined,
-            })
-          } else if (newCount > 1 && !connection) {
-            useProjectStore.getState().updateSupplyTrunkDevice(candidate.id, {
-              converterDcConnection: { converterId: deviceId, connectionIndex: 0 },
-            })
-          }
-        }
-        useProjectStore.getState().updateSupplyTrunkDevice(deviceId, { conversionProps })
-        return true
-      }
-      const removedDeviceIds = getSupplyConverterResizeDeviceIds(devices, deviceId, newCount)
-      removedDeviceIds.forEach((removedDeviceId) =>
-        useProjectStore.getState().deleteSupplyTrunkDevice(removedDeviceId)
-      )
-      useProjectStore.getState().updateSupplyTrunkDevice(deviceId, { conversionProps })
-      return true
-    }
-
-    return false
-  })
 }

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useEffect } from 'react'
+import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import CustomDropdown, { type CustomDropdownOption } from '@/components/common/CustomDropdown'
@@ -21,18 +22,18 @@ import {
 } from '@/constants/poleConfig'
 import { getProtectionTypeChangePatch } from '@/lib/protectionLabels'
 import {
-  BE_STANDARD_BREAKER_RATINGS_A,
+  getProtectionRatingOptions,
   breakingCapacityPatchFromSelectValue,
   getVoltagePolesConfig,
-  MCB_RCBO_BREAKING_CAPACITY_OPTIONS,
+  getBreakerBreakingCapacityOptions,
   protectionBreakingCapacityKaOptions,
   resolveBreakingCapacitySelectValue,
 } from '@/lib/protectionDefaults'
 import { getProtectionTypeDropdownOptions } from './ProtectionDeviceElectricalFields'
+import { editProperties } from '@/handlers/properties/editProperties'
 import {
   findSectionWireOverrideWithFeederFallback,
   getSectionRefFromWireSegment,
-  upsertSectionWireOverride,
   type CircuitSectionRef,
 } from '@/lib/wires/sectionWireOverrides'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
@@ -57,7 +58,11 @@ import {
   SocketTypeGrid,
   SwitchTypeDropdown,
 } from './editors/EndpointControls'
-import { normalizeSocketSymbol, normalizeSwitchSymbol } from './editors/endpointControlsUtils'
+import {
+  hasApplianceTypePicker,
+  normalizeSocketSymbol,
+  normalizeSwitchSymbol,
+} from './editors/endpointControlsUtils'
 import {
   getEndpointMultiEditFamily,
   resolveSharedValue,
@@ -185,18 +190,17 @@ function BatchHeader({ count }: { count: number }) {
 }
 
 function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[] }) {
+  const installationProfile = useInstallationProfile()
   const { t } = useTranslation()
-  const updateProtection = useProjectStore((state: ProjectState) => state.updateProtection)
-  const withSingleUndoEntry = useProjectStore((state: ProjectState) => state.withSingleUndoEntry)
   const currentProject = useProjectStore((state: ProjectState) => state.currentProject)
   const apply = (makePatch: (item: ProtectionDevice) => Partial<ProtectionDevice>) =>
-    withSingleUndoEntry(
-      () => {
-        protections.forEach((item) => updateProtection(item.id, makePatch(item)))
-        return true
-      },
-      { sessionLabel: 'properties:batch-protection' }
-    )
+    editProperties({
+      edits: protections.map((item) => ({
+        kind: 'protection',
+        ids: [item.id],
+        set: makePatch(item),
+      })),
+    })
   const stringField = (key: keyof ProtectionDevice) =>
     resolveSharedValue(protections.map((item) => String(item[key] ?? '')))
   const numberField = (key: keyof ProtectionDevice) =>
@@ -219,12 +223,8 @@ function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[
   const sharedPoleOptions = poleOptionsFor(protections[0]!.type).filter((option) =>
     protections.every((item) => poleOptionsFor(item.type).includes(option))
   )
-  const ratingOptionsFor = (type: ProtectionType): number[] | null =>
-    type === 'RCD'
-      ? [25, 40, 63, 80, 100, 125]
-      : type === 'RCBO' || type === 'MCB'
-        ? [...BE_STANDARD_BREAKER_RATINGS_A]
-        : null
+  const ratingOptionsFor = (type: ProtectionType) =>
+    getProtectionRatingOptions(type, installationProfile)
   const allRatingDropdown = protections.every((item) => ratingOptionsFor(item.type) !== null)
   const allRatingNumber = protections.every((item) => ratingOptionsFor(item.type) === null)
   const sharedRatingOptions = (ratingOptionsFor(protections[0]!.type) ?? []).filter((option) =>
@@ -372,7 +372,7 @@ function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[
                     value: String(kA),
                     label: `${kA} kA`,
                   }))
-                : MCB_RCBO_BREAKING_CAPACITY_OPTIONS.map(({ value, label }) => ({ value, label }))
+                : getBreakerBreakingCapacityOptions(installationProfile).map(({ value, label }) => ({ value, label }))
             }
             onChange={(value) => {
               if (allSpd) {
@@ -459,16 +459,14 @@ function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[
 
 function EndpointMultiEditor({ endpoints }: { endpoints: Endpoint[] }) {
   const { t } = useTranslation()
-  const updateEndpoint = useProjectStore((state: ProjectState) => state.updateEndpoint)
-  const withSingleUndoEntry = useProjectStore((state: ProjectState) => state.withSingleUndoEntry)
   const apply = (makePatch: (item: Endpoint) => Partial<Endpoint>) =>
-    withSingleUndoEntry(
-      () => {
-        endpoints.forEach((item) => updateEndpoint(item.id, makePatch(item)))
-        return true
-      },
-      { sessionLabel: 'properties:batch-endpoint' }
-    )
+    editProperties({
+      edits: endpoints.map((item) => ({
+        kind: 'endpoint',
+        ids: [item.id],
+        set: makePatch(item),
+      })),
+    })
   const shared = <T,>(read: (item: Endpoint) => T) => resolveSharedValue(endpoints.map(read))
   const first = endpoints[0]!
   const patchNested = <
@@ -480,10 +478,10 @@ function EndpointMultiEditor({ endpoints }: { endpoints: Endpoint[] }) {
       | 'solarPanelProps'
       | 'batteryProps',
   >(
-    item: Endpoint,
+    _item: Endpoint,
     key: K,
     patch: Partial<NonNullable<Endpoint[K]>>
-  ) => ({ [key]: { ...(item[key] ?? {}), ...patch } }) as Partial<Endpoint>
+  ) => ({ [key]: patch }) as Partial<Endpoint>
   const allSolarPanels = endpoints.every((item) => item.symbol === 'solar_panel')
   const allBatteries = endpoints.every((item) => item.symbol === 'battery')
   const allModularSockets = endpoints.every(isModularSocket)
@@ -510,7 +508,7 @@ function EndpointMultiEditor({ endpoints }: { endpoints: Endpoint[] }) {
           onChangeSymbol={(symbol) => apply(() => ({ symbol }))}
         />
       )}
-      {first.type === 'fixed_appliance' && (
+      {endpoints.every(hasApplianceTypePicker) && (
         <ApplianceTypeDropdown
           value={first.symbol ?? 'fixed_appliance_generic'}
           onChangeSymbol={(symbol) => apply(() => ({ symbol }))}
@@ -856,11 +854,10 @@ type WireTarget = {
 }
 
 function WireMultiEditor({ selection }: { selection: Selection }) {
+  const installationProfile = useInstallationProfile()
   const { t } = useTranslation()
   const segments = useEendraadWireSegments()
   const getCircuitById = useProjectStore((state: ProjectState) => state.getCircuitById)
-  const updateCircuit = useProjectStore((state: ProjectState) => state.updateCircuit)
-  const withSingleUndoEntry = useProjectStore((state: ProjectState) => state.withSingleUndoEntry)
   const targets = selection.ids
     .map((id): WireTarget | null => {
       const metadata = selection.wireMetadata?.find((item) => item.id === id)
@@ -915,29 +912,14 @@ function WireMultiEditor({ selection }: { selection: Selection }) {
     return <UnsupportedMultiSelection count={selection.ids.length} />
   const shared = <T,>(read: (target: WireTarget) => T) => resolveSharedValue(targets.map(read))
   const apply = (makePatch: (target: WireTarget) => Partial<WireTarget['state']>) =>
-    withSingleUndoEntry(
-      () => {
-        targets.forEach((target) => {
-          const { circuit, segment, sectionRef } = target
-          const currentCircuit = useProjectStore.getState().getCircuitById(circuit.id) ?? circuit
-          const patch = makePatch({ ...target, circuit: currentCircuit })
-          if (sectionRef)
-            updateCircuit(circuit.id, {
-              sectionWireOverrides: upsertSectionWireOverride(currentCircuit, sectionRef, patch),
-            })
-          else if ((segment.domain ?? 'AC') === 'DC')
-            updateCircuit(circuit.id, {
-              domainWireOverrides: {
-                ...(currentCircuit.domainWireOverrides ?? {}),
-                DC: { ...(currentCircuit.domainWireOverrides?.DC ?? {}), ...patch },
-              },
-            })
-          else updateCircuit(circuit.id, patch)
-        })
-        return true
-      },
-      { sessionLabel: 'properties:batch-wire' }
-    )
+    editProperties({
+      wireEdits: targets.map((target) => ({
+        circuitId: target.circuit.id,
+        sectionRef: target.sectionRef,
+        domain: target.segment.domain ?? 'AC',
+        set: makePatch(target),
+      })),
+    })
   const route = shared((target) =>
     target.state.wireRoute === 'wall'
       ? target.state.inWall
@@ -966,7 +948,7 @@ function WireMultiEditor({ selection }: { selection: Selection }) {
     )
   )
   const thicknessOptionsByTarget = targets.map((target) =>
-    getWireSectionOptions(target.segment.domain === 'DC')
+    getWireSectionOptions(target.segment.domain === 'DC', installationProfile)
   )
   const sharedThicknessOptions = thicknessOptionsByTarget[0]!.filter((value) =>
     thicknessOptionsByTarget.every((options) => options.includes(value))

@@ -1,3 +1,20 @@
+import {
+  updatePanelGridSlots,
+  updatePanelGrid,
+  updateSupplyPanelSlots,
+  ejectToSupplyPanel,
+  returnFromSupplyPanel,
+  hideModuleFromPanel,
+  unhideModuleFromPanel,
+  setSupplyPanelVisible,
+  editPanelLayout,
+} from '@/handlers/panel/editPanelLayout'
+import {
+  getMissingPanelGridSlots,
+  getPanelSupplySlotRepair,
+  getPanelTerminalSlotRepair,
+} from '@/lib/panel/panelAutomaticSlots'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { logger } from '@/lib/logger'
 import { useJunctionEditorMenu } from '@/components/junctionEditor/junctionEditorHostedFeatures'
 /**
@@ -17,7 +34,7 @@ import { PanelSelectorIcon, VisibilityIcon } from '@/components/icons/UiIcons'
 import { useUIStore } from '@/stores/uiStore'
 
 import { useSettingsStore } from '@/stores/settingsStore'
-import { useProjectStore, isModuleRefValid } from '@/stores/projectStore'
+import { useProjectStore } from '@/stores/projectStore'
 import { useDialogStore } from '@/stores/dialogStore'
 import { useCanvasRegistryStore } from '@/stores/canvasRegistryStore'
 import { useThemeColors } from '@/lib/theme/hooks'
@@ -32,22 +49,15 @@ import {
   getSupplyPanelRows,
   panelGridModuleRefKey,
   getModuleWidthInCols,
-  resolveModuleWidthCols,
   CELL_W,
   CELL_H,
   ROW_GAP,
   ROW_STRIDE,
   snapToGrid,
   type ModulePlacement,
-} from './panel/panelGridLayout'
-import {
-  arePanelGridSlotArraysEqual,
-  buildPanelAutoArrangeSlots,
-  getSupplyPanelLayout,
-  placeSupplyModuleAfterInsert as planSupplyModuleSlotsAfterInsert,
-  rebalanceSupplyOverflowIntoMain as rebalanceSupplyOverflowSlotsIntoMain,
-} from '@/lib/panel/panelSupplySlots'
-import { getModuleDisplayInfo, type ModuleDisplayInfo } from './panel/getModuleDisplayInfo'
+} from '@/lib/panel/panelGridLayout'
+import { getSupplyPanelLayout } from '@/lib/panel/panelSupplySlots'
+import { getModuleDisplayInfo, type ModuleDisplayInfo } from '@/lib/panel/getModuleDisplayInfo'
 import ModuleBox, { type ModuleTooltipData } from './panel/ModuleBox'
 import { getDownstreamWirePoints } from './panel/RelationWires'
 import { getCircuitIdFromModuleRef, getRelationEdges } from './panel/panelRelationEdges'
@@ -82,16 +92,6 @@ import {
 } from '@/hooks/panel'
 
 type Project = NonNullable<ProjectState['currentProject']>
-
-function panelGridSlotPersistenceKey(slot: PanelGridSlot): string {
-  return [
-    panelGridModuleRefKey(slot.module),
-    slot.row,
-    slot.col,
-    slot.moduleWidth ?? '',
-    slot.moduleWidthManual === true ? 'manual' : 'auto',
-  ].join(':')
-}
 
 function moduleRefMatchesSelection(ref: PanelGridModuleRef, selection: CanvasSelection): boolean {
   if (!selection.type || selection.ids.length === 0) return false
@@ -269,21 +269,10 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
   const currentProject = useProjectStore((s: ProjectState) => s.currentProject)
   const getPanelById = useProjectStore((s: ProjectState) => s.getPanelById)
   const getProtectionById = useProjectStore((s: ProjectState) => s.getProtectionById)
-  const addPanel = useProjectStore((s: ProjectState) => s.addPanel)
   const getPanelGridModules = useProjectStore((s: ProjectState) => s.getPanelGridModules)
-  const updatePanelGridSlots = useProjectStore((s: ProjectState) => s.updatePanelGridSlots)
-  const updatePanelGrid = useProjectStore((s: ProjectState) => s.updatePanelGrid)
-  const applyPanelAutoArrange = useProjectStore((s: ProjectState) => s.applyPanelAutoArrange)
-  const ejectToSupplyPanel = useProjectStore((s: ProjectState) => s.ejectToSupplyPanel)
-  const returnFromSupplyPanel = useProjectStore((s: ProjectState) => s.returnFromSupplyPanel)
-  const hideModuleFromPanel = useProjectStore((s: ProjectState) => s.hideModuleFromPanel)
-  const unhideModuleFromPanel = useProjectStore((s: ProjectState) => s.unhideModuleFromPanel)
   const getPanelHiddenModuleRefs = useProjectStore((s: ProjectState) => s.getPanelHiddenModuleRefs)
   const getTrunkDeviceById = useProjectStore((s: ProjectState) => s.getTrunkDeviceById)
   const getEndpointById = useProjectStore((s: ProjectState) => s.getEndpointById)
-  const setSupplyPanelVisible = useProjectStore((s: ProjectState) => s.setSupplyPanelVisible)
-  const updateSupplyPanelSlots = useProjectStore((s: ProjectState) => s.updateSupplyPanelSlots)
-  const moveEndpointToCircuit = useProjectStore((s: ProjectState) => s.moveEndpointToCircuit)
   const colors = useThemeColors()
   const clearSelection = useUIStore((s) => s.clearSelection)
   const openDialog = useDialogStore((s) => s.openDialog)
@@ -349,15 +338,13 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
     return () => cancelAnimationFrame(raf1)
   }, [effectivePanelCanvasMode])
 
-  const panel = useMemo(
-    () => {
-      const selectedId = effectivePanelCanvasMode.kind === 'panel'
+  const panel = useMemo(() => {
+    const selectedId =
+      effectivePanelCanvasMode.kind === 'panel'
         ? effectivePanelCanvasMode.panelId
         : effectiveActivePanelId
-      return panelList.find((candidate) => candidate.id === selectedId)?.panel ?? null
-    },
-    [effectiveActivePanelId, effectivePanelCanvasMode, panelList]
-  )
+    return panelList.find((candidate) => candidate.id === selectedId)?.panel ?? null
+  }, [effectiveActivePanelId, effectivePanelCanvasMode, panelList])
   
   const selectedPanelForLayout = useMemo(() => {
     if (effectivePanelCanvasMode.kind === 'panel') return panel ?? null
@@ -376,11 +363,11 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
   )
   const setHierarchyFeedFromTop = useCallback(
     (feedFromTop: boolean) => {
-      for (const rootPanel of rootPanels) {
-        updatePanelGrid(rootPanel.id, { feedFromTop })
-      }
+      editPanelLayout({
+        panels: rootPanels.map((rootPanel) => ({ panelId: rootPanel.id, grid: { feedFromTop } })),
+      })
     },
-    [rootPanels, updatePanelGrid]
+    [rootPanels]
   )
 
   const handleFitToView = useCallback(() => {
@@ -508,189 +495,31 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
   // A store update can legitimately normalize a proposed slot away (for example while
   // healing transitional panel data). Do not retry the exact same rejected proposal on
   // every render: that would create a synchronous React -> Zustand -> React update loop.
-  const slotPersistenceAttemptRef = useRef<{ main?: string; supply?: string }>({})
 
-  const rebalanceSupplyOverflowIntoMain = useCallback(
-    (targetPanel: Panel, targetProject: Project) =>
-      rebalanceSupplyOverflowSlotsIntoMain(targetPanel, targetProject),
-    []
-  )
-
-  const placeSupplyModuleAfterInsert = useCallback(
-    (
-      targetPanel: Panel,
-      targetProject: Project,
-      moduleRef: PanelGridModuleRef,
-      preferredRow?: number,
-      preferredCol?: number
-    ) =>
-      planSupplyModuleSlotsAfterInsert(
-        targetPanel,
-        targetProject,
-        moduleRef,
-        preferredRow,
-        preferredCol
-      ),
-    []
-  )
-
-  const buildAutoArrangeSlots = useCallback(
-    (targetPanel: Panel, targetProject: Project) =>
-      buildPanelAutoArrangeSlots({
-        feedSideDirection,
-        getPanelGridModules,
-        targetPanel,
-        targetProject,
-      }),
-    [feedSideDirection, getPanelGridModules]
-  )
-
-  // Prevent implicit reflow/compaction: once a module appears with a computed placement
-  // but has no stored slot yet, persist that slot so future renders stay manual/stable.
+  // Legacy projects initialize their first persisted grid when opened. Subsequent
+  // domain commands persist additions and repairs inside the originating gesture.
   useEffect(() => {
-    if (!panel || !currentProject) return
-
-    const latestPanel = getPanelById(panel.id) ?? panel
-    const existingMainSlots = latestPanel.gridView?.slots ?? []
-    const existingSupplySlots = latestPanel.gridView?.supplyPanelSlots ?? []
-    const existingMainKeys = new Set(
-      existingMainSlots.map((s: PanelGridSlot) => panelGridModuleRefKey(s.module))
-    )
-    const existingSupplyKeys = new Set(
-      existingSupplySlots.map((s: PanelGridSlot) => panelGridModuleRefKey(s.module))
-    )
-
-    const mainAdds: PanelGridSlot[] = []
-    for (const pl of placements) {
-      const key = panelGridModuleRefKey(pl.ref)
-      if (existingMainKeys.has(key)) continue
-      // Shared supply trunks live in the supply strip. Root-local supply trunks belong in
-      // the main panel body and must be allowed to persist there.
-      if (latestPanel.isMain && sharedSupplyRefKeys.has(key)) {
-        continue
-      }
-      // Must match store filtering in updatePanelGridSlots; otherwise invalid refs never persist
-      // and this effect re-runs until React hits max update depth.
-      try {
-        if (!isModuleRefValid(pl.ref, currentProject)) continue
-      } catch {
-        continue
-      }
-      mainAdds.push({
-        row: pl.row,
-        col: pl.col,
-        module: pl.ref,
-      })
-    }
-
-    const supplyAdds: PanelGridSlot[] = []
-    for (const pl of supplyPlacements) {
-      const key = panelGridModuleRefKey(pl.ref)
-      if (existingSupplyKeys.has(key)) continue
-      try {
-        if (!isModuleRefValid(pl.ref, currentProject)) continue
-      } catch {
-        continue
-      }
-      supplyAdds.push({
-        row: pl.row,
-        col: pl.col,
-        module: pl.ref,
-      })
-    }
-
-    if (mainAdds.length === 0) {
-      slotPersistenceAttemptRef.current.main = undefined
-    } else {
-      const nextMainSlots = [...existingMainSlots, ...mainAdds]
-      const attemptKey = `${latestPanel.id}:${nextMainSlots
-        .map(panelGridSlotPersistenceKey)
-        .join('|')}`
-      if (slotPersistenceAttemptRef.current.main !== attemptKey) {
-        slotPersistenceAttemptRef.current.main = attemptKey
-        updatePanelGridSlots(latestPanel.id, nextMainSlots)
-      }
-    }
-    if (supplyAdds.length === 0) {
-      slotPersistenceAttemptRef.current.supply = undefined
-    } else {
-      const nextSupplySlots = [...existingSupplySlots, ...supplyAdds]
-      const attemptKey = `${latestPanel.id}:${nextSupplySlots
-        .map(panelGridSlotPersistenceKey)
-        .join('|')}`
-      if (slotPersistenceAttemptRef.current.supply !== attemptKey) {
-        slotPersistenceAttemptRef.current.supply = attemptKey
-        updateSupplyPanelSlots(latestPanel.id, nextSupplySlots)
-      }
-    }
-  }, [
-    panel,
-    currentProject,
-    getPanelById,
-    placements,
-    sharedSupplyRefKeys,
-    supplyPlacements,
-    updatePanelGridSlots,
-    updateSupplyPanelSlots,
-  ])
-
-  useEffect(() => {
-    if (!panel || !currentProject || !panel.isMain) return
-
-    const supplySlots = panel.gridView?.supplyPanelSlots ?? []
-    if (supplySlots.length === 0) return
-    const { rows: supplyRows, cols: supplyCols } = getSupplyPanelLayout(panel)
-    const seenCells = new Set<string>()
-    const mainKeys = new Set(
-      (panel.gridView?.slots ?? []).map((slot: PanelGridSlot) => panelGridModuleRefKey(slot.module))
-    )
-    let hasIllegalSupplyLayout = false
-
-    for (const slot of supplySlots) {
-      const key = panelGridModuleRefKey(slot.module)
-      const width = Math.max(1, resolveModuleWidthCols(slot.module, currentProject, slot))
+    if (!currentProject) return
+    const reconcilePanelIds = new Set<string>()
+    if (panel) {
+      const missing = getMissingPanelGridSlots(currentProject, panel)
       if (
-        slot.row < 0 ||
-        slot.row >= supplyRows ||
-        slot.col < 0 ||
-        slot.col + width > supplyCols ||
-        mainKeys.has(key)
-      ) {
-        hasIllegalSupplyLayout = true
-        break
-      }
-      for (let i = 0; i < width; i++) {
-        const cellKey = `${slot.row},${slot.col + i}`
-        if (seenCells.has(cellKey)) {
-          hasIllegalSupplyLayout = true
-          break
-        }
-        seenCells.add(cellKey)
-      }
-      if (hasIllegalSupplyLayout) break
+        missing.mainAdds.length ||
+        missing.supplyAdds.length ||
+        getPanelSupplySlotRepair(currentProject, panel) ||
+        getPanelTerminalSlotRepair(currentProject, panel)
+      )
+        reconcilePanelIds.add(panel.id)
     }
-
-    if (!hasIllegalSupplyLayout) return
-
-    const { mainSlots, supplySlots: normalizedSupplySlots } = rebalanceSupplyOverflowIntoMain(
-      panel,
-      currentProject
-    )
-    if (
-      arePanelGridSlotArraysEqual(panel.gridView?.slots ?? [], mainSlots) &&
-      arePanelGridSlotArraysEqual(supplySlots, normalizedSupplySlots)
-    ) {
-      return
+    // The hierarchy can show a damaged board while another board is active.
+    if (effectivePanelCanvasMode.kind !== 'panel') {
+      for (const { panel: candidate } of panelList) {
+        if (candidate.id !== panel?.id && getPanelTerminalSlotRepair(currentProject, candidate))
+          reconcilePanelIds.add(candidate.id)
+      }
     }
-    updatePanelGridSlots(panel.id, mainSlots)
-    updateSupplyPanelSlots(panel.id, normalizedSupplySlots)
-  }, [
-    panel,
-    currentProject,
-    rebalanceSupplyOverflowIntoMain,
-    updatePanelGridSlots,
-    updateSupplyPanelSlots,
-  ])
+    if (reconcilePanelIds.size) editPanelLayout({ reconcilePanelIds: [...reconcilePanelIds] })
+  }, [panel, currentProject, effectivePanelCanvasMode, panelList])
 
   // Selection bounds for panel modules (protections, trunk devices, domotica endpoints)
   const handleGetSelectionBounds = useCallback(() => {
@@ -881,13 +710,19 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         setAssignToCircuitMode(false)
         return
       }
-      for (const endpointId of selection.ids) {
-        moveEndpointToCircuit(endpointId, targetCircuitId)
-      }
+      const outcome = runProjectCommand(
+        'electrical.assignEndpoints',
+        {
+          endpointIds: selection.ids,
+          targetCircuitId,
+        },
+        { label: 'assign panel selection to circuit', source: 'panel' }
+      )
+      if (!outcome) return
       setAssignToCircuitMode(false)
       clearSelection()
     },
-    [panel, currentProject, selection.ids, moveEndpointToCircuit, clearSelection]
+    [panel, currentProject, selection.ids, clearSelection]
   )
 
   // Persist canonical active panel to store so export and other consumers stay in sync.
@@ -1458,8 +1293,9 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         const mainSlots = panel.gridView?.slots ?? []
         const newMainSlots = [...mainSlots, { row, col, ...manual, module: draggedRef }]
 
-        updatePanelGridSlots(panel.id, newMainSlots)
-        updateSupplyPanelSlots(panel.id, newSupplySlots)
+        editPanelLayout({
+          panels: [{ panelId: panel.id, mainSlots: newMainSlots, supplySlots: newSupplySlots }],
+        })
       }
 
       // Helper: compute snapped main-panel row/col from raw drop coordinates.
@@ -1495,8 +1331,9 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         const supplySlots = panel.gridView?.supplyPanelSlots ?? []
         const newSupplySlots = [...supplySlots, { row, col, ...manual, module: draggedRef }]
 
-        updatePanelGridSlots(panel.id, newMainSlots)
-        updateSupplyPanelSlots(panel.id, newSupplySlots)
+        editPanelLayout({
+          panels: [{ panelId: panel.id, mainSlots: newMainSlots, supplySlots: newSupplySlots }],
+        })
       }
 
       const snapToSupplyPanel = () => {
@@ -1801,8 +1638,6 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
       supplyLayout.rows,
       supplyPanelY,
       supplyPanelVisible,
-      updatePanelGridSlots,
-      updateSupplyPanelSlots,
       moduleWidthOverrides,
       combinedPlacements,
       setModuleDropPreview,
@@ -1889,18 +1724,13 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
   void rewirePreviewWire
 
   const { dragPreview, handleDragOver, handleDrop } = usePanelLibraryDrop({
-    addPanel,
     combinedPlacements,
     currentProject,
     panel,
-    placeSupplyModuleAfterInsert,
     placements,
     setActivePanelId,
     supplyLayout,
     supplyModulesLength: supplyModules.length,
-    t,
-    updatePanelGridSlots,
-    updateSupplyPanelSlots,
   })
 
   const handleAutoArrange = useCallback(() => {
@@ -1934,16 +1764,14 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
       confirmLabel: t('common.confirm', 'Confirm'),
       cancelLabel: t('common.cancel', 'Cancel'),
       onConfirm: () => {
-        for (const targetPanel of targetPanels) {
-          const { mainSlots, supplySlots } = buildAutoArrangeSlots(targetPanel, currentProject)
-          applyPanelAutoArrange(targetPanel.id, mainSlots, supplySlots)
-        }
+        editPanelLayout({
+          autoArrange: { panelIds: targetPanels.map((target) => target.id), feedSideDirection },
+        })
       },
     })
   }, [
     currentProject,
-    applyPanelAutoArrange,
-    buildAutoArrangeSlots,
+    feedSideDirection,
     effectivePanelCanvasMode,
     getPanelById,
     openDialog,
@@ -2359,9 +2187,6 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
           onMultiFingerSwipe={onMultiFingerSwipe}
           containerRef={containerRef}
           getPanelGridModules={getPanelGridModules}
-          buildAutoArrangeSlots={buildAutoArrangeSlots}
-          applyPanelAutoArrange={applyPanelAutoArrange}
-          placeSupplyModuleAfterInsert={placeSupplyModuleAfterInsert}
           panelRelationDebug={panelRelationDebug}
           
           capabilities={capabilities}

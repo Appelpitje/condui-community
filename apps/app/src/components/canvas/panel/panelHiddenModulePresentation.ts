@@ -8,7 +8,7 @@ import {
 import { findCircuitInProject } from '@/lib/eendraad/frameContent'
 import { getSymbolById } from '@/lib/symbols'
 import { findTrunkDeviceInProject } from '@/utils/project'
-import { panelGridModuleRefKey } from './panelGridLayout'
+import { panelGridModuleRefKey } from '@/lib/panel/panelGridLayout'
 
 export interface PanelHiddenModulePresentation {
   key: string

@@ -1,5 +1,23 @@
+import {
+  updateProjectProperties,
+  updateOneWireNoteProperties,
+  updateSituationPlanNoteProperties,
+  updateGraphicElementProperties,
+  updateFrameProperties,
+} from '@/handlers/properties/editGeneralProperties'
 import { CanonicalWireProperties } from './editors/CanonicalWireProperties'
 import React from 'react'
+import {
+  beginPropertiesFieldEdit,
+  endPropertiesFieldEdit,
+  updateCircuitProperties,
+  updateEndpointProperties,
+  updateProtectionProperties,
+  updatePanelProperties,
+  updateInstallationProperties,
+  updatePanelGridProperties,
+  updateAuxiliaryEnclosureProperties,
+} from '@/handlers/properties/editProperties'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { useUIStore, type UIState } from '@/stores/uiStore'
@@ -60,6 +78,7 @@ export default function PropertiesPanel({
   isTemplate?: boolean
 }) {
   const { t } = useTranslation()
+  React.useEffect(() => () => endPropertiesFieldEdit(), [])
   const { selection, activePlanTool, planWallDrawingThicknessCm, setPlanWallDrawingThicknessCm } =
     useUIStore(
       useShallow((state: UIState) => ({
@@ -90,20 +109,8 @@ export default function PropertiesPanel({
     titleTrunkDevice,
     sameJunctionPanelId,
     auxiliaryEnclosure,
-    updatePanel,
-    updateProtection,
-    updateCircuit,
-    updateEndpoint,
-    updateProject,
-    updateInstallation,
-    updateEendraadNote,
-    updateSitplanNote,
-    updatePlanGraphicElement,
-    updateFrame,
     getCircuitById,
     getPanelById,
-    updatePanelGrid,
-    updateAuxiliaryElectricalEnclosure,
     getEndpointById,
     getPlacementById,
     getTrunkDeviceById,
@@ -150,20 +157,8 @@ export default function PropertiesPanel({
                 (enclosure) => enclosure.id === selectedId
               )
             : undefined,
-        updatePanel: state.updatePanel,
-        updateProtection: state.updateProtection,
-        updateCircuit: state.updateCircuit,
-        updateEndpoint: state.updateEndpoint,
-        updateProject: state.updateProject,
-        updateInstallation: state.updateInstallation,
-        updateEendraadNote: state.updateEendraadNote,
-        updateSitplanNote: state.updateSitplanNote,
-        updatePlanGraphicElement: state.updatePlanGraphicElement,
-        updateFrame: state.updateFrame,
         getCircuitById: state.getCircuitById,
         getPanelById: state.getPanelById,
-        updatePanelGrid: state.updatePanelGrid,
-        updateAuxiliaryElectricalEnclosure: state.updateAuxiliaryElectricalEnclosure,
         getEndpointById: state.getEndpointById,
         getPlacementById: state.getPlacementById,
         getTrunkDeviceById: state.getTrunkDeviceById,
@@ -192,20 +187,20 @@ export default function PropertiesPanel({
       selection.type === 'junctionPanelTerminal'
         ? t('terminalStrip.component', 'Terminal strip')
         : isDrawingWall
-        ? t('wallProperties.drawingTitle', 'New wall')
-        : getPropertiesPanelTitle({
-            selection,
-            stairOnlyPointSelection,
-            titleLookups: {
-              endpoint: titleEndpoint,
-              placementEndpoint,
-              placementTrunkDevice,
-              graphicElement: titleGraphicElement,
-              trunkDevice: titleTrunkDevice,
-              sameJunctionPanelId,
-            },
-            t,
-          }),
+          ? t('wallProperties.drawingTitle', 'New wall')
+          : getPropertiesPanelTitle({
+              selection,
+              stairOnlyPointSelection,
+              titleLookups: {
+                endpoint: titleEndpoint,
+                placementEndpoint,
+                placementTrunkDevice,
+                graphicElement: titleGraphicElement,
+                trunkDevice: titleTrunkDevice,
+                sameJunctionPanelId,
+              },
+              t,
+            }),
     [
       selection,
       stairOnlyPointSelection,
@@ -243,8 +238,8 @@ export default function PropertiesPanel({
     content = (
       <ProjectProperties
         project={currentProject}
-        updateProject={updateProject}
-        updateInstallation={updateInstallation}
+        updateProject={updateProjectProperties}
+        updateInstallation={updateInstallationProperties}
         readOnly={readOnly}
         isTemplate={isTemplate}
       />
@@ -260,25 +255,30 @@ export default function PropertiesPanel({
         {selection.type === 'infoBlock' && id === 'installer' && !isTemplate && (
           <InstallerProperties
             project={currentProject}
-            updateProject={updateProject}
+            updateProject={updateProjectProperties}
             readOnly={readOnly}
           />
         )}
         {selection.type === 'panel' && (
-          <PanelProperties key={id} panelId={id} panel={panel} onUpdate={updatePanel} />
+          <PanelProperties key={id} panelId={id} panel={panel} onUpdate={updatePanelProperties} />
         )}
         {selection.type === 'protection' && (
           <ProtectionProperties
             key={id}
             protectionId={id}
             protection={protection}
-            onUpdate={updateProtection}
-            updateCircuit={updateCircuit}
+            onUpdate={updateProtectionProperties}
+            updateCircuit={updateCircuitProperties}
             getCircuitById={getCircuitById}
           />
         )}
         {selection.type === 'circuit' && (
-          <CircuitProperties key={id} circuitId={id} circuit={circuit} onUpdate={updateCircuit} />
+          <CircuitProperties
+            key={id}
+            circuitId={id}
+            circuit={circuit}
+            onUpdate={updateCircuitProperties}
+          />
         )}
         {selection.type === 'endpoint' && (
           <EndpointProperties
@@ -286,7 +286,7 @@ export default function PropertiesPanel({
             endpointId={id}
             endpoint={endpoint}
             project={currentProject}
-            onUpdate={updateEndpoint}
+            onUpdate={updateEndpointProperties}
           />
         )}
         {selection.type === 'placement' &&
@@ -304,7 +304,7 @@ export default function PropertiesPanel({
                   endpointId={target.endpointId}
                   endpoint={target.endpoint}
                   project={currentProject}
-                  onUpdate={updateEndpoint}
+                  onUpdate={updateEndpointProperties}
                 />
               )
             }
@@ -327,20 +327,22 @@ export default function PropertiesPanel({
                 <AuxiliaryEnclosureProperties
                   key={enclosure.id}
                   enclosure={enclosure}
-                  onUpdate={updateAuxiliaryElectricalEnclosure}
+                  onUpdate={updateAuxiliaryEnclosureProperties}
                 />
               ) : null
             }
             return null
           })()}
         {selection.type === 'wire' && (
-          <WirePropertiesWithLayout key={id} wireSegmentId={id} onUpdate={updateCircuit} />
+          <WirePropertiesWithLayout
+            key={id}
+            wireSegmentId={id}
+            onUpdate={updateCircuitProperties}
+          />
         )}
         {selection.type === 'trunkDevice' && <TrunkDeviceProperties key={id} deviceId={id} />}
         {selection.type === 'junctionPanelTerminal' && selection.junctionPanelTerminalOwnerId ? (
-          <JunctionPanelTerminalProperties
-            ownerDeviceId={selection.junctionPanelTerminalOwnerId}
-          />
+          <JunctionPanelTerminalProperties ownerDeviceId={selection.junctionPanelTerminalOwnerId} />
         ) : null}
         {selection.type === 'ground' && <GroundProperties />}
         {selection.type === 'supply' && (
@@ -363,7 +365,9 @@ export default function PropertiesPanel({
               <NoteProperties
                 noteId={id}
                 note={note}
-                onUpdate={isEendraad ? updateEendraadNote : updateSitplanNote}
+                onUpdate={
+                  isEendraad ? updateOneWireNoteProperties : updateSituationPlanNoteProperties
+                }
               />
             )
           })()}
@@ -417,24 +421,28 @@ export default function PropertiesPanel({
                 element={selected.element}
                 floor={selected.floor}
                 readOnly={readOnly}
-                onUpdate={updatePlanGraphicElement}
+                onUpdate={updateGraphicElementProperties}
               />
             ) : null
           })()}
         {selection.type === 'frame' && (
-          <FrameProperties frameId={id} frame={frame} onUpdate={updateFrame} />
+          <FrameProperties frameId={id} frame={frame} onUpdate={updateFrameProperties} />
         )}
         {selection.type === 'supplyPanel' &&
           (() => {
             const panel = getPanelById(id)
             return panel ? (
-              <SupplyPanelProperties panelId={id} panel={panel} updatePanelGrid={updatePanelGrid} />
+              <SupplyPanelProperties
+                panelId={id}
+                panel={panel}
+                updatePanelGrid={updatePanelGridProperties}
+              />
             ) : null
           })()}
         {selection.type === 'auxiliaryEnclosure' && auxiliaryEnclosure ? (
           <AuxiliaryEnclosureProperties
             enclosure={auxiliaryEnclosure}
-            onUpdate={updateAuxiliaryElectricalEnclosure}
+            onUpdate={updateAuxiliaryEnclosureProperties}
           />
         ) : null}
         {(selection.type === 'structuralNode' || selection.type === 'structuralConnection') &&
@@ -444,9 +452,13 @@ export default function PropertiesPanel({
               anchor={selection.wireAnchor}
               cable={selection.structuralMetadata.wire.cable}
               domain={selection.structuralMetadata.wire.domain}
-              defaults={{ defaultWireLabelVisible: !selection.wireAnchor.includes(':into:open-end:') }}
+              defaults={{
+                defaultWireLabelVisible: !selection.wireAnchor.includes(':into:open-end:'),
+              }}
             />
-          ) : <StructuralReadOnlyProperties metadata={selection.structuralMetadata} />
+          ) : (
+            <StructuralReadOnlyProperties metadata={selection.structuralMetadata} />
+          )
         ) : null}
         {/* @project-documents-strip-start */}
         {isProjectDocumentsEnabled() && selection.type === 'document' && (
@@ -492,7 +504,12 @@ export default function PropertiesPanel({
       onMouseEnter={cancelBlurOnPanelEnter}
       onMouseLeave={blurActiveFieldOnPanelLeave}
     >
-      {content}
+      <div
+        onFocusCapture={(event) => beginPropertiesFieldEdit(event.target as HTMLElement)}
+        onBlur={() => endPropertiesFieldEdit()}
+      >
+        {content}
+      </div>
     </PropertiesPanelFrame>
   )
 }

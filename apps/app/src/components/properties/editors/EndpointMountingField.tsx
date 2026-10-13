@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getEndpointMounting } from '@/lib/plan/panelPlanPlacementVisibility'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
+import { editProperties } from '@/handlers/properties/editProperties'
 import { labelClass } from '../shared/propertiesSharedUtils'
 
 /**
@@ -12,8 +13,6 @@ import { labelClass } from '../shared/propertiesSharedUtils'
 export function EndpointMountingField({ endpointId }: { endpointId: string }) {
   const { t } = useTranslation()
   const project = useProjectStore((state: ProjectState) => state.currentProject)
-  const hideModuleFromPanel = useProjectStore((state: ProjectState) => state.hideModuleFromPanel)
-  const unhideModuleFromPanel = useProjectStore((state: ProjectState) => state.unhideModuleFromPanel)
   const mounting = useMemo(
     () => (project ? getEndpointMounting(project, endpointId) : undefined),
     [project, endpointId]
@@ -40,8 +39,14 @@ export function EndpointMountingField({ endpointId }: { endpointId: string }) {
               title={option.title}
               onClick={() => {
                 if (active) return
-                if (option.value === 'panel') unhideModuleFromPanel(mounting.panelId, mounting.moduleRefKey)
-                else hideModuleFromPanel(mounting.panelId, mounting.moduleRefKey)
+                editProperties({
+                  actions: [{
+                    kind: 'panelModuleVisibility',
+                    panelId: mounting.panelId,
+                    moduleRefKey: mounting.moduleRefKey,
+                    visible: option.value === 'panel',
+                  }],
+                })
               }}
               className={`truncate rounded px-2 py-1 text-sm ${
                 active

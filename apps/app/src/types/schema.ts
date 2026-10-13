@@ -1000,6 +1000,11 @@ export interface Endpoint {
   terminalStripOutgoingPin?: number
   /** Physical panel-canvas owner of an endpoint-form terminal strip; independent from circuit ownership. */
   terminalStripPanelId?: string
+  /**
+   * Physical panel-canvas mounting of a panel-module endpoint (relay, meter, domotica module)
+   * outside its circuit's panel; independent from electrical ownership. Absent: its own panel.
+   */
+  panelMounting?: { kind: 'panel'; panelId: string } | { kind: 'auxiliary'; enclosureId: string }
   symbol?: SymbolKey
   /**
    * Virtual "operated by" link to another device (currently a domotica module endpoint).
@@ -1720,6 +1725,11 @@ export interface WireSegment {
   supplySeparatorX?: number
   /** Derived enclosure transition carried by the physical supply-assembly connection. */
   supplyEnclosureBoundary?: boolean
+  /**
+   * Derived physical enclosure change along this wire, upstream side first, as
+   * `panel:<id>`, `auxiliary:<id>` or `grid`. Drawn as a dashed separator.
+   */
+  enclosureTransition?: { from: string; to: string }
   /** Bus-drop vertical that also includes the bus-side crossing run (no trunk device before the separator). */
   supplyMergesCrossingToBus?: boolean
   /** Horizontal crossing run absorbed into the bus drop; not a separate property segment. */

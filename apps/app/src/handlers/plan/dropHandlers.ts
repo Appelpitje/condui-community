@@ -1,9 +1,10 @@
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
+import { createUiDropBehaviorHooks } from '@/handlers/eendraad/uiDropBehaviorHooks'
 import { generateId } from '@/utils'
-import { createDefaultAcCircuitCable } from '@/lib/wires/circuitWireDefaults'
 import { getEndpointTypeFromSymbol } from '@/utils'
-import { getSymbolById, type SymbolMetadata } from '@/lib/symbols'
+import type { SymbolMetadata } from '@/lib/symbols'
 import type { Point, Selection } from '@/types/ui'
-import type { Placement, Circuit, Endpoint, Floor, Panel, ProtectionDevice } from '@/types/schema'
+import type { Placement, Circuit, Endpoint, Floor, Panel } from '@/types/schema'
 import { useProjectStore } from '@/stores/projectStore'
 import { trackGoogleAnalyticsEvent } from '@/lib/analytics/googleAnalytics'
 import { trackSymbolPlace } from '@/lib/analytics/editorEventAnalytics'
@@ -15,7 +16,7 @@ import {
   executeDropBehavior,
   type DropBehaviorCallbacks,
   type DropBehaviorProject,
-} from '@/handlers/eendraad/dropBehaviors'
+} from '@/lib/eendraad/dropBehaviors'
 import type { DropTarget } from '@/lib/layout/findDropTarget'
 import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'
 
@@ -51,37 +52,12 @@ function findCircuitInPanelTree(panels: readonly Panel[], circuitId: string): Ci
   return null
 }
 
-function findPanelInTree(panels: readonly Panel[], panelId: string): Panel | null {
-  for (const panel of panels) {
-    if (panel.id === panelId) return panel
-    const nested = findPanelInTree(panel.subPanels ?? [], panelId)
-    if (nested) return nested
-  }
-  return null
-}
-
-function findProtectionInPanelTree(
-  panels: readonly Panel[],
-  protectionId: string
-): ProtectionDevice | null {
-  for (const panel of panels) {
-    const protection = panel.protections?.find((candidate) => candidate.id === protectionId)
-    if (protection) return protection
-    const nested = findProtectionInPanelTree(panel.subPanels ?? [], protectionId)
-    if (nested) return nested
-  }
-  return null
-}
-
 function getCircuitForPlanDrop(circuitId: string): Circuit | null {
   const store = useProjectStore.getState()
   return (
     store.getCircuitById(circuitId) ??
     (store.currentProject
-      ? findCircuitInPanelTree(
-          store.currentProject.disciplines.electrical?.panels ?? [],
-          circuitId
-        )
+      ? findCircuitInPanelTree(store.currentProject.disciplines.electrical?.panels ?? [], circuitId)
       : null)
   )
 }
@@ -91,6 +67,7 @@ function createStoreDropBehaviorCallbacks(
 ): DropBehaviorCallbacks {
   const store = useProjectStore.getState()
   return {
+    ...createUiDropBehaviorHooks(),
     addPanel: store.addPanel,
     addProtection: store.addProtection,
     addCircuit: store.addCircuit,
@@ -130,180 +107,61 @@ function createStoreDropBehaviorCallbacks(
 }
 
 /**
- * Add a new MCB + empty circuit on a panel (same defaults as plan drop “new circuit”).
+ * Add a new MCB + empty circuit on a panel (same defaults as plan drop “new circuit”), as one
+ * `circuit.createEmpty` command. Returns the new circuit id.
  */
 export function createEmptyCircuitOnPanel(
   panelId: string,
   dropKind: PlanDropKind,
   options?: CreateEmptyCircuitOnPanelOptions | string
 ): string | null {
-  const store = useProjectStore.getState()
-  if (!store.currentProject) return null
-
   const normalized: CreateEmptyCircuitOnPanelOptions =
     typeof options === 'string' ? { protectionLabel: options } : (options ?? {})
-
-  const symbol = getSymbolById('mcb')
-  if (!symbol) return null
-
-  const circuitKind = planDropKindToCircuitKind(dropKind)
-  const label = (normalized.protectionLabel ?? '').trim()
-  const notesTrimmed = (normalized.circuitNotes ?? '').trim()
-  let newCircuitId: string | null = null
-  const callbacks = createStoreDropBehaviorCallbacks({
-    addProtection: (targetPanelId, protection) => {
-      const planProtection: ProtectionDevice = {
-        ...protection,
-        label,
-        ratingA: circuitKind === 'lighting' ? 10 : 16,
-        curve: 'C',
-        polesConfig: '2P',
-        poles: 2,
-      }
-      store.addProtection(targetPanelId, planProtection)
-      const currentProject = useProjectStore.getState().currentProject
-      if (
-        currentProject &&
-        findProtectionInPanelTree(
-          currentProject.disciplines.electrical?.panels ?? [],
-          planProtection.id
-        )
-      ) {
-        return
-      }
-      useProjectStore.setState((state) => {
-        const panel = state.currentProject
-          ? findPanelInTree(
-              state.currentProject.disciplines.electrical?.panels ?? [],
-              targetPanelId
-            )
-          : null
-        if (!panel) return
-        panel.protections.push(planProtection)
-        state.isDirty = true
-      })
-    },
-    addCircuit: (targetPanelId, circuit, protectionId) => {
-      const planCircuit: Circuit = {
-        ...circuit,
-        code: '',
-        kind: circuitKind,
-        cable: createDefaultAcCircuitCable({
-          sectionMm2: circuitKind === 'lighting' ? 1.5 : 2.5,
-        }),
-        ...(notesTrimmed ? { notes: notesTrimmed } : {}),
-      }
-      newCircuitId = planCircuit.id
-      store.addCircuit(targetPanelId, planCircuit, protectionId)
-      if (getCircuitForPlanDrop(planCircuit.id)) return
-      useProjectStore.setState((state) => {
-        const panels = state.currentProject?.disciplines.electrical?.panels ?? []
-        const protection = protectionId ? findProtectionInPanelTree(panels, protectionId) : null
-        if (protection) {
-          protection.circuits = [...(protection.circuits ?? []), planCircuit]
-          state.isDirty = true
-          return
-        }
-        logger.error('Unable to create plan-drop circuit because its protection is missing', {
-          panelId: targetPanelId,
-          protectionId,
-          circuitId: planCircuit.id,
-        })
-      })
-    },
+  const outcome = runProjectCommand('circuit.createEmpty', {
+    panelId,
+    kind: dropKind,
+    ...normalized,
   })
-
-  executeDropBehavior(
-    symbol,
-    { type: 'mainBus', panelId } as DropTarget,
-    store.currentProject as DropBehaviorProject,
-    ((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key) as never,
-    callbacks,
-    false
-  )
-  return newCircuitId && getCircuitForPlanDrop(newCircuitId) ? newCircuitId : null
+  return outcome?.results[0]?.created[0]?.id ?? null
 }
 
 /**
- * Place symbol on the plan and assign to a circuit. Selects the new placement on the situation plan.
+ * Place symbol on the plan and assign to a circuit, as one `plan.placeSymbol` command. Selects
+ * the new placement on the situation plan.
  */
 export function commitPlanSymbolDrop(
   params: CommitPlanSymbolDropParams
 ): { endpointId: string; placementId: string; circuitId: string; panelId: string } | null {
   const { symbol, position, floorId, floorLayer, panelId, circuitChoice, setSelection } = params
-
-  const store = useProjectStore.getState()
-  if (!store.currentProject) return null
-
   const endpointType = getEndpointTypeFromSymbol(symbol)
   if (!endpointType) return null
 
-  const dropKind = endpointTypeToPlanDropKind(endpointType)
-
-  let circuitId: string
-
-  if (circuitChoice.mode === 'existing') {
-    circuitId = circuitChoice.circuitId
-  } else {
-    const created = createEmptyCircuitOnPanel(panelId, dropKind, {
-      protectionLabel: circuitChoice.protectionLabel,
-      circuitNotes: circuitChoice.circuitNotes,
-    })
-    if (!created) return null
-    circuitId = created
-  }
-
-  const circuit = getCircuitForPlanDrop(circuitId)
-  if (!circuit || circuit.code === 'PANEL') return null
-
-  const newPlacement: Placement = {
-    id: generateId(),
+  const sitplanTarget = createUiDropBehaviorHooks().getSitplanTarget()
+  const outcome = runProjectCommand('plan.placeSymbol', {
+    symbolId: symbol.id,
     floorId,
-    layer: floorLayer,
+    floorLayer,
     pos: position,
-    rotationDeg: 0,
-    scale: 1,
-  }
-
-  let endpointId: string | null = null
-  const callbacks = createStoreDropBehaviorCallbacks({
-    addEndpoint: (targetCircuitId, endpoint, insertAfterEndpointId, branchOpts) => {
-      endpointId = endpoint.id
-      store.addEndpointWithPlacement(
-        targetCircuitId,
-        endpoint,
-        newPlacement,
-        insertAfterEndpointId ?? undefined,
-        branchOpts
-      )
-    },
-    addPlacement: () => {},
-    setSelection: () => {},
+    panelId,
+    circuit: circuitChoice,
+    viewportCenter: sitplanTarget.activeFloorId === floorId ? sitplanTarget.viewportCenter : null,
   })
-  executeDropBehavior(
-    symbol,
-    {
-      type: 'circuit',
-      panelId,
-      circuitId,
-      insertAfterEndpointId: circuit.endpoints[circuit.endpoints.length - 1]?.id,
-    } as DropTarget,
-    store.currentProject as DropBehaviorProject,
-    ((key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key) as never,
-    callbacks,
-    false
-  )
-  if (!endpointId) return null
-  setSelection({ type: 'placement', ids: [newPlacement.id] })
+  const result = outcome?.results[0]
+  const placementId = result?.select?.[0]?.id
+  const endpointId = result?.created.find((ref) => ref.kind === 'endpoint')?.id
+  const circuitId = result?.related?.find((ref) => ref.kind === 'circuit')?.id
+  if (!placementId || !endpointId || !circuitId) return null
+
+  setSelection({ type: 'placement', ids: [placementId] })
   trackSymbolPlace({
     canvas: 'plan',
     symbol,
     placementMethod: 'library_drop',
     endpointType,
-    dropKind,
+    dropKind: endpointTypeToPlanDropKind(endpointType),
     assignmentMode: circuitChoice.mode,
   })
-  return { endpointId, placementId: newPlacement.id, circuitId, panelId }
+  return { endpointId, placementId, circuitId, panelId }
 }
 
 /**

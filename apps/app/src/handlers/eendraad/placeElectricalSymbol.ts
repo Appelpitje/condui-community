@@ -1,0 +1,93 @@
+import { trackGoogleAnalyticsEvent } from '@/lib/analytics/googleAnalytics'
+import { CommandError, type EntityRef } from '@/lib/commands/project'
+import type { DropTarget } from '@/lib/layout/findDropTarget'
+import type { PanelDropPlacement } from '@/lib/commands/project/panelDropPlacement'
+import { logger } from '@/lib/logger'
+import { flushPendingProjectHistory } from '@/stores/slices/projectStoreHistory'
+import { useProjectStore } from '@/stores/projectStore'
+import { liveProjectSession } from '@/stores/liveProjectCommandSession'
+import { useUIStore } from '@/stores/uiStore'
+import type { Point, Selection } from '@/types/ui'
+import { createUiDropBehaviorHooks } from './uiDropBehaviorHooks'
+
+export type PlaceElectricalSymbolResult =
+  | { status: 'placed'; changed: boolean; created: EntityRef[] }
+  | { status: 'rejected'; message: string }
+  | { status: 'blocked' }
+  | { status: 'failed' }
+
+const SELECTION_TYPES = new Set<string>(['endpoint', 'note', 'panel', 'protection', 'trunkDevice'])
+
+/**
+ * Drops a library symbol on a one-wire or panel target as one undoable `electrical.placeSymbol`
+ * command, then applies the suggested selection. The caller shows `rejected` messages.
+ */
+export function placeElectricalSymbol(options: {
+  symbolId: string
+  target: DropTarget
+  dropCanvasPosition?: Point
+  panelGrid?: PanelDropPlacement
+  label?: string
+}): PlaceElectricalSymbolResult {
+  try {
+    const outcome = liveProjectSession.execute(
+      [
+        {
+          id: 'electrical.placeSymbol',
+          input: {
+            symbolId: options.symbolId,
+            target: options.target,
+            dropCanvasPosition: options.dropCanvasPosition,
+            panelGrid: options.panelGrid,
+            sitplan: createUiDropBehaviorHooks().getSitplanTarget(),
+          },
+        },
+      ],
+      { label: options.label ?? 'drop symbol from library' }
+    )
+    const select = outcome.results[0]?.select ?? []
+    const kind = select[0]?.kind
+    if (kind && SELECTION_TYPES.has(kind)) {
+      useUIStore
+        .getState()
+        .setSelection({
+          type: kind as NonNullable<Selection['type']>,
+          ids: select.map((ref) => ref.id),
+        })
+    }
+    if (outcome.changed && kind === 'note') {
+      trackGoogleAnalyticsEvent('note_place', { canvas: 'eendraad', source: 'symbol_drop' })
+    }
+    return {
+      status: 'placed',
+      changed: outcome.changed,
+      created: outcome.results[0]?.created ?? [],
+    }
+  } catch (error) {
+    if (!(error instanceof CommandError)) throw error
+    if (error.details?.reason === 'drop_rejected') {
+      return { status: 'rejected', message: error.message }
+    }
+    logger.info('[placeElectricalSymbol] not placed', {
+      symbolId: options.symbolId,
+      code: error.code,
+      reason: error.details?.reason,
+    })
+    return error.details?.reason === 'protection_after_junction_panel'
+      ? { status: 'blocked' }
+      : { status: 'failed' }
+  }
+}
+
+/**
+ * Starts a group of related edits that should undo together: the command and the store writes
+ * that follow it. Close it with `endUndoGroup`.
+ */
+export function beginUndoGroup(): number {
+  flushPendingProjectHistory()
+  return useProjectStore.getState().undoStack.length
+}
+
+export function endUndoGroup(startIndex: number): void {
+  useProjectStore.getState().collapseUndoGroupFromIndex(startIndex)
+}

@@ -85,6 +85,7 @@ import type { Point } from '@/types/ui'
 import { getVisibleCertificationLabelParts } from '@/lib/certificationLabels'
 import { getVisibleConversionLabelParts, getVisibleEndpointNoteText } from '@/lib/conversionLabels'
 import { useControlLinkNote } from '@/lib/controlLink/useControlLinkNote'
+import { useCanvasDragImage } from '@/hooks/useCanvasDragImage'
 import { DOMOTICA_NOTE_FONT_SIZE, getDomoticaNoteOffsetFromSymbol } from '@/lib/eendraad/domoticaNotes'
 import { useEendraadWireSegments } from '@/hooks/eendraad'
 import {
@@ -105,10 +106,8 @@ import {
   isDomoticaEndpointOnDcBus,
   resizeDomoticaEndpointCount,
 } from '@/lib/eendraad/resizeDomoticaEndpointCount'
-import {
-  clampConverterDcConnectionCount,
-  resizeConverterDcConnections,
-} from '@/lib/eendraad/resizeConverterDcConnections'
+import { clampConverterDcConnectionCount } from '@/lib/eendraad/resizeConverterDcConnections'
+import { resizeConverterDcConnections } from '@/handlers/eendraad/resizeConverterDcConnections'
 
 const INTERACTIVE_HIT_FILL = 'rgba(0, 0, 0, 0.01)'
 const DOMOTICA_RESIZE_OUTLINE_PADDING = 4
@@ -339,6 +338,7 @@ export const EndpointSymbol = memo(function EndpointSymbol({
   circuitConverterAnchor,
   converterGrowthDirection = 'right',
 }: EndpointSymbolProps) {
+  const dragImage = useCanvasDragImage()
   const endpoint = useProjectStore((state) => {
     const liveEndpoint = state.getEndpointById(layoutEndpoint.id)
     const projectId = state.currentProject?.project.id
@@ -1305,6 +1305,8 @@ export const EndpointSymbol = memo(function EndpointSymbol({
               if (onDragStart(!!evt.altKey, evt)) {
                 e.target.stopDrag()
                 e.target.position({ x: position.x, y: position.y })
+              } else {
+                dragImage.begin(e.target)
               }
             }
           : undefined
@@ -1312,6 +1314,7 @@ export const EndpointSymbol = memo(function EndpointSymbol({
       onDragMove={
         draggable && isSelected && onDragMove
           ? (e) => {
+              dragImage.update()
               onDragMove(getCanvasPositionFromEvent?.(e) ?? { x: e.target.x(), y: e.target.y() })
             }
           : undefined
@@ -1319,6 +1322,7 @@ export const EndpointSymbol = memo(function EndpointSymbol({
       onDragEnd={
         draggable && isSelected
           ? (e) => {
+              dragImage.end()
               if (shouldSuppressKonvaDragEnd?.()) {
                 e.target.position({ x: position.x, y: position.y })
                 return

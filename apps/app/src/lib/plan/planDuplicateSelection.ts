@@ -1,22 +1,13 @@
 /**
- * Sitplan duplicate: multiplier symbols add placements on the same endpoint;
- * other symbols get a new 1-wire branch + sitplan placement (same as context menu).
+ * Sitplan duplicate binding: resolves the plan selection to endpoints/placements and runs
+ * `plan.duplicate` (logic in `planDuplicateCore.ts`, ADR 0003).
  */
 
-import {
-  duplicateBranchAboveOnCircuit,
-  duplicateEndpointOnCircuit,
-  endpointSymbolCanBeDuplicated,
-} from '@/lib/eendraad/duplicateEndpoint'
-import { ensureSitplanPlacementsForEndpoints } from '@/lib/eendraad/duplicateSitplanHelpers'
-import { getCircuitBranches } from '@/lib/layout/endpointChains'
-import {
-  isMainPanelDistributionEndpoint,
-} from '@/lib/plan/panelDistributionEndpoint'
+import { getViewportCenterPlanSpaceIfApplicable } from '@/lib/plan/autoSitplanPlacement'
+import { canDuplicatePlanItems } from '@/lib/plan/planDuplicateCore'
 import type { Endpoint, Panel, Placement } from '@/types/schema'
 import type { Point, Selection } from '@/types/ui'
-import { endpointSupportsMultiplier } from '@/utils/endpointMultipliers'
-import { generateId } from '@/utils'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import {
@@ -24,11 +15,9 @@ import {
   type ProjectWithOptionalV2Building,
 } from '@/lib/projectV2/buildingFloors'
 import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'
-import { suggestRotationForPlacement } from '@/utils/planAutoOrient'
+import type { ProjectV2 } from '@/types/projectV2'
 
 type PlanDuplicateProject = ProjectWithOptionalV2Building & ProjectWithOptionalV2Electrical
-
-const MULTIPLIER_PLACEMENT_OFFSET = 24
 
 export type PlanDuplicateItem = {
   endpointId: string
@@ -42,7 +31,17 @@ export type PlanDuplicateGetters = {
   getPlacementsByFloor: (
     floorId: string
   ) => Array<Placement & { endpointId?: string; junctionPanelLabel?: string; isEarthing?: boolean }>
-  findCircuitForEndpoint: (endpointId: string) => { circuit: { id: string; endpoints: Endpoint[]; branches?: Array<{ id: string; label: string; endpointIds: string[] }> } } | undefined
+  findCircuitForEndpoint: (
+    endpointId: string
+  ) =>
+    | {
+        circuit: {
+          id: string
+          endpoints: Endpoint[]
+          branches?: Array<{ id: string; label: string; endpointIds: string[] }>
+        }
+      }
+    | undefined
   getPanelById: (id: string) => Panel | undefined
   getPanelByName: (name: string) => Panel | undefined
   getAllEndpoints: () => Endpoint[]
@@ -52,12 +51,15 @@ export type PlanDuplicateGetters = {
 export function resolvePlanDuplicateFloorId(
   project: PlanDuplicateProject,
   activeFloorId: string | null,
-  refPlacement?: Pick<Placement, 'floorId'>,
+  refPlacement?: Pick<Placement, 'floorId'>
 ): string | undefined {
   return activeFloorId ?? refPlacement?.floorId ?? selectProjectBuildingFloors(project)[0]?.id
 }
 
-function resolvePanelToEndpointId(getters: PlanDuplicateGetters, panelId: string): string | undefined {
+function resolvePanelToEndpointId(
+  getters: PlanDuplicateGetters,
+  panelId: string
+): string | undefined {
   const panel = getters.getPanelById(panelId)
   if (!panel) return undefined
   const endpoint = getters.getAllEndpoints().find((e) => {
@@ -73,7 +75,7 @@ function resolvePanelToEndpointId(getters: PlanDuplicateGetters, panelId: string
 export function resolvePlanDuplicateItems(
   selection: Selection,
   activeFloorId: string | null,
-  getters: PlanDuplicateGetters,
+  getters: PlanDuplicateGetters
 ): PlanDuplicateItem[] {
   const result: PlanDuplicateItem[] = []
   if (selection.ids.length === 0) return result
@@ -110,9 +112,7 @@ export function resolvePlanDuplicateItems(
     const endpoint = getters.getEndpointById(endpointId)
     if (!endpoint) continue
     const placement =
-      (activeFloorId
-        ? endpoint.placements.find((p) => p.floorId === activeFloorId)
-        : undefined) ??
+      (activeFloorId ? endpoint.placements.find((p) => p.floorId === activeFloorId) : undefined) ??
       (endpoint.placements.length === 1 ? endpoint.placements[0] : undefined)
     result.push({
       endpointId,
@@ -123,32 +123,18 @@ export function resolvePlanDuplicateItems(
   return result
 }
 
-function endpointsShareCircuit(
-  getters: PlanDuplicateGetters,
-  endpointIds: string[],
-): boolean {
-  if (endpointIds.length <= 1) return true
-  let circuitId: string | undefined
-  for (const endpointId of endpointIds) {
-    const info = getters.findCircuitForEndpoint(endpointId)
-    if (!info) return false
-    if (circuitId == null) {
-      circuitId = info.circuit.id
-    } else if (circuitId !== info.circuit.id) {
-      return false
-    }
-  }
-  return true
-}
-
 /** Whether Duplicate should run for this sitplan selection. */
 export function canDuplicatePlanSelection(
   selection: Selection,
   getters: PlanDuplicateGetters,
-  activeFloorId: string | null = useUIStore.getState().activeFloorId,
+  activeFloorId: string | null = useUIStore.getState().activeFloorId
 ): boolean {
   if (selection.ids.length === 0) return false
-  if (selection.type !== 'placement' && selection.type !== 'endpoint' && selection.type !== 'panel') {
+  if (
+    selection.type !== 'placement' &&
+    selection.type !== 'endpoint' &&
+    selection.type !== 'panel'
+  ) {
     return false
   }
 
@@ -156,212 +142,19 @@ export function canDuplicatePlanSelection(
   if (items.length === 0) return false
 
   const project = getters.getCurrentProject()
-  const endpointIds = [...new Set(items.map((item) => item.endpointId))]
-
-  for (const endpointId of endpointIds) {
-    const endpoint = getters.getEndpointById(endpointId)
-    if (!endpoint || !endpointSymbolCanBeDuplicated(endpoint)) return false
-    if (
-      endpoint.symbol === 'panel_distribution' &&
-      project &&
-      isMainPanelDistributionEndpoint(project, endpoint)
-    ) {
-      return false
-    }
-    if (!endpointSupportsMultiplier(endpoint) && !getters.findCircuitForEndpoint(endpointId)) {
-      return false
-    }
-  }
-
-  const endpoints = endpointIds
-    .map((id) => getters.getEndpointById(id))
-    .filter((ep): ep is Endpoint => !!ep)
-  const allMultiplier = endpoints.every((ep) => endpointSupportsMultiplier(ep))
-  const noneMultiplier = endpoints.every((ep) => !endpointSupportsMultiplier(ep))
-  if (!allMultiplier && !noneMultiplier) return false
-
-  if (endpointIds.length > 1 && !allMultiplier && !endpointsShareCircuit(getters, endpointIds)) {
-    return false
-  }
-
-  return true
-}
-
-function duplicateMultiplierPlacementsForEndpoint(
-  endpointId: string,
-  refPlacement: Placement | undefined,
-  count: number,
-  floorId: string,
-  fallbackPosition: Point,
-): string[] {
-  const store = useProjectStore.getState()
-  const endpoint = store.getEndpointById(endpointId)
-  if (!endpoint || count < 1) return []
-
-  const newIds: string[] = []
-  if (!refPlacement) {
-    for (let i = 0; i < count; i++) {
-      const id = generateId()
-      store.addPlacement(endpointId, {
-        id,
-        floorId,
-        layer: 'electrical',
-        pos: {
-          x: fallbackPosition.x + MULTIPLIER_PLACEMENT_OFFSET * i,
-          y: fallbackPosition.y + MULTIPLIER_PLACEMENT_OFFSET * i,
-        },
-        rotationDeg: 0,
-        scale: 1,
-        locked: false,
-      })
-      newIds.push(id)
-    }
-    return newIds
-  }
-
-  for (let i = 0; i < count; i++) {
-    const step = i + 1
-    const id = generateId()
-    store.addPlacement(endpointId, {
-      ...refPlacement,
-      id,
-      floorId: refPlacement.floorId,
-      pos: {
-        x: refPlacement.pos.x + MULTIPLIER_PLACEMENT_OFFSET * step,
-        y: refPlacement.pos.y + MULTIPLIER_PLACEMENT_OFFSET * step,
-      },
-      locked: false,
-    })
-    newIds.push(id)
-  }
-  return newIds
-}
-
-function finishSitplanForNewEndpoints(endpointIds: string[]): void {
-  const project = useProjectStore.getState().currentProject
-  if (!project || endpointIds.length === 0) return
-  const store = useProjectStore.getState()
-  const ui = useUIStore.getState()
-  ensureSitplanPlacementsForEndpoints(
-    project,
-    endpointIds,
-    (id) => store.getEndpointById(id),
-    (endpointId, placement) => store.addPlacement(endpointId, placement),
-    {
-      activeFloorId: ui.activeFloorId,
-      viewportLayout: ui.viewportLayout,
-      planCanvasViewportPx: ui.planCanvasViewportPx,
-      planView: ui.planView,
-    },
-  )
-}
-
-function duplicateNonMultiplierProperty(
-  sourceEndpointId: string,
-  refPlacement: Placement | undefined,
-  activeFloorId: string | null,
-  fallbackPosition: Point,
-): string | null {
-  const store = useProjectStore.getState()
-  const project = store.currentProject
-  const circuitInfo = store.findCircuitForEndpoint(sourceEndpointId)
-  if (!project || !circuitInfo) return null
-
-  const r = duplicateEndpointOnCircuit(
-    project,
-    {
-      circuitId: circuitInfo.circuit.id,
-      sourceEndpointId,
-      context: 'plan',
-    },
-    {
-      getCircuitById: store.getCircuitById,
-      getEndpointById: store.getEndpointById,
-      addEndpoint: store.addEndpoint,
-      updateCircuit: store.updateCircuit,
-      setSelection: undefined,
-    },
-  )
-  if (!r.ok || !r.newEndpointId) return null
-
-  const created = store.getEndpointById(r.newEndpointId)
-  if ((created?.placements?.length ?? 0) === 0) {
-    const floorId = resolvePlanDuplicateFloorId(project, activeFloorId, refPlacement)
-    if (!floorId) return null
-    const basePos = refPlacement?.pos ?? fallbackPosition
-    const newPlacementId = generateId()
-    store.addPlacement(r.newEndpointId, {
-      id: newPlacementId,
-      floorId,
-      layer: refPlacement?.layer ?? 'electrical',
-      pos: {
-        x: basePos.x + MULTIPLIER_PLACEMENT_OFFSET,
-        y: basePos.y + MULTIPLIER_PLACEMENT_OFFSET,
-      },
-      rotationDeg: refPlacement?.rotationDeg ?? 0,
-      rotationMode: refPlacement?.rotationMode,
-      scale: refPlacement?.scale ?? 1,
-      locked: false,
-    })
-    return newPlacementId
-  }
-
-  return created?.placements[0]?.id ?? null
+  return project != null && canDuplicatePlanItems(project as ProjectV2, items)
 }
 
 export type PlanDuplicateResult = Selection | null
 
-/** Recompute automatic plan angles after the duplicate's offset has been applied. */
-function reorientDuplicatedPlanPlacements(
-  result: PlanDuplicateResult,
-  baseSymbolSizePx?: number,
-): void {
-  if (!result) return
-
-  const store = useProjectStore.getState()
-  const placementIds = result.type === 'placement'
-    ? result.ids
-    : result.type === 'endpoint'
-      ? result.ids.flatMap((endpointId) =>
-          store.getEndpointById(endpointId)?.placements.map((placement) => placement.id) ?? []
-        )
-      : []
-
-  for (const placementId of placementIds) {
-    const row = store.getPlacementById(placementId)
-    const endpointId = row?.endpointId
-    if (!endpointId) continue
-    const endpoint = store.getEndpointById(endpointId)
-    if (!endpoint || (endpoint.type !== 'socket' && endpoint.symbol !== 'panel_distribution')) {
-      continue
-    }
-    if (row.rotationMode === 'explicit') continue
-
-    const floor = store.getFloorById(row.floorId)
-    const walls = floor?.floorPlan?.walls ?? []
-    const suggested = suggestRotationForPlacement(
-      row,
-      {
-        walls,
-        ...(baseSymbolSizePx != null ? { symbolBaseSizePx: baseSymbolSizePx } : {}),
-        ...(endpoint.type === 'socket'
-          ? { socketCount: endpoint.socketProps?.socketCount ?? 1 }
-          : {}),
-      },
-      endpoint.symbol === 'panel_distribution' ? 'top' : 'left',
-    )
-    store.updatePlacement(placementId, { rotationDeg: suggested ?? 0 })
-  }
-}
-
+/**
+ * Duplicates the plan selection through `plan.duplicate` as one undo step and returns the
+ * selection of the copies, or null when nothing was duplicated.
+ */
 export function runPlanDuplicate(
   selection: Selection,
   activeFloorId: string | null,
-  options?: {
-    fallbackPosition?: Point
-    baseSymbolSizePx?: number
-    withSingleUndoEntry?: (fn: () => boolean, opts?: { sessionLabel?: string }) => boolean
-  },
+  options?: { fallbackPosition?: Point; baseSymbolSizePx?: number }
 ): PlanDuplicateResult {
   const getters: PlanDuplicateGetters = {
     getEndpointById: (id) => useProjectStore.getState().getEndpointById(id),
@@ -373,130 +166,34 @@ export function runPlanDuplicate(
     getAllEndpoints: () => useProjectStore.getState().getAllEndpoints(),
     getCurrentProject: () => useProjectStore.getState().currentProject,
   }
-
-  if (!canDuplicatePlanSelection(selection, getters, activeFloorId)) return null
-
   const items = resolvePlanDuplicateItems(selection, activeFloorId, getters)
   if (items.length === 0) return null
 
-  const fallbackPosition = options?.fallbackPosition ?? { x: 0, y: 0 }
-  const run = (): PlanDuplicateResult => {
-    const store = useProjectStore.getState()
-    const project = store.currentProject
-    if (!project) return null
-
-    const endpointIds = [...new Set(items.map((item) => item.endpointId))]
-    const firstEndpoint = store.getEndpointById(endpointIds[0]!)
-    if (!firstEndpoint) return null
-
-    if (endpointSupportsMultiplier(firstEndpoint)) {
-      const floorId =
-        resolvePlanDuplicateFloorId(project, activeFloorId, items[0]?.placement)
-      if (!floorId) return null
-
-      const byEndpoint = new Map<string, PlanDuplicateItem[]>()
-      for (const item of items) {
-        const group = byEndpoint.get(item.endpointId) ?? []
-        group.push(item)
-        byEndpoint.set(item.endpointId, group)
-      }
-
-      const newPlacementIds: string[] = []
-      for (const [endpointId, group] of byEndpoint) {
-        const endpoint = store.getEndpointById(endpointId)
-        if (!endpoint || !endpointSupportsMultiplier(endpoint)) continue
-        const refPlacement =
-          group[0]?.placement ??
-          endpoint.placements.find((p: Placement) => p.floorId === floorId) ??
-          endpoint.placements[0]
-        newPlacementIds.push(
-          ...duplicateMultiplierPlacementsForEndpoint(
-            endpointId,
-            refPlacement,
-            group.length,
-            floorId,
-            fallbackPosition,
-          ),
-        )
-      }
-
-      if (newPlacementIds.length === 0) return null
-      return { type: 'placement', ids: newPlacementIds }
-    }
-
-    if (endpointIds.length === 1) {
-      const item = items[0]!
-      const newPlacementId = duplicateNonMultiplierProperty(
-        item.endpointId,
-        item.placement,
+  const ui = useUIStore.getState()
+  const viewportCenter = activeFloorId
+    ? getViewportCenterPlanSpaceIfApplicable(
+        ui.viewportLayout,
+        ui.planCanvasViewportPx,
         activeFloorId,
-        fallbackPosition,
-      )
-      if (!newPlacementId) return null
-      return { type: 'placement', ids: [newPlacementId] }
-    }
-
-    const circuitInfo = store.findCircuitForEndpoint(endpointIds[0]!)
-    if (!circuitInfo) return null
-    const branches = getCircuitBranches(circuitInfo.circuit)
-    const branch = branches.find((b) =>
-      endpointIds.every((eid) => b.some((ep) => ep.id === eid)),
-    )
-    if (branch) {
-      const orderedIds = branch.map((ep) => ep.id).filter((id) => endpointIds.includes(id))
-
-      const r = duplicateBranchAboveOnCircuit(
-        project,
-        { circuitId: circuitInfo.circuit.id, sourceEndpointIds: orderedIds, selectNew: false },
-        {
-          getCircuitById: store.getCircuitById,
-          getEndpointById: store.getEndpointById,
-          addEndpoint: store.addEndpoint,
-          updateCircuit: store.updateCircuit,
-          setSelection: undefined,
-        },
-      )
-      if (!r.ok || !r.newEndpointIds?.length) return null
-      finishSitplanForNewEndpoints(r.newEndpointIds)
-
-      const newPlacementIds = r.newEndpointIds
-        .map((endpointId) => store.getEndpointById(endpointId)?.placements[0]?.id)
-        .filter((id): id is string => !!id)
-      if (newPlacementIds.length > 0) {
-        return { type: 'placement', ids: newPlacementIds }
-      }
-      return { type: 'endpoint', ids: r.newEndpointIds }
-    }
-
-    const newPlacementIds: string[] = []
-    for (const item of items) {
-      const newPlacementId = duplicateNonMultiplierProperty(
-        item.endpointId,
-        item.placement,
         activeFloorId,
-        fallbackPosition,
+        ui.planView
       )
-      if (!newPlacementId) return null
-      newPlacementIds.push(newPlacementId)
-    }
-    if (newPlacementIds.length === 0) return null
-    return { type: 'placement', ids: newPlacementIds }
+    : null
+  const outcome = runProjectCommand(
+    'plan.duplicate',
+    {
+      items: items.map(({ endpointId, placementId }) => ({ endpointId, placementId })),
+      activeFloorId,
+      ...(options?.fallbackPosition ? { fallbackPosition: options.fallbackPosition } : {}),
+      viewportCenter,
+      ...(options?.baseSymbolSizePx != null ? { symbolBaseSizePx: options.baseSymbolSizePx } : {}),
+    },
+    { label: 'duplicate plan selection' }
+  )
+  const select = outcome?.results[0]?.select ?? []
+  if (select.length === 0) return null
+  return {
+    type: select[0]!.kind === 'endpoint' ? 'endpoint' : 'placement',
+    ids: select.map((ref) => ref.id),
   }
-
-  if (options?.withSingleUndoEntry) {
-    let result: PlanDuplicateResult = null
-    options.withSingleUndoEntry(
-      () => {
-        result = run()
-        reorientDuplicatedPlanPlacements(result, options?.baseSymbolSizePx)
-        return result != null
-      },
-      { sessionLabel: 'duplicate plan selection' },
-    )
-    return result
-  }
-
-  const result = run()
-  reorientDuplicatedPlanPlacements(result, options?.baseSymbolSizePx)
-  return result
 }

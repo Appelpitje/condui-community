@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
-import { readOnlineStatus, subscribeOnlineStatus } from '@/lib/networkConnectivity'
+import { readDatabaseUnavailable, readNavigatorOnLine, readOnlineStatus, subscribeOnlineStatus } from '@/lib/networkConnectivity'
 
 export function useOnlineStatus() {
-  const [isOnline, setIsOnline] = useState(() => readOnlineStatus())
+  const readStatus = () => ({
+    isOnline: readOnlineStatus(),
+    isDatabaseOffline: readNavigatorOnLine() && readDatabaseUnavailable(),
+  })
+  const [status, setStatus] = useState(readStatus)
 
-  useEffect(() => subscribeOnlineStatus(setIsOnline), [])
+  useEffect(() => subscribeOnlineStatus(() => setStatus(readStatus())), [])
 
-  return { isOnline, isOffline: !isOnline }
+  return { ...status, isOffline: !status.isOnline }
 }

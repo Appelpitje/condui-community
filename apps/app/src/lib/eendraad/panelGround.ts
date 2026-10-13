@@ -1,4 +1,4 @@
-import i18n from '@/lib/i18n/domainI18n'
+import { getDomainTranslator } from '@/lib/i18n/domainI18n'
 import { findMainPanel, walkPanels } from '@/lib/panel/panelTree'
 import type { Installation, Panel, TrunkDevice } from '@/types/schema'
 import { generateId } from '@/utils/id'
@@ -66,9 +66,14 @@ export function getPanelGroundTrunkDevices(
   return installation?.groundTrunkDevices ?? []
 }
 
-export function createLinkedEarthingSeparatorPair(startPosition = 0): TrunkDevice[] {
+export function createLinkedEarthingSeparatorPair(
+  startPosition = 0,
+  language?: string
+): TrunkDevice[] {
   const pairId = generateId()
-  const label = i18n.t('symbols.earthing_separator', { defaultValue: 'PE' })
+  const label = getDomainTranslator(language)('symbols.names.earthing_separator', {
+    defaultValue: 'PE',
+  })
   return [0, 1].map((offset) => ({
     id: generateId(),
     type: 'earthing_separator',
@@ -80,7 +85,7 @@ export function createLinkedEarthingSeparatorPair(startPosition = 0): TrunkDevic
 }
 
 /** Create or complete the linked earth stem on a secondary board. */
-export function applySecondaryPanelEarthingStem(panel: Panel): boolean {
+export function applySecondaryPanelEarthingStem(panel: Panel, language?: string): boolean {
   if (panel.isMain !== false) return false
   let changed = false
   if (panel.hasGround !== true) {
@@ -92,7 +97,7 @@ export function applySecondaryPanelEarthingStem(panel: Panel): boolean {
   if (separators.length < 2) {
     const nextPosition =
       devices.reduce((max, device) => Math.max(max, device.trunkPosition ?? -1), -1) + 1
-    devices.push(...createLinkedEarthingSeparatorPair(nextPosition))
+    devices.push(...createLinkedEarthingSeparatorPair(nextPosition, language))
     panel.groundTrunkDevices = devices
     return true
   }

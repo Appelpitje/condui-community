@@ -1,11 +1,14 @@
-import { buildAutoSitplanPlacement, getViewportCenterPlanSpaceIfApplicable } from '@/lib/plan/autoSitplanPlacement'
+import {
+  buildAutoSitplanPlacement,
+  getViewportCenterPlanSpaceIfApplicable,
+} from '@/lib/plan/autoSitplanPlacement'
 import { resolveSitplanTargetFloorId } from '@/lib/plan/sitplanTargetFloor'
 import { getSymbolById } from '@/lib/symbols'
 import type { Endpoint, Placement } from '@/types/schema'
 import { endpointSupportsMultiplier } from '@/utils/endpointMultipliers'
-import type { ViewportLayout } from '@/types/ui'
+import type { Point, ViewportLayout } from '@/types/ui'
 import { findCircuitForEndpointInProject } from '@/utils/project'
-import { generateId } from '@/utils'
+import { generateId } from '@/utils/id'
 import { ensureElectricalLayerOnFloor } from '@/lib/plan/floorLayers'
 import { getPlacementWorldBounds } from '@/utils/plan/placementBounds'
 import { isModularSocket } from '@/lib/socket/modularSocket'
@@ -37,14 +40,14 @@ export type ClonePlacementsOptions = {
 export function clonePlacementsOptionsForEndpoint(source: Endpoint): ClonePlacementsOptions {
   return {
     symbolType: source.symbol,
-    socketCount: source.type === 'socket' ? source.socketProps?.socketCount ?? 1 : 1,
+    socketCount: source.type === 'socket' ? (source.socketProps?.socketCount ?? 1) : 1,
     autoOrient: source.type === 'socket' || source.symbol === 'panel_distribution',
   }
 }
 
 function unionPlacementGroupBounds(
   placements: Placement[],
-  options?: ClonePlacementsOptions,
+  options?: ClonePlacementsOptions
 ): { left: number; right: number; top: number; bottom: number } | null {
   if (placements.length === 0) return null
 
@@ -64,7 +67,7 @@ function unionPlacementGroupBounds(
       p.scale ?? 1,
       socketCount,
       symbolType,
-      base,
+      base
     )
     left = Math.min(left, b.left)
     right = Math.max(right, b.right)
@@ -78,7 +81,7 @@ function unionPlacementGroupBounds(
 /** Shift the whole placement block right so the duplicate clears the source AABB. */
 export function computeDuplicateBlockOffset(
   placements: Placement[],
-  options?: ClonePlacementsOptions,
+  options?: ClonePlacementsOptions
 ): { x: number; y: number } {
   const bounds = unionPlacementGroupBounds(placements, options)
   if (!bounds) {
@@ -91,7 +94,7 @@ export function computeDuplicateBlockOffset(
 
 export function clonePlacementsForDuplicate(
   placements: Placement[],
-  options?: ClonePlacementsOptions,
+  options?: ClonePlacementsOptions
 ): Placement[] {
   const offset = computeDuplicateBlockOffset(placements, options)
   return placements.map((p) => ({
@@ -129,7 +132,7 @@ function resolveSitplanFloorForEndpoints(
   project: DuplicateSitplanProject,
   uiActiveFloorId: string | null,
   endpointIds: string[],
-  getEndpointById: (id: string) => Endpoint | undefined,
+  getEndpointById: (id: string) => Endpoint | undefined
 ): string | null {
   const fromUi = resolveSitplanTargetFloorId(project, uiActiveFloorId)
   if (fromUi) return fromUi
@@ -160,6 +163,15 @@ export type SitplanPlacementUiContext = {
   planView: { zoom: number; pan: { x: number; y: number } }
 }
 
+/** Where automatic placements go: the active floor, and the plan viewport centre on it. */
+export type SitplanPlacementTarget = {
+  activeFloorId: string | null
+  /** Plan-space centre of the visible plan canvas, when it shows the active floor. */
+  viewportCenter?: Point | null
+  /** Panel that shows newly visible placements first (the editor's active panel). */
+  activePanelId?: string | null
+}
+
 /**
  * Ensure every listed endpoint that belongs on the sitplan has at least one placement.
  * Skips endpoints that already have placements (including copies from circuit duplicate).
@@ -169,13 +181,35 @@ export function ensureSitplanPlacementsForEndpoints(
   endpointIds: string[],
   getEndpointById: (id: string) => Endpoint | undefined,
   addPlacement: (endpointId: string, placement: Placement) => void,
-  ui: SitplanPlacementUiContext,
+  ui: SitplanPlacementUiContext
+): void {
+  ensureSitplanPlacementsAt(project, endpointIds, getEndpointById, addPlacement, {
+    activeFloorId: ui.activeFloorId,
+    viewportCenter: ui.activeFloorId
+      ? getViewportCenterPlanSpaceIfApplicable(
+          ui.viewportLayout,
+          ui.planCanvasViewportPx,
+          ui.activeFloorId,
+          ui.activeFloorId,
+          ui.planView
+        )
+      : null,
+  })
+}
+
+/** {@link ensureSitplanPlacementsForEndpoints} without UI state, for project commands. */
+export function ensureSitplanPlacementsAt(
+  project: DuplicateSitplanProject,
+  endpointIds: string[],
+  getEndpointById: (id: string) => Endpoint | undefined,
+  addPlacement: (endpointId: string, placement: Placement) => void,
+  target: SitplanPlacementTarget
 ): void {
   const floorId = resolveSitplanFloorForEndpoints(
     project,
-    ui.activeFloorId,
+    target.activeFloorId,
     endpointIds,
-    getEndpointById,
+    getEndpointById
   )
   if (!floorId) return
   const floorEntity = selectProjectBuildingFloors(project).find((f) => f.id === floorId)
@@ -185,13 +219,7 @@ export function ensureSitplanPlacementsForEndpoints(
   }
 
   const preferredPlanPos =
-    getViewportCenterPlanSpaceIfApplicable(
-      ui.viewportLayout,
-      ui.planCanvasViewportPx,
-      ui.activeFloorId,
-      floorId,
-      ui.planView,
-    ) ?? undefined
+    target.viewportCenter && floorId === target.activeFloorId ? target.viewportCenter : undefined
 
   for (const endpointId of endpointIds) {
     const ep = getEndpointById(endpointId)

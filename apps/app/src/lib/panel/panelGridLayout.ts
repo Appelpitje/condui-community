@@ -28,12 +28,18 @@ export const ROW_GAP = 16 // Vertical gap between rows
 export const ROW_STRIDE = CELL_H + ROW_GAP // Total vertical step per row
 export const TERMINAL_STRIP_RAIL_H = CELL_H / 3
 
-export function getTerminalStripTopOffset(panel: Panel | null | undefined): number {
-  return panel?.gridView?.terminalStripTopRail ? TERMINAL_STRIP_RAIL_H + ROW_GAP : 0
+/** Anything with a module grid: a board, a virtual enclosure or a junction panel. */
+export type TerminalRailGridHolder =
+  | { gridView?: Pick<PanelGridConfig, 'terminalStripTopRail' | 'terminalStripBottomRail'> | null }
+  | null
+  | undefined
+
+export function getTerminalStripTopOffset(holder: TerminalRailGridHolder): number {
+  return holder?.gridView?.terminalStripTopRail ? TERMINAL_STRIP_RAIL_H + ROW_GAP : 0
 }
 
-export function getTerminalStripBottomExtent(panel: Panel | null | undefined): number {
-  return panel?.gridView?.terminalStripBottomRail ? TERMINAL_STRIP_RAIL_H + ROW_GAP : 0
+export function getTerminalStripBottomExtent(holder: TerminalRailGridHolder): number {
+  return holder?.gridView?.terminalStripBottomRail ? TERMINAL_STRIP_RAIL_H + ROW_GAP : 0
 }
 
 /** Horizontal routing corridors around regular rows and optional compact terminal rows. */

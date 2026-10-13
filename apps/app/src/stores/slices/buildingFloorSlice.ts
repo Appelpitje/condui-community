@@ -1,60 +1,47 @@
+import { updateBuildingPropertiesInProject } from '@/lib/properties/generalPropertyMutations'
+import { deleteBuildingEntitiesInProject } from '@/lib/plan/buildingDeletion'
 import { pickDefaultPlanReferenceOverlayFloor } from './projectStoreHistory'
 import type { ProjectSliceCreator } from './projectStoreTypes'
 import { getAllEndpoints } from '@/lib/eendraad/projectElectricalDomain'
 import { clamp } from '@/lib/geometry'
-import { logger } from '@/lib/logger'
 import {
   cumulativeLengths,
   getWallTotalLengthFromPoints,
-  preserveOpeningPositionsAfterPointChange,
-  preserveOpeningWorldPositionsAfterPointChange,
   recomputeOpeningLocalFromNormalized,
-  removeDuplicateConsecutivePoints,
-  resizeOpeningTowardFreeSpace,
   sanitizeWallOpeningPositions,
 } from '@/lib/plan/constraints'
 import { ensureElectricalLayerOnFloor } from '@/lib/plan/floorLayers'
+import { resolvePlanPxPerMeter } from '@/lib/plan/planScale'
 import { resolvePlanWiringVisibility } from '@/lib/plan/planWiring'
 import {
-  hasIndependentSituationPlanVisibility,
-  showSituationPlanPlacementInPanel,
-  showSituationPlanPlacementOnPlan,
-} from '@/lib/plan/panelPlanPlacementVisibility'
+  editPlanPlacements,
+  invalidatePlanLengthEstimates,
+  preserveOtherFloorsOnScaleChange,
+  rescalePlanFloorExtras,
+} from '@/lib/plan/rescalePlan'
+import { isCurvedWall } from '@/lib/plan/wallCurve'
+import { updateFloorInProject } from '@/lib/projectMutations/storeActions'
 import {
-  readLegacyCompatibilityFloors,
-  selectProjectPlanScale,
   addBuildingFloorView,
-  mutateBuildingFloorViews,
-  removeBuildingFloor,
   commitBuildingFloorView,
+  mutateBuildingFloorViews,
+  readLegacyCompatibilityFloors,
+  removeBuildingFloor,
+  selectProjectPlanScale,
   setPlanScaleForProject,
 } from '@/lib/projectV2/buildingFloors'
 import {
-  selectProjectElectricalInstallation,
   editProjectElectricalPanels,
+  selectProjectElectricalInstallation,
 } from '@/lib/projectV2/electrical'
-import {
-  selectProjectPlanWiringVisibility,
-  replacePlanWiringVisibilityForProject,
-} from '@/lib/projectV2/planWiring'
-import type { Floor, PlanGraphicElement, Point2, Wall } from '@/types/schema'
-import type { FloorV2 } from '@/types/projectV2'
 import { getUnusedFloorPlanAssetIds } from '@/lib/projectV2/floorPlanAssets'
-import { generateId } from '@/utils/project'
+import {
+  replacePlanWiringVisibilityForProject,
+  selectProjectPlanWiringVisibility,
+} from '@/lib/projectV2/planWiring'
 import { useUIStore } from '@/stores/uiStore'
-import { isCurvedWall } from '@/lib/plan/wallCurve'
-import { preserveOtherFloorsOnScaleChange, editPlanPlacements, rescalePlanFloorExtras, invalidatePlanLengthEstimates } from '@/lib/plan/rescalePlan'
-import { resolvePlanPxPerMeter } from '@/lib/plan/planScale'
-
-/** True when an update deliberately removes the floor's plan image. */
-function clearsPlanImage(updates: Partial<Floor>): boolean {
-  return (
-    Object.prototype.hasOwnProperty.call(updates, 'planAsset') &&
-    Object.prototype.hasOwnProperty.call(updates, 'planImportAsset') &&
-    !updates.planAsset &&
-    !updates.planImportAsset
-  )
-}
+import type { PlanGraphicElement, Point2, Wall } from '@/types/schema'
+import { generateId } from '@/utils/project'
 
 export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
   // Floor actions
@@ -65,7 +52,11 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
         if (floor.scale && resolvePlanPxPerMeter(floor.scale) == null) return
         if (floor.scale) {
           preserveOtherFloorsOnScaleChange(state.currentProject, floor.id, floor.scale)
-          if (floor.scale.reference) floor.scale = { ...floor.scale, reference: { ...floor.scale.reference, floorId: floor.id } }
+          if (floor.scale.reference)
+            floor.scale = {
+              ...floor.scale,
+              reference: { ...floor.scale.reference, floorId: floor.id },
+            }
           setPlanScaleForProject(state.currentProject, floor.scale)
           floor.scale = selectProjectPlanScale(state.currentProject)
         } else if (sharedScale) {
@@ -89,7 +80,11 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
       }
       const project = get().currentProject
       if (project && planAssetId) {
-        const unused = getUnusedFloorPlanAssetIds(project.assets, project.building.floors, planAssetId)
+        const unused = getUnusedFloorPlanAssetIds(
+          project.assets,
+          project.building.floors,
+          planAssetId
+        )
         if (unused.length > 0) get().removeProjectAssets(unused)
       }
       return true
@@ -98,54 +93,14 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
 
   updateFloor: (id, updates) =>
     set((state) => {
-      if (state.currentProject) {
-        const floor = readLegacyCompatibilityFloors(state.currentProject).find(
-          (f) => f.id === id
-        )
-        if (floor) {
-          if (updates.scale && resolvePlanPxPerMeter(updates.scale) == null) return
-          if (updates.planScaleNeedsCalibration === true) invalidatePlanLengthEstimates(state.currentProject)
-          if (updates.scale) {
-            preserveOtherFloorsOnScaleChange(state.currentProject, id, updates.scale)
-            if (updates.scale.reference) {
-              updates = { ...updates, scale: { ...updates.scale, reference: { ...updates.scale.reference, floorId: id } }, planScaleNeedsCalibration: false }
-            }
-          }
-          const previouslyHidden = new Set(floor.hiddenSitplanPlacementIds ?? [])
-          Object.assign(floor, updates)
-          if (clearsPlanImage(updates)) {
-            // The floor view also carries the canonical plan ids; left in place they would
-            // re-attach the plan when the view is committed.
-            const view = floor as Floor & Partial<Pick<FloorV2, 'planAssetId' | 'processedPlanAssetId'>>
-            view.planAssetId = undefined
-            view.processedPlanAssetId = undefined
-          }
-          if (Object.prototype.hasOwnProperty.call(updates, 'hiddenSitplanPlacementIds')) {
-            const nextHiddenIds = updates.hiddenSitplanPlacementIds ?? []
-            const nextHidden = new Set(nextHiddenIds)
-            const preferredPanelId = useUIStore.getState().activePanelId
-            for (const placementId of nextHiddenIds) {
-              if (previouslyHidden.has(placementId)) continue
-              if (!hasIndependentSituationPlanVisibility(state.currentProject, placementId)) {
-                showSituationPlanPlacementInPanel(state.currentProject, placementId, preferredPanelId)
-              }
-            }
-            for (const placementId of previouslyHidden) {
-              if (nextHidden.has(placementId)) continue
-              if (!hasIndependentSituationPlanVisibility(state.currentProject, placementId)) {
-                showSituationPlanPlacementOnPlan(state.currentProject, placementId)
-              }
-            }
-          }
-          if (updates.scale) {
-            setPlanScaleForProject(state.currentProject, updates.scale)
-            floor.scale = selectProjectPlanScale(state.currentProject)
-          }
-          ensureElectricalLayerOnFloor(floor)
-          commitBuildingFloorView(state.currentProject, id, floor)
-          state.isDirty = true
-        }
-      }
+      if (!state.currentProject) return
+      const result = updateFloorInProject(
+        state.currentProject,
+        id,
+        updates,
+        useUIStore.getState().activePanelId
+      )
+      if (result.changed) state.isDirty = true
     }),
 
   updatePlanWiringVisibility: (updates) =>
@@ -191,16 +146,23 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
         const after = resolvePlanPxPerMeter(floorUpdates.scale)
         if (floorUpdates.scale) {
           preserveOtherFloorsOnScaleChange(state.currentProject, floorId, floorUpdates.scale)
-          if (floorUpdates.scale.reference) floorUpdates = { ...floorUpdates, planScaleNeedsCalibration: false }
+          if (floorUpdates.scale.reference)
+            floorUpdates = { ...floorUpdates, planScaleNeedsCalibration: false }
         }
         if (floorUpdates.floorPlan && after && Math.abs(after / before - 1) > 1e-9) {
           const points = floor.floorPlan?.walls.flatMap((wall) => wall.points) ?? []
-          const center = points.length ? { x: points.reduce((sum, p) => sum + p.x, 0) / points.length, y: points.reduce((sum, p) => sum + p.y, 0) / points.length } : { x: 0, y: 0 }
+          const center = points.length
+            ? {
+                x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+                y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
+              }
+            : { x: 0, y: 0 }
           editPlanPlacements(state.currentProject, (placement) => {
-            if (placement.floorId === floorId) placement.pos = {
-              x: center.x + (placement.pos.x - center.x) * (after / before),
-              y: center.y + (placement.pos.y - center.y) * (after / before),
-            }
+            if (placement.floorId === floorId)
+              placement.pos = {
+                x: center.x + (placement.pos.x - center.x) * (after / before),
+                y: center.y + (placement.pos.y - center.y) * (after / before),
+              }
           })
           rescalePlanFloorExtras(state.currentProject, floorId, after / before, center)
           invalidatePlanLengthEstimates(state.currentProject)
@@ -215,7 +177,10 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
       }
       if (placementUpdates.length === 0) return
       const idToPos = new Map<string, Point2>(placementUpdates.map((u) => [u.id, u.pos]))
-      editPlanPlacements(state.currentProject, (placement) => { const pos = idToPos.get(placement.id); if (pos) placement.pos = pos })
+      editPlanPlacements(state.currentProject, (placement) => {
+        const pos = idToPos.get(placement.id)
+        if (pos) placement.pos = pos
+      })
     }),
 
   deleteFloor: (id) =>
@@ -357,183 +322,34 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
 
   updateWall: (wallId, updates) =>
     set((state) => {
-      if (state.currentProject) {
-        for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-          if (floor.floorPlan) {
-            const wall = floor.floorPlan.walls.find((w) => w.id === wallId)
-            if (wall) {
-              const payload = updates as Partial<Wall> & {
-                doorUpdates?: Array<{ id: string; position: number }>
-                windowUpdates?: Array<{ id: string; position: number }>
-              }
-              const updateKeys = Object.keys(payload)
-              const passedDoorUpdates = payload.doorUpdates
-              const passedWindowUpdates = payload.windowUpdates
-              const { doorUpdates: _du, windowUpdates: _wu, ...wallUpdates } = payload
-              // Never persist zero-length segments (duplicate consecutive points) on straight walls.
-              if (wallUpdates.points && !wallUpdates.curve && !wall.curve) {
-                wallUpdates.points = removeDuplicateConsecutivePoints(wallUpdates.points)
-              }
-              const hadPointsUpdate = wallUpdates.points != null && wallUpdates.points.length >= 2
-              // Map openings from the de-duplicated old path so segment indices line up with the
-              // de-duplicated new points (zero-length segments add no length, so positions hold).
-              const oldPoints = hadPointsUpdate
-                ? wall.curve
-                  ? wall.points
-                  : removeDuplicateConsecutivePoints(wall.points)
-                : null
-              const doorsBefore = floor.floorPlan.doors
-                .filter((d) => d.wallId === wallId)
-                .map((d) => ({ id: d.id, position: d.position }))
-              const windowsBefore = floor.floorPlan.windows
-                .filter((w) => w.wallId === wallId)
-                .map((w) => ({ id: w.id, position: w.position }))
-              Object.assign(wall, wallUpdates)
-              if (hadPointsUpdate && wall.points.length >= 2 && oldPoints) {
-                // Callers with constraint-computed door/window updates (e.g. vertex drag) keep those.
-                // Points-only updates keep every opening at its world position (a translated or
-                // rotated segment carries its openings along) and then fit it inside its segment.
-                const callerSentOpeningUpdates =
-                  (passedDoorUpdates?.length ?? 0) > 0 || (passedWindowUpdates?.length ?? 0) > 0
-                logger.info('[updateWall]', {
-                  wallId,
-                  updateKeys,
-                  hadPointsUpdate: true,
-                  callerSentOpeningUpdates,
-                  doorsBefore,
-                  windowsBefore,
-                })
-                if (oldPoints) {
-                  const wallDoors = floor.floorPlan.doors.filter((d) => d.wallId === wallId)
-                  const wallWindows = floor.floorPlan.windows.filter((w) => w.wallId === wallId)
-                  for (const u of passedDoorUpdates ?? []) {
-                    const d = floor.floorPlan!.doors.find((x) => x.id === u.id)
-                    if (d) d.position = u.position
-                  }
-                  for (const u of passedWindowUpdates ?? []) {
-                    const w = floor.floorPlan!.windows.find((x) => x.id === u.id)
-                    if (w) w.position = u.position
-                  }
-                  const excludeIds = new Set([
-                    ...(passedDoorUpdates ?? []).map((u) => u.id),
-                    ...(passedWindowUpdates ?? []).map((u) => u.id),
-                  ])
-                  const { doorUpdates: preservedDoors, windowUpdates: preservedWindows } =
-                    (callerSentOpeningUpdates
-                      ? preserveOpeningPositionsAfterPointChange
-                      : preserveOpeningWorldPositionsAfterPointChange)(
-                      oldPoints,
-                      wall.points,
-                      wallDoors,
-                      wallWindows,
-                      excludeIds
-                    )
-                  for (const u of preservedDoors) {
-                    const d = floor.floorPlan!.doors.find((x) => x.id === u.id)
-                    if (d) d.position = u.position
-                  }
-                  for (const u of preservedWindows) {
-                    const w = floor.floorPlan!.windows.find((x) => x.id === u.id)
-                    if (w) w.position = u.position
-                  }
-                  const finalWallDoors = floor.floorPlan.doors.filter((d) => d.wallId === wallId)
-                  const finalWallWindows = floor.floorPlan.windows.filter(
-                    (w) => w.wallId === wallId
-                  )
-                  if (!callerSentOpeningUpdates) {
-                    // Fit openings inside their segment so they never overlap wall ends/junctions.
-                    const sanitized = sanitizeWallOpeningPositions(
-                      wall.points,
-                      finalWallDoors,
-                      finalWallWindows
-                    )
-                    for (const u of sanitized.doorUpdates) {
-                      const d = finalWallDoors.find((x) => x.id === u.id)
-                      if (d) d.position = u.position
-                    }
-                    for (const u of sanitized.windowUpdates) {
-                      const w = finalWallWindows.find((x) => x.id === u.id)
-                      if (w) w.position = u.position
-                    }
-                  }
-                  recomputeOpeningLocalFromNormalized(wall.points, finalWallDoors, finalWallWindows)
-                }
-              }
-              const doorsAfter = floor.floorPlan.doors
-                .filter((d) => d.wallId === wallId)
-                .map((d) => ({ id: d.id, position: d.position }))
-              const windowsAfter = floor.floorPlan.windows
-                .filter((w) => w.wallId === wallId)
-                .map((w) => ({ id: w.id, position: w.position }))
-              const doorPositionsChanged =
-                JSON.stringify(doorsBefore) !== JSON.stringify(doorsAfter)
-              const windowPositionsChanged =
-                JSON.stringify(windowsBefore) !== JSON.stringify(windowsAfter)
-              if (doorPositionsChanged || windowPositionsChanged) {
-                logger.info('[updateWall] openings changed', { wallId, doorsAfter, windowsAfter })
-              }
-              commitBuildingFloorView(state.currentProject, floor.id, floor)
-              state.isDirty = true
-              return
-            }
-          }
-        }
-      }
+      if (
+        state.currentProject &&
+        updateBuildingPropertiesInProject(
+          state.currentProject,
+          'wall',
+          wallId,
+          updates as Record<string, unknown>
+        )
+      )
+        state.isDirty = true
     }),
 
   deleteWall: (wallId) =>
     set((state) => {
-      if (state.currentProject) {
-        for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-          if (floor.floorPlan) {
-            const wallIndex = floor.floorPlan.walls.findIndex((w) => w.id === wallId)
-            if (wallIndex !== -1) {
-              // Also delete doors and windows on this wall
-              floor.floorPlan.doors = floor.floorPlan.doors.filter((d) => d.wallId !== wallId)
-              floor.floorPlan.windows = floor.floorPlan.windows.filter((w) => w.wallId !== wallId)
-              // Remove attachments from other walls that reference this wall
-              for (const otherWall of floor.floorPlan.walls) {
-                if (otherWall.attachedPoints) {
-                  otherWall.attachedPoints = otherWall.attachedPoints.filter(
-                    (ap) => ap.wallId !== wallId
-                  )
-                }
-              }
-              floor.floorPlan.walls.splice(wallIndex, 1)
-              commitBuildingFloorView(state.currentProject, floor.id, floor)
-              state.isDirty = true
-              return
-            }
-          }
-        }
-      }
+      if (
+        state.currentProject &&
+        deleteBuildingEntitiesInProject(state.currentProject, 'wall', [wallId])
+      )
+        state.isDirty = true
     }),
 
   deleteWalls: (wallIds) =>
     set((state) => {
-      if (state.currentProject) {
-        const wallIdSet = new Set(wallIds)
-        for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-          if (floor.floorPlan) {
-            // Delete doors and windows on these walls
-            floor.floorPlan.doors = floor.floorPlan.doors.filter((d) => !wallIdSet.has(d.wallId))
-            floor.floorPlan.windows = floor.floorPlan.windows.filter(
-              (w) => !wallIdSet.has(w.wallId)
-            )
-            // Remove attachments from other walls
-            for (const otherWall of floor.floorPlan.walls) {
-              if (otherWall.attachedPoints) {
-                otherWall.attachedPoints = otherWall.attachedPoints.filter(
-                  (ap) => !wallIdSet.has(ap.wallId)
-                )
-              }
-            }
-            floor.floorPlan.walls = floor.floorPlan.walls.filter((w) => !wallIdSet.has(w.id))
-            commitBuildingFloorView(state.currentProject, floor.id, floor)
-            state.isDirty = true
-          }
-        }
-      }
+      if (
+        state.currentProject &&
+        deleteBuildingEntitiesInProject(state.currentProject, 'wall', wallIds)
+      )
+        state.isDirty = true
     }),
 
   mergeWallPoints: (floorId, wallId1, pointIndex1, wallId2, pointIndex2) => {
@@ -719,77 +535,25 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
 
   updateDoor: (doorId, updates) =>
     set((state) => {
-      if (state.currentProject) {
-        for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-          if (floor.floorPlan) {
-            const door = floor.floorPlan.doors.find((d) => d.id === doorId)
-            if (door) {
-              Object.assign(door, updates)
-              const wall = floor.floorPlan.walls.find((w) => w.id === door.wallId)
-              if (
-                wall &&
-                wall.points.length >= 2 &&
-                (updates.position !== undefined || updates.width !== undefined)
-              ) {
-                if (updates.width !== undefined && updates.position === undefined) {
-                  const adjusted = resizeOpeningTowardFreeSpace(
-                    wall.points,
-                    floor.floorPlan.doors.filter((d) => d.wallId === door.wallId),
-                    floor.floorPlan.windows.filter((w) => w.wallId === door.wallId),
-                    door.id,
-                    'door',
-                    updates.width
-                  )
-                  if (adjusted) {
-                    door.width = adjusted.width
-                    door.position = adjusted.position
-                  }
-                }
-                const wallDoors = floor.floorPlan.doors.filter((d) => d.wallId === door.wallId)
-                const wallWindows = floor.floorPlan.windows.filter((w) => w.wallId === door.wallId)
-                const { doorUpdates, windowUpdates } = sanitizeWallOpeningPositions(
-                  wall.points,
-                  wallDoors,
-                  wallWindows
-                )
-                for (const u of doorUpdates) {
-                  const d = floor.floorPlan!.doors.find((x) => x.id === u.id)
-                  if (d) d.position = u.position
-                }
-                for (const u of windowUpdates) {
-                  const w = floor.floorPlan!.windows.find((x) => x.id === u.id)
-                  if (w) w.position = u.position
-                }
-                const finalWallDoors = floor.floorPlan.doors.filter((d) => d.wallId === door.wallId)
-                const finalWallWindows = floor.floorPlan.windows.filter(
-                  (w) => w.wallId === door.wallId
-                )
-                recomputeOpeningLocalFromNormalized(wall.points, finalWallDoors, finalWallWindows)
-              }
-              commitBuildingFloorView(state.currentProject, floor.id, floor)
-              state.isDirty = true
-              return
-            }
-          }
-        }
-      }
+      if (
+        state.currentProject &&
+        updateBuildingPropertiesInProject(
+          state.currentProject,
+          'door',
+          doorId,
+          updates as Record<string, unknown>
+        )
+      )
+        state.isDirty = true
     }),
 
   deleteDoor: (doorId) =>
     set((state) => {
-      if (state.currentProject) {
-        for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-          if (floor.floorPlan) {
-            const doorIndex = floor.floorPlan.doors.findIndex((d) => d.id === doorId)
-            if (doorIndex !== -1) {
-              floor.floorPlan.doors.splice(doorIndex, 1)
-              commitBuildingFloorView(state.currentProject, floor.id, floor)
-              state.isDirty = true
-              return
-            }
-          }
-        }
-      }
+      if (
+        state.currentProject &&
+        deleteBuildingEntitiesInProject(state.currentProject, 'door', [doorId])
+      )
+        state.isDirty = true
     }),
 
   addWindow: (floorId, window) =>
@@ -843,81 +607,25 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
 
   updateWindow: (windowId, updates) =>
     set((state) => {
-      if (state.currentProject) {
-        for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-          if (floor.floorPlan) {
-            const window = floor.floorPlan.windows.find((w) => w.id === windowId)
-            if (window) {
-              Object.assign(window, updates)
-              const wall = floor.floorPlan.walls.find((w) => w.id === window.wallId)
-              if (
-                wall &&
-                wall.points.length >= 2 &&
-                (updates.position !== undefined || updates.width !== undefined)
-              ) {
-                if (updates.width !== undefined && updates.position === undefined) {
-                  const adjusted = resizeOpeningTowardFreeSpace(
-                    wall.points,
-                    floor.floorPlan.doors.filter((d) => d.wallId === window.wallId),
-                    floor.floorPlan.windows.filter((w) => w.wallId === window.wallId),
-                    window.id,
-                    'window',
-                    updates.width
-                  )
-                  if (adjusted) {
-                    window.width = adjusted.width
-                    window.position = adjusted.position
-                  }
-                }
-                const wallDoors = floor.floorPlan.doors.filter((d) => d.wallId === window.wallId)
-                const wallWindows = floor.floorPlan.windows.filter(
-                  (w) => w.wallId === window.wallId
-                )
-                const { doorUpdates, windowUpdates } = sanitizeWallOpeningPositions(
-                  wall.points,
-                  wallDoors,
-                  wallWindows
-                )
-                for (const u of doorUpdates) {
-                  const d = floor.floorPlan!.doors.find((x) => x.id === u.id)
-                  if (d) d.position = u.position
-                }
-                for (const u of windowUpdates) {
-                  const w = floor.floorPlan!.windows.find((x) => x.id === u.id)
-                  if (w) w.position = u.position
-                }
-                const finalWallDoors = floor.floorPlan.doors.filter(
-                  (d) => d.wallId === window.wallId
-                )
-                const finalWallWindows = floor.floorPlan.windows.filter(
-                  (w) => w.wallId === window.wallId
-                )
-                recomputeOpeningLocalFromNormalized(wall.points, finalWallDoors, finalWallWindows)
-              }
-              commitBuildingFloorView(state.currentProject, floor.id, floor)
-              state.isDirty = true
-              return
-            }
-          }
-        }
-      }
+      if (
+        state.currentProject &&
+        updateBuildingPropertiesInProject(
+          state.currentProject,
+          'window',
+          windowId,
+          updates as Record<string, unknown>
+        )
+      )
+        state.isDirty = true
     }),
 
   deleteWindow: (windowId) =>
     set((state) => {
-      if (state.currentProject) {
-        for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-          if (floor.floorPlan) {
-            const windowIndex = floor.floorPlan.windows.findIndex((w) => w.id === windowId)
-            if (windowIndex !== -1) {
-              floor.floorPlan.windows.splice(windowIndex, 1)
-              commitBuildingFloorView(state.currentProject, floor.id, floor)
-              state.isDirty = true
-              return
-            }
-          }
-        }
-      }
+      if (
+        state.currentProject &&
+        deleteBuildingEntitiesInProject(state.currentProject, 'window', [windowId])
+      )
+        state.isDirty = true
     }),
 
   addStair: (floorId, stair) =>
@@ -947,30 +655,25 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
 
   updateStair: (stairId, updates) =>
     set((state) => {
-      if (!state.currentProject) return
-      for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-        const stair = floor.floorPlan?.stairs?.find((s) => s.id === stairId)
-        if (!stair) continue
-        Object.assign(stair, updates)
-        commitBuildingFloorView(state.currentProject, floor.id, floor)
+      if (
+        state.currentProject &&
+        updateBuildingPropertiesInProject(
+          state.currentProject,
+          'stair',
+          stairId,
+          updates as Record<string, unknown>
+        )
+      )
         state.isDirty = true
-        return
-      }
     }),
 
   deleteStair: (stairId) =>
     set((state) => {
-      if (!state.currentProject) return
-      for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-        if (!floor.floorPlan?.stairs) continue
-        const before = floor.floorPlan.stairs.length
-        floor.floorPlan.stairs = floor.floorPlan.stairs.filter((s) => s.id !== stairId)
-        if (floor.floorPlan.stairs.length !== before) {
-          commitBuildingFloorView(state.currentProject, floor.id, floor)
-          state.isDirty = true
-          return
-        }
-      }
+      if (
+        state.currentProject &&
+        deleteBuildingEntitiesInProject(state.currentProject, 'stair', [stairId])
+      )
+        state.isDirty = true
     }),
 
   addPlanGraphicElement: (floorId: string, element: Omit<PlanGraphicElement, 'id'>) =>
@@ -1000,32 +703,25 @@ export const createBuildingFloorSlice: ProjectSliceCreator = (set, get) => ({
 
   updatePlanGraphicElement: (elementId: string, updates: Partial<PlanGraphicElement>) =>
     set((state) => {
-      if (!state.currentProject) return
-      for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-        const element = floor.floorPlan?.graphicElements?.find((entry) => entry.id === elementId)
-        if (!element) continue
-        Object.assign(element, updates)
-        commitBuildingFloorView(state.currentProject, floor.id, floor)
+      if (
+        state.currentProject &&
+        updateBuildingPropertiesInProject(
+          state.currentProject,
+          'graphicElement',
+          elementId,
+          updates as Record<string, unknown>
+        )
+      )
         state.isDirty = true
-        return
-      }
     }),
 
-  deletePlanGraphicElement: (elementId: string) =>
+  deletePlanGraphicElement: (elementId) =>
     set((state) => {
-      if (!state.currentProject) return
-      for (const floor of readLegacyCompatibilityFloors(state.currentProject)) {
-        if (!floor.floorPlan?.graphicElements) continue
-        const before = floor.floorPlan.graphicElements.length
-        floor.floorPlan.graphicElements = floor.floorPlan.graphicElements.filter(
-          (entry) => entry.id !== elementId
-        )
-        if (floor.floorPlan.graphicElements.length !== before) {
-          commitBuildingFloorView(state.currentProject, floor.id, floor)
-          state.isDirty = true
-          return
-        }
-      }
+      if (
+        state.currentProject &&
+        deleteBuildingEntitiesInProject(state.currentProject, 'graphicElement', [elementId])
+      )
+        state.isDirty = true
     }),
 
   updateFloorPlanSettings: (floorId, settings) =>

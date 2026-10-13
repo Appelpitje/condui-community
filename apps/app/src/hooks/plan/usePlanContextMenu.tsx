@@ -1,7 +1,14 @@
+import { deleteProjectEntities, deleteEndpointByCommand as deleteEndpoint, deletePlacementByCommand as deletePlacement, deletePanelByCommand as deletePanel } from '@/handlers/commands/deleteEntities'
+import { getAuxiliaryEnclosureLabel } from '@/lib/panel/auxiliaryEnclosureLabel'
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useUIStore } from '@/stores/uiStore'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
+import {
+  hidePlanPlacementsOnActiveFloor,
+  requestDeletePlanPlacements,
+} from '@/handlers/plan/deletePlanPlacements'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { useDialogStore } from '@/stores/dialogStore'
 import FloorSelectionDialog from '@/components/plan/FloorSelectionDialog'
 import HiddenItemsDialog, { type HiddenItem } from '@/components/common/HiddenItemsDialog'
@@ -35,13 +42,16 @@ import { confirmDeleteEarthing } from '@/lib/installation/deleteEarthing'
 import { readLegacyCompatibilityFloors } from '@/lib/projectV2/buildingFloors'
 import { restoreHiddenSituationPlanPlacementsToActiveView } from '@/lib/plan/restoreHiddenSituationPlanPlacements'
 import { hasCustomPlacement } from '@/lib/plan/customPlacement'
-import { deleteSelectedPlanGraphicElements } from '@/lib/plan/planGraphicElementDeletion'
 import { mergeHiddenSituationPlanPlacementIds } from '@/lib/plan/hideSituationPlanPlacements'
-import { openSituationPlanBulkDeleteWarning } from '@/components/plan/SituationPlanBulkDeleteWarningDialog'
 
 /**
  * Hook to generate context menu items for the plan canvas
  */
+/** Align/distribute results as one `plan.movePlacements` change (one undo step). */
+function runPlacementMoves(moves: Array<{ placementId: string; pos: { x: number; y: number } }>): void {
+  if (moves.length > 0) runProjectCommand('plan.movePlacements', { moves })
+}
+
 export function usePlanContextMenu(
   activeFloorId: string | null,
   getPlacementWorldBoundsMemo: (
@@ -69,16 +79,9 @@ export function usePlanContextMenu(
       const projectState = useProjectStore.getState()
       const {
         currentProject,
-        deleteEndpoint,
-        deleteEndpoints,
-        deletePlacement,
-        deletePlacements,
         updatePlacement,
         addPlacement,
-        deleteSitplanNote,
         addSitplanNote,
-        deletePlanGraphicElement,
-        deletePanel,
         getEndpointById: getEndpointByIdFromSnapshot,
         getAllEndpoints,
         getFloorById,
@@ -88,7 +91,6 @@ export function usePlanContextMenu(
         getPlacementsByFloor,
         updateFloor,
         findCircuitForEndpoint,
-        withSingleUndoEntry,
       } = projectState
       const { closeDialog } = useDialogStore.getState()
       const items: ContextMenuItem[] = []
@@ -113,12 +115,10 @@ export function usePlanContextMenu(
                   <FloorSelectionDialog
                     currentFloorId={activeFloorId}
                     onSelect={(floorId) => {
-                      const moved = useProjectStore
-                        .getState()
-                        .movePlanPlacementsToFloor(
-                          placementIds.map((id) => ({ id })),
-                          floorId
-                        )
+                      const moved = runProjectCommand('plan.moveToFloor', {
+                        floorId,
+                        moves: placementIds.map((placementId) => ({ placementId })),
+                      })?.changed
                       if (moved) clearSelection()
                       closeDialog()
                     }}
@@ -206,10 +206,7 @@ export function usePlanContextMenu(
           icon: getContextMenuIcon('delete'),
           onClick: () => {
             if (
-              deleteSelectedPlanGraphicElements(
-                { type: 'graphicElement', ids: selectedGraphicIds },
-                deletePlanGraphicElement
-              )
+              deleteProjectEntities(selectedGraphicIds.map((id) => ({ kind: 'graphicElement', id })))
             ) {
               clearSelection()
             }
@@ -224,10 +221,7 @@ export function usePlanContextMenu(
           icon: getContextMenuIcon('delete'),
           onClick: () => {
             if (
-              deleteSelectedPlanGraphicElements(
-                { type: 'graphicElement', ids: [hitGraphicElementId] },
-                deletePlanGraphicElement
-              )
+              deleteProjectEntities([{ kind: 'graphicElement', id: hitGraphicElementId }])
             ) {
               useUIStore.getState().clearSelection()
             }
@@ -337,8 +331,9 @@ export function usePlanContextMenu(
                         count: items.length,
                         placementIds: items.map((item) => item.placementId),
                       })
-                      items.forEach((item) => {
-                        updatePlacement(item.placementId, { floorId })
+                      runProjectCommand('plan.moveToFloor', {
+                        floorId,
+                        moves: items.map((item) => ({ placementId: item.placementId })),
                       })
                       useDialogStore.getState().closeDialog()
                     }}
@@ -360,9 +355,7 @@ export function usePlanContextMenu(
             onClick: () => {
               const items = getSelectedPlacements()
               if (items.length < 2) return
-              buildPlacementAlignmentMoves(items, 'left').forEach((move) =>
-                updatePlacement(move.placementId, { pos: move.pos })
-              )
+              runPlacementMoves(buildPlacementAlignmentMoves(items, 'left'))
             },
           },
           {
@@ -370,9 +363,7 @@ export function usePlanContextMenu(
             onClick: () => {
               const items = getSelectedPlacements()
               if (items.length < 2) return
-              buildPlacementAlignmentMoves(items, 'right').forEach((move) =>
-                updatePlacement(move.placementId, { pos: move.pos })
-              )
+              runPlacementMoves(buildPlacementAlignmentMoves(items, 'right'))
             },
           },
           {
@@ -380,9 +371,7 @@ export function usePlanContextMenu(
             onClick: () => {
               const items = getSelectedPlacements()
               if (items.length < 2) return
-              buildPlacementAlignmentMoves(items, 'top').forEach((move) =>
-                updatePlacement(move.placementId, { pos: move.pos })
-              )
+              runPlacementMoves(buildPlacementAlignmentMoves(items, 'top'))
             },
           },
           {
@@ -390,9 +379,7 @@ export function usePlanContextMenu(
             onClick: () => {
               const items = getSelectedPlacements()
               if (items.length < 2) return
-              buildPlacementAlignmentMoves(items, 'bottom').forEach((move) =>
-                updatePlacement(move.placementId, { pos: move.pos })
-              )
+              runPlacementMoves(buildPlacementAlignmentMoves(items, 'bottom'))
             },
           },
           {
@@ -400,9 +387,7 @@ export function usePlanContextMenu(
             onClick: () => {
               const items = getSelectedPlacements()
               if (items.length < 2) return
-              buildPlacementAlignmentMoves(items, 'center').forEach((move) =>
-                updatePlacement(move.placementId, { pos: move.pos })
-              )
+              runPlacementMoves(buildPlacementAlignmentMoves(items, 'center'))
             },
           },
           { label: '', onClick: () => {}, separator: true },
@@ -411,9 +396,7 @@ export function usePlanContextMenu(
             onClick: () => {
               const items = getSelectedPlacements()
               if (items.length < 3) return
-              buildPlacementAlignmentMoves(items, 'distributeHorizontal').forEach((move) =>
-                updatePlacement(move.placementId, { pos: move.pos })
-              )
+              runPlacementMoves(buildPlacementAlignmentMoves(items, 'distributeHorizontal'))
             },
           },
           {
@@ -421,9 +404,7 @@ export function usePlanContextMenu(
             onClick: () => {
               const items = getSelectedPlacements()
               if (items.length < 3) return
-              buildPlacementAlignmentMoves(items, 'distributeVertical').forEach((move) =>
-                updatePlacement(move.placementId, { pos: move.pos })
-              )
+              runPlacementMoves(buildPlacementAlignmentMoves(items, 'distributeVertical'))
             },
           },
           { label: '', onClick: () => {}, separator: true },
@@ -448,66 +429,12 @@ export function usePlanContextMenu(
             label: t('contextMenu.deleteAll'),
             icon: getContextMenuIcon('delete'),
             onClick: () => {
-              const items = getSelectedPlacements()
-              const endpointsToDelete: string[] = []
-              const placementsToDelete: string[] = []
-              const selectedPlacementIds: string[] = []
-              for (const item of items) {
-                const endpoint = getEndpointByIdFromSnapshot(item.endpointId)
-                if (!endpoint) continue
-                if (
-                  endpoint.symbol === 'panel_distribution' &&
-                  currentProject &&
-                  isMainPanelDistributionEndpoint(currentProject, endpoint)
-                ) {
-                  continue
-                }
-                selectedPlacementIds.push(item.placementId)
-                const keepEndpoint =
-                  endpointSupportsMultiplier(endpoint) && endpoint.placements.length > 1
-                if (keepEndpoint) {
-                  placementsToDelete.push(item.placementId)
-                } else {
-                  endpointsToDelete.push(item.endpointId)
-                }
-              }
-              const deleteSelection = () => {
-                withSingleUndoEntry(
-                  () => {
-                    if (placementsToDelete.length > 0) deletePlacements(placementsToDelete)
-                    if (endpointsToDelete.length > 0) deleteEndpoints(endpointsToDelete)
-                    return placementsToDelete.length > 0 || endpointsToDelete.length > 0
-                  },
-                  { sessionLabel: 'delete plan selection' }
-                )
-                clearSelection()
-              }
-              const hideSelection = () => {
-                if (activeFloorId) {
-                  const floor = getFloorById(activeFloorId)
-                  if (floor) {
-                    updateFloor(activeFloorId, {
-                      hiddenSitplanPlacementIds: mergeHiddenSituationPlanPlacementIds(
-                        floor.hiddenSitplanPlacementIds,
-                        selectedPlacementIds,
-                      ),
-                    })
-                  }
-                }
-                clearSelection()
-              }
-              if (
-                openSituationPlanBulkDeleteWarning({
-                  projectId: currentProject?.project.id ?? '',
-                  placementIds: selectedPlacementIds,
-                  t,
-                  onDelete: deleteSelection,
-                  onHide: hideSelection,
-                })
-              ) {
-                return
-              }
-              deleteSelection()
+              requestDeletePlanPlacements({
+                placementIds: getSelectedPlacements().map((item) => item.placementId),
+                t,
+                onHide: hidePlanPlacementsOnActiveFloor,
+                onDone: clearSelection,
+              })
             },
             variant: 'danger',
           }
@@ -523,7 +450,7 @@ export function usePlanContextMenu(
             label: t('contextMenu.delete'),
             icon: getContextMenuIcon('delete'),
             onClick: () => {
-              deleteSitplanNote(resolvedElementId!)
+              deleteProjectEntities([{ kind: 'note', id: resolvedElementId!, scope: 'sitplan' }])
               clearSelection()
             },
             variant: 'danger',
@@ -587,7 +514,10 @@ export function usePlanContextMenu(
                             activeFloorId,
                             selection,
                           })
-                          updatePlacement(placement.id, { floorId })
+                          runProjectCommand('plan.moveToFloor', {
+                            floorId,
+                            moves: [{ placementId: placement.id }],
+                          })
                         } else if (endpoint) {
                           const createdPlacementId = generateId()
                           const newPlacement: Placement = {
@@ -649,7 +579,6 @@ export function usePlanContextMenu(
                           : { type: 'endpoint' as const, ids: [effectiveEndpointId] }
                       const result = runPlanDuplicate(duplicateSelection, activeFloorId, {
                         fallbackPosition: position,
-                        withSingleUndoEntry,
                       })
                       if (result) {
                         setSelection(result)
@@ -818,28 +747,12 @@ export function usePlanContextMenu(
             label: t('contextMenu.delete'),
             icon: getContextMenuIcon('delete'),
             onClick: () => {
-              const endpointsToDelete: string[] = []
-              const placementsToDelete: string[] = []
-              for (const item of selected) {
-                const endpoint = getEndpointByIdFromSnapshot(item.endpointId)
-                if (!endpoint) continue
-                const keepEndpoint =
-                  endpointSupportsMultiplier(endpoint) && endpoint.placements.length > 1
-                if (keepEndpoint) {
-                  placementsToDelete.push(item.placementId)
-                } else {
-                  endpointsToDelete.push(item.endpointId)
-                }
-              }
-              withSingleUndoEntry(
-                () => {
-                  if (placementsToDelete.length > 0) deletePlacements(placementsToDelete)
-                  if (endpointsToDelete.length > 0) deleteEndpoints(endpointsToDelete)
-                  return placementsToDelete.length > 0 || endpointsToDelete.length > 0
-                },
-                { sessionLabel: 'delete plan selection' }
-              )
-              clearSelection()
+              requestDeletePlanPlacements({
+                placementIds: selected.map((item) => item.placementId),
+                t,
+                onHide: () => {},
+                onDone: clearSelection,
+              })
             },
             variant: 'danger',
           })
@@ -914,9 +827,12 @@ export function usePlanContextMenu(
                     return [
                       {
                         id: pl.id,
-                        label:
-                          enclosure?.name.trim() ||
-                          t('panelCanvas.virtualEnclosure', 'Supply enclosure'),
+                        label: getAuxiliaryEnclosureLabel(
+                          enclosure,
+                          t,
+                          useProjectStore.getState().currentProject?.disciplines?.electrical
+                            ?.auxiliaryEnclosures
+                        ),
                         icon: symbolMeta ? (
                           <img
                             src={symbolMeta.svgPath}

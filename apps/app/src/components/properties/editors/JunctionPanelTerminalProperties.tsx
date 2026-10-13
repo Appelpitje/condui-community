@@ -1,3 +1,4 @@
+import { updateJunctionPanelTerminalProperties } from '@/handlers/properties/editProperties'
 import { useTranslation } from 'react-i18next'
 import { DebouncedNumberInput, DebouncedTextInput } from '@/components/forms'
 import { getJunctionPanelTerminal } from '@/lib/junctionPanel/grid'
@@ -11,7 +12,7 @@ export function JunctionPanelTerminalProperties({ ownerDeviceId }: { ownerDevice
   const device = useProjectStore(
     (state: ProjectState) => state.getTrunkDeviceById(ownerDeviceId)?.device
   )
-  const update = useProjectStore((state: ProjectState) => state.updateJunctionPanelTerminal)
+  const update = updateJunctionPanelTerminalProperties
   if (!device) return null
   const terminal = getJunctionPanelTerminal(device)
 

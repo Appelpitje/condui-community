@@ -1,23 +1,20 @@
+import { DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS } from '@/lib/wires/circuitWireDefaults'
 import type { ProjectSliceCreator } from './projectStoreTypes'
-import { getModuleWidthInCols } from '@/components/canvas/panel/panelGridLayout'
 import { recordSessionAction } from '@/lib/diagnostics/sessionActionLog'
-import { resolveUniqueProtectionLabelOnPanel } from '@/lib/eendraad/automaticMainBusNaming'
-import { renameCircuitCodeKeepingEndpoints } from '@/lib/eendraad/circuitEndpointLabels'
+import { liftCircuitContentAboveOwnProtection } from '@/lib/eendraad/circuitContentInsertion'
 import { runDuplicateProtectionLeft } from '@/lib/eendraad/duplicateProtectionLeftCore'
+import {
+  moveProtectionToSupplyWireInProject,
+  promoteCircuitToMainBusInProject,
+} from '@/lib/eendraad/busMoveMutations'
 import { ensureSitplanPlacementsForEndpoints } from '@/lib/eendraad/duplicateSitplanHelpers'
 import { findParentCircuitInfo } from '@/lib/eendraad/findParentCircuitInfo'
-import {
-  liftCircuitContentAboveOwnProtection,
-  moveCircuitToCircuitContentPosition,
-} from '@/lib/eendraad/circuitContentInsertion'
 import { pruneEendraadFrames } from '@/lib/eendraad/frameContent'
-import { logger } from '@/lib/logger'
 import {
   collectCircuitClosureDownstreamFromProtection,
   computeMainBusInsertIndexForEjectedProtection,
   dedupePanelProtectionsInPanelTree,
   deriveDescriptiveNameFromProtectionForNewSubPanel,
-  getMainBusItemsWithIndices,
   getMainBusOrder,
   moveProtectionToMainBusInsertIndex,
   pickRepresentativeCircuitIdForMainBusMove,
@@ -25,10 +22,10 @@ import {
   protectionDeviceToSubPanelIncomingTrunkDevice,
   relocateProtectionToPanelMainBus,
 } from '@/lib/eendraad/mainBusOrder'
+import { moveCircuitsToRcdBus } from '@/lib/eendraad/panelAttachmentMove'
 import {
   applyAutomaticEendraadNamingAllPanelsInProject,
   cleanupPanelGridSlotsForDevice,
-  clearStaleAutoModuleWidthForModuleRef,
   deleteLinkedSubPanelsIfOrphaned,
   ensureLinkedSubPanelsHaveOwnPanelEndpoint,
   ensureRcboSensitivityOnProtection,
@@ -37,130 +34,51 @@ import {
   findPanelOwningProtection,
   findProtectionById,
   getAllCircuits,
-  getAllEndpoints,
   maybeApplyAutomaticEendraadNamingForPanel,
   migrateSubCircuitContentToParent,
-  promoteCircuitSubcircuitsToParent,
-  pruneStaleElectricalEndpointRecords,
   prunePanelGridSlotsForUnresolvedModules,
+  pruneStaleElectricalEndpointRecords,
   pruneStalePanelGridProtectionReferencesInProject,
-  rewirePromotedIncomingProtectionGridRef,
   removePanelGridDuplicateRefs,
   rewirePanelGridProtectionModuleId,
   syncLinkedSubPanelHierarchy,
-  syncManualChronologyForInstallDateUpdate,
 } from '@/lib/eendraad/projectElectricalDomain'
-import { moveCircuitsToRcdBus } from '@/lib/eendraad/panelAttachmentMove'
+import { addProtectionToProject } from '@/lib/eendraad/protectionMutations'
 import { resolveSecondaryBusEjectSelection } from '@/lib/eendraad/secondaryBusEjectEligibility'
 import { ensureInstallationFeedTopology } from '@/lib/feedTopology'
+import { logger } from '@/lib/logger'
 import { findPanelById } from '@/lib/panel/panelTree'
 import { getViewportCenterPlanSpaceIfApplicable } from '@/lib/plan/autoSitplanPlacement'
 import { healPlanWiring } from '@/lib/plan/planWiring'
 import {
+  collectPanelEndpointIds,
+  deleteProtectionInProject,
+  moveCircuitOnMainBusInProject,
+  moveCircuitToSecondaryBusInProject,
+  preserveDeletedProtectionPanelLinks,
+  promoteDeletedProtectionSubcircuits,
+  updateProtectionInProject,
+} from '@/lib/projectMutations/storeActions'
+import {
   getEditableProjectElectricalInstallation,
   getEditableProjectElectricalPanels,
 } from '@/lib/projectV2/electrical'
-import {
-  getDefaultProtectionProps,
-  getVoltagePolesConfig,
-  protectionCreationTemplateFromDevice,
-} from '@/lib/protectionDefaults'
-import {
-  DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS,
-  createDefaultAcCircuitCable,
-} from '@/lib/wires/circuitWireDefaults'
+import { getDefaultProtectionProps, getVoltagePolesConfig } from '@/lib/protectionDefaults'
+import { createDefaultAcCircuitCable } from '@/lib/wires/circuitWireDefaults'
 import { useUIStore } from '@/stores/uiStore'
-import type { Circuit, Panel, PanelGridModuleRef, ProtectionDevice } from '@/types/schema'
+import type { Circuit, Panel, ProtectionDevice } from '@/types/schema'
 import { ensurePanelPlacement } from '@/utils/panelPlacement'
 import { countPanels, generateId, getNextAvailableCircuitCode } from '@/utils/project'
-
-function panelTreeHasSurvivingFeeder(
-  panels: Panel[],
-  subPanelId: string,
-  deletedProtectionIds: ReadonlySet<string>
-): boolean {
-  for (const panel of panels) {
-    if (
-      panel.protections.some(
-        (protection) =>
-          !deletedProtectionIds.has(protection.id) && protection.subPanelId === subPanelId
-      )
-    ) {
-      return true
-    }
-    if (panelTreeHasSurvivingFeeder(panel.subPanels, subPanelId, deletedProtectionIds)) {
-      return true
-    }
-  }
-  return false
-}
-
-function preserveDeletedProtectionPanelLinks(
-  panels: Panel[],
-  deletedProtectionIds: ReadonlySet<string>
-): void {
-  const preservedPanelIds = new Set<string>()
-
-  const preserveInPanel = (panel: Panel): void => {
-    for (let index = 0; index < panel.protections.length; index += 1) {
-      const protection = panel.protections[index]
-      const subPanelId = protection?.subPanelId
-      if (
-        !protection ||
-        !deletedProtectionIds.has(protection.id) ||
-        !subPanelId ||
-        preservedPanelIds.has(subPanelId) ||
-        panelTreeHasSurvivingFeeder(panels, subPanelId, deletedProtectionIds)
-      ) {
-        continue
-      }
-
-      const carrier: ProtectionDevice = {
-        id: generateId(),
-        type: 'OTHER',
-        label: '',
-        circuits: protection.circuits ?? [],
-        subPanelId,
-        directPanelFeeder: true,
-      }
-      panel.protections.splice(index + 1, 0, carrier)
-      preservedPanelIds.add(subPanelId)
-      index += 1
-    }
-
-    for (const subPanel of panel.subPanels) preserveInPanel(subPanel)
-  }
-
-  for (const panel of panels) preserveInPanel(panel)
-}
-
-function collectPanelEndpointIds(panels: Panel[]): Set<string> {
-  return new Set(panels.flatMap((panel) => getAllEndpoints(panel).map((endpoint) => endpoint.id)))
-}
-
-function promoteDeletedProtectionSubcircuits(protection: ProtectionDevice, panels: Panel[]): void {
-  for (const circuit of protection.circuits ?? []) {
-    const parentInfo = findParentCircuitInfo(circuit.id, panels)
-    if (parentInfo) promoteCircuitSubcircuitsToParent(circuit, parentInfo.parentCircuit)
-  }
-}
 
 export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
   // Protection actions
   addProtection: (panelId, protection) =>
     set((state) => {
-      if (state.currentProject) {
-        const panels = getEditableProjectElectricalPanels(state.currentProject)
-        const panel = findPanelById(panels, panelId)
-        if (panel) {
-          if (!protection.circuits) {
-            protection.circuits = []
-          }
-          ensureRcboSensitivityOnProtection(protection)
-          panel.protections.push(protection)
-          state.isDirty = true
-          maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, panelId)
-        }
+      if (
+        state.currentProject &&
+        addProtectionToProject(state.currentProject, panelId, protection)
+      ) {
+        state.isDirty = true
       }
     }),
 
@@ -233,167 +151,23 @@ export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
 
   updateProtection: (id, updates) =>
     set((state) => {
-      if (state.currentProject) {
-        const owningPanel = findPanelOwningProtection(
-          getEditableProjectElectricalPanels(state.currentProject),
-          id
-        )
-        if (owningPanel) {
-          const protection = owningPanel.protections.find((p) => p.id === id)
-          if (protection) {
-            const oldLabel = protection.label
-            const newLabelRaw = updates.label
-            const nextUpdates =
-              typeof newLabelRaw === 'string' &&
-              getEditableProjectElectricalInstallation(state.currentProject)?.eendraadAutomaticNaming &&
-              !protection.circuits?.some((circuit) => circuit.eendraadManualCodeLock === true)
-                ? {
-                    ...updates,
-                    label: resolveUniqueProtectionLabelOnPanel(
-                      owningPanel,
-                      id,
-                      newLabelRaw,
-                      state.currentProject
-                    ),
-                  }
-                : updates
-            const newLabel = typeof nextUpdates.label === 'string' ? nextUpdates.label.trim() : null
-
-            // Fast no-op: if this update doesn't actually change anything, skip.
-            let hasAnyChange = false
-            for (const [k, v] of Object.entries(nextUpdates)) {
-              const key = k as keyof ProtectionDevice
-              if (key === 'label') {
-                const next = typeof v === 'string' ? v : ''
-                const curr = typeof protection.label === 'string' ? protection.label : ''
-                if (next !== curr) hasAnyChange = true
-                continue
-              }
-              const protectionValue = protection[key as keyof ProtectionDevice]
-              if (!Object.is(protectionValue, v)) {
-                hasAnyChange = true
-                break
-              }
-            }
-            if (!hasAnyChange) return
-
-            const protectionRef: PanelGridModuleRef = { kind: 'protection', id: protection.id }
-            const oldPoleWidth = getModuleWidthInCols(protectionRef, state.currentProject)
-
-            // Apply protection updates
-            Object.assign(protection, nextUpdates)
-            syncManualChronologyForInstallDateUpdate(
-              state.currentProject,
-              { id, type: 'protection' },
-              nextUpdates
-            )
-            ensureRcboSensitivityOnProtection(protection)
-
-            state.currentProject.project.protectionCreationTemplates = {
-              ...(state.currentProject.project.protectionCreationTemplates ?? {}),
-              [protection.type]: protectionCreationTemplateFromDevice(protection),
-            }
-
-            const newPoleWidth = getModuleWidthInCols(protectionRef, state.currentProject)
-            if (oldPoleWidth !== newPoleWidth) {
-              clearStaleAutoModuleWidthForModuleRef(
-                getEditableProjectElectricalPanels(state.currentProject),
-                protectionRef,
-                oldPoleWidth
-              )
-            }
-
-            // If the protection label changed, update circuit codes to match, including clears.
-            if (newLabel !== null && newLabel !== oldLabel) {
-              if (protection.circuits?.length) {
-                for (const circuit of protection.circuits) {
-                  renameCircuitCodeKeepingEndpoints(circuit, newLabel)
-                }
-              }
-            }
-
-            state.lastWorkedCircuitId = protection.circuits?.[0]?.id ?? null
-            state.isDirty = true
-            return
-          }
-        }
-        logger.info('[updateProtection] Protection not found', { id })
-      }
+      if (!state.currentProject) return
+      const result = updateProtectionInProject(state.currentProject, id, updates)
+      if (result.circuitId) state.lastWorkedCircuitId = result.circuitId
+      if (result.changed) state.isDirty = true
     }),
 
   deleteProtection: (id, options) =>
     set((state) => {
-      if (state.currentProject) {
-        const panels = getEditableProjectElectricalPanels(state.currentProject)
-        const endpointIdsBeforeDeletion = collectPanelEndpointIds(panels)
-        let protectionToDelete: ProtectionDevice | undefined
-        for (const panel of panels) {
-          protectionToDelete = findProtectionById(panel, id)
-          if (protectionToDelete) break
-        }
-        if (!protectionToDelete) {
-          return
-        }
-
-        recordSessionAction(
-          `delete protection "${protectionToDelete.label?.trim() || protectionToDelete.id}"`
-        )
-
-        if (protectionToDelete.subPanelId && options?.preserveLinkedPanels) {
-          // A preserved secondary-panel feeder is intentionally reattached to the
-          // surviving parent protection, including its panel link.
-          migrateSubCircuitContentToParent(protectionToDelete, panels)
-        } else {
-          // Ordinary chained protections are removed surgically: only the chain
-          // reference is replaced; endpoints and other content leave with the
-          // deleted protection.
-          promoteDeletedProtectionSubcircuits(protectionToDelete, panels)
-        }
-        const linkedSubPanelId = protectionToDelete.subPanelId
-        const deletedProtectionIds = new Set([id])
-        if (options?.preserveLinkedPanels && linkedSubPanelId) {
-          preserveDeletedProtectionPanelLinks(panels, deletedProtectionIds)
-        }
-
-        let affectedPanelId: string | null = null
-        const removeProtection = (panel: Panel): boolean => {
-          const index = panel.protections.findIndex((p) => p.id === id)
-          if (index !== -1) {
-            panel.protections.splice(index, 1)
-            affectedPanelId = panel.id
-            return true
-          }
-          for (const subPanel of panel.subPanels) {
-            if (removeProtection(subPanel)) return true
-          }
-          return false
-        }
-
-        for (const panel of panels) {
-          if (removeProtection(panel)) {
-            state.isDirty = true
-            if (linkedSubPanelId && !options?.preserveLinkedPanels) {
-              deleteLinkedSubPanelsIfOrphaned(state.currentProject, [linkedSubPanelId])
-            }
-            if (affectedPanelId) {
-              maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, affectedPanelId)
-            }
-            // Protection rows are selectable panel-grid modules. Remove their persisted slot and
-            // visibility references with the row so a deleted structural device cannot leave a
-            // blank module position behind.
-            cleanupPanelGridSlotsForDevice(panels, { kind: 'protection', id })
-            pruneStalePanelGridProtectionReferencesInProject(state.currentProject)
-            const removedEndpointIds = [...endpointIdsBeforeDeletion].filter(
-              (endpointId) => !collectPanelEndpointIds(panels).has(endpointId)
-            )
-            pruneEendraadFrames(state.currentProject, {
-              removedMemberIds: [id, ...removedEndpointIds],
-            })
-            healPlanWiring(state.currentProject)
-            pruneStaleElectricalEndpointRecords(state.currentProject)
-            return
-          }
-        }
+      if (!state.currentProject) return
+      const protectionLabel = getEditableProjectElectricalPanels(state.currentProject)
+        .map((panel) => findProtectionById(panel, id))
+        .find((protection) => protection)?.label?.trim() || id
+      const result = deleteProtectionInProject(state.currentProject, id, options)
+      if (result.circuitId) state.lastWorkedCircuitId = result.circuitId
+      if (result.changed) {
+        state.isDirty = true
+        recordSessionAction(`delete protection "${protectionLabel}"`)
       }
     }),
 
@@ -487,148 +261,15 @@ export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
 
   moveCircuitOnMainBus: (panelId, circuitId, direction) =>
     set((state) => {
-      logger.info('[moveCircuitOnMainBus]', { panelId, circuitId, direction })
-      if (!state.currentProject) {
-        logger.warn('[moveCircuitOnMainBus] No current project')
-        return
-      }
-      const panel = findPanelById(
-        getEditableProjectElectricalPanels(state.currentProject),
-        panelId
-      )
-      if (!panel) {
-        logger.warn('[moveCircuitOnMainBus] Panel not found', { panelId })
-        return
-      }
-
-      // Find the circuit - could be in panel.circuits or in a protection's circuits
-      let circuit: Circuit | undefined
-      let protection: ProtectionDevice | undefined
-      let array: Circuit[] | undefined
-      let index: number = -1
-
-      // Check direct circuits first
-      circuit = panel.circuits.find((c) => c.id === circuitId)
-      if (circuit) {
-        array = panel.circuits
-        index = panel.circuits.indexOf(circuit)
-      } else {
-        // Check protection circuits
-        for (const prot of panel.protections) {
-          if (prot.circuits) {
-            circuit = prot.circuits.find((c) => c.id === circuitId)
-            if (circuit) {
-              protection = prot
-              array = prot.circuits
-              index = prot.circuits.indexOf(circuit)
-              break
-            }
-          }
-        }
-      }
-
-      if (!circuit || !array || index === -1) {
-        logger.warn('[moveCircuitOnMainBus] Circuit not found', {
-          circuitId,
-          foundCircuit: !!circuit,
-          foundArray: !!array,
-          index,
-        })
-        return
-      }
-
-      logger.info('[moveCircuitOnMainBus] Found circuit', {
+      if (!state.currentProject) return
+      const result = moveCircuitOnMainBusInProject(
+        state.currentProject,
+        panelId,
         circuitId,
-        isDirect: array === panel.circuits,
-        protectionId: protection?.id,
-      })
-
-      const mainBusItems = getMainBusItemsWithIndices(panel)
-      logger.info('[moveCircuitOnMainBus] Main bus items', {
-        items: mainBusItems.map((i) => ({ type: i.type, id: i.id })),
-      })
-
-      // Find current item
-      const currentItem = mainBusItems.find(
-        (item) =>
-          (item.type === 'circuit' && item.id === circuitId) ||
-          (item.type === 'protection' && protection && item.id === protection.id)
+        direction
       )
-
-      if (!currentItem) {
-        logger.warn('[moveCircuitOnMainBus] Current item not found in main bus items')
-        return
-      }
-
-      const currentIndex = mainBusItems.indexOf(currentItem)
-      logger.info('[moveCircuitOnMainBus] Current position', {
-        currentIndex,
-        total: mainBusItems.length,
-      })
-
-      if (direction === 'left' && currentIndex > 0) {
-        // Swap with previous
-        const prevItem = mainBusItems[currentIndex - 1]
-        logger.info('[moveCircuitOnMainBus] Swapping with previous', { prevItem })
-        if (!prevItem) {
-          return
-        }
-        if (currentItem.type === 'circuit' && prevItem.type === 'circuit') {
-          // Swap circuits
-          const temp = panel.circuits[currentItem.index]
-          if (!temp) return
-          const prevCircuit = panel.circuits[prevItem.index]
-          if (!prevCircuit) return
-          panel.circuits[currentItem.index] = prevCircuit
-          panel.circuits[prevItem.index] = temp
-          logger.info('[moveCircuitOnMainBus] Swapped circuits')
-        } else if (currentItem.type === 'protection' && prevItem.type === 'protection') {
-          // Swap protections
-          const temp = panel.protections[currentItem.index]
-          if (!temp) return
-          const prevProtection = panel.protections[prevItem.index]
-          if (!prevProtection) return
-          panel.protections[currentItem.index] = prevProtection
-          panel.protections[prevItem.index] = temp
-          logger.info('[moveCircuitOnMainBus] Swapped protections')
-        }
-        state.isDirty = true
-        maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, panelId)
-      } else if (direction === 'right' && currentIndex < mainBusItems.length - 1) {
-        // Swap with next
-        const nextItem = mainBusItems[currentIndex + 1]
-        logger.info('[moveCircuitOnMainBus] Swapping with next', { nextItem })
-        if (!nextItem) {
-          return
-        }
-        if (currentItem.type === 'circuit' && nextItem.type === 'circuit') {
-          // Swap circuits
-          const temp = panel.circuits[currentItem.index]
-          if (!temp) return
-          const nextCircuit = panel.circuits[nextItem.index]
-          if (!nextCircuit) return
-          panel.circuits[currentItem.index] = nextCircuit
-          panel.circuits[nextItem.index] = temp
-          logger.info('[moveCircuitOnMainBus] Swapped circuits')
-        } else if (currentItem.type === 'protection' && nextItem.type === 'protection') {
-          // Swap protections
-          const temp = panel.protections[currentItem.index]
-          if (!temp) return
-          const nextProtection = panel.protections[nextItem.index]
-          if (!nextProtection) return
-          panel.protections[currentItem.index] = nextProtection
-          panel.protections[nextItem.index] = temp
-          logger.info('[moveCircuitOnMainBus] Swapped protections')
-        }
-        state.isDirty = true
-        maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, panelId)
-      } else {
-        logger.info('[moveCircuitOnMainBus] Cannot move', {
-          direction,
-          currentIndex,
-          total: mainBusItems.length,
-        })
-      }
+      if (result.circuitId) state.lastWorkedCircuitId = result.circuitId
+      if (result.changed) state.isDirty = true
     }),
 
   moveCircuitOnSecondaryBus: (circuitId, direction) =>
@@ -704,94 +345,22 @@ export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
   moveCircuitToMainBus: (panelId, circuitId, mainBusInsertIndex) =>
     set((state) => {
       if (!state.currentProject) return
-      const targetPanel = findPanelById(
-        getEditableProjectElectricalPanels(state.currentProject),
-        panelId
-      )
-      if (!targetPanel) return
-
-      let protection: ProtectionDevice | undefined
-      let sourcePanel: Panel | undefined
-
-      const walkStack: Panel[] = [...getEditableProjectElectricalPanels(state.currentProject)]
-      while (walkStack.length) {
-        const p = walkStack.pop()!
-        for (const prot of p.protections ?? []) {
-          if (prot.circuits?.some((c) => c.id === circuitId)) {
-            protection = prot
-            sourcePanel = p
-            break
-          }
-        }
-        if (protection) break
-        if (p.subPanels?.length) walkStack.push(...p.subPanels)
-      }
-
-      if (!protection || !sourcePanel) return
-
-      relocateProtectionToPanelMainBus(sourcePanel, targetPanel, protection, mainBusInsertIndex)
-      syncLinkedSubPanelHierarchy(state.currentProject)
-
-      dedupePanelProtectionsInPanelTree(sourcePanel)
-      dedupePanelProtectionsInPanelTree(targetPanel)
-
-      state.isDirty = true
-      maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, sourcePanel.id)
-      if (sourcePanel.id !== targetPanel.id) {
-        maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, targetPanel.id)
-      }
+      const result = promoteCircuitToMainBusInProject(state.currentProject, {
+        kind: 'promoteCircuit',
+        panelId,
+        circuitId,
+        insertIndex: mainBusInsertIndex,
+      })
+      if (result.changed) state.isDirty = true
     }),
 
   moveProtectionToPanelSupplyWire: (protectionId, panelId) => {
     let moved = false
     set((state) => {
       if (!state.currentProject) return
-
-      const panels = getEditableProjectElectricalPanels(state.currentProject)
-      const sourcePanel = findPanelOwningProtection(panels, protectionId)
-      const targetPanel = findPanelById(panels, panelId)
-      const protection = sourcePanel && findProtectionById(sourcePanel, protectionId)
-      const panelCircuit = targetPanel?.circuits.find((circuit) => circuit.code === 'PANEL')
-
-      // A secondary panel has one incoming protection slot. Main-panel supply
-      // devices use the separate feed-topology actions.
-      if (!sourcePanel || !targetPanel || targetPanel.isMain || !protection || !panelCircuit) return
-      const existingIncomingProtection = (panelCircuit.trunkDevices ?? []).find(
-        (device) => device.type === 'protection'
-      )
-      // The panel feeder can contain only one incoming protection. A matching
-      // device is an incomplete earlier move and is safe to normalize below;
-      // a different device is a real occupied feeder and must remain blocked.
-      if (existingIncomingProtection && existingIncomingProtection.id !== protection.id) return
-      relocateProtectionToPanelMainBus(sourcePanel, targetPanel, protection, 0)
-      const incomingDevice = protectionDeviceToSubPanelIncomingTrunkDevice(
-        protection,
-        protection.id,
-        getVoltagePolesConfig(state.currentProject)
-      )
-      promoteMovedSubPanelRootToIncomingTrunk(targetPanel, protection.id, incomingDevice)
-
-      // The moved protection is represented by the incoming trunk device now.
-      // Keep it out of the panel's main-bus protection list even when the move
-      // is repairing a partially completed prior operation.
-      targetPanel.protections = targetPanel.protections.filter(
-        (candidate) => candidate.id !== protection.id
-      )
-      rewirePromotedIncomingProtectionGridRef(targetPanel, protection.id, panelCircuit.id)
-
-      moved = (panelCircuit.trunkDevices ?? []).some(
-        (device) => device.id === protection.id && device.type === 'protection'
-      )
+      moved = moveProtectionToSupplyWireInProject(state.currentProject, protectionId, panelId)
       if (!moved) return
-
-      syncLinkedSubPanelHierarchy(state.currentProject)
-      dedupePanelProtectionsInPanelTree(sourcePanel)
-      dedupePanelProtectionsInPanelTree(targetPanel)
       state.isDirty = true
-      maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, sourcePanel.id)
-      if (sourcePanel.id !== targetPanel.id) {
-        maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, targetPanel.id)
-      }
     })
     return moved
   },
@@ -833,9 +402,7 @@ export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
         originalParentSubCircuitIndex >= 0 &&
         !movedCircuitIds.has(originalParentCircuit.id)
 
-      const totalPanelCount = countPanels(
-        getEditableProjectElectricalPanels(state.currentProject)
-      )
+      const totalPanelCount = countPanels(getEditableProjectElectricalPanels(state.currentProject))
       const panelNumber = totalPanelCount + 1
       const newPanelId = generateId()
       createdId = newPanelId
@@ -1032,9 +599,7 @@ export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
         .filter((protection): protection is ProtectionDevice => !!protection)
       if (protectionsToMove.length !== selection.protectionIds.length) return
 
-      const totalPanelCount = countPanels(
-        getEditableProjectElectricalPanels(state.currentProject)
-      )
+      const totalPanelCount = countPanels(getEditableProjectElectricalPanels(state.currentProject))
       const panelNumber = totalPanelCount + 1
       const newPanelId = generateId()
       createdId = newPanelId
@@ -1135,22 +700,16 @@ export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
   moveCircuitToSecondaryBus: (panelId, parentCircuitId, circuitId, insertIndex, options) =>
     set((state) => {
       if (!state.currentProject) return
-      const panel = findPanelById(
-        getEditableProjectElectricalPanels(state.currentProject),
-        panelId
-      )
-      if (!panel) return
-
-      const changed = moveCircuitToCircuitContentPosition(
-        panel,
+      const result = moveCircuitToSecondaryBusInProject(
+        state.currentProject,
+        panelId,
         parentCircuitId,
         circuitId,
         insertIndex,
         options
       )
-      if (!changed) return
-      state.isDirty = true
-      maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, panelId)
+      if (result.circuitId) state.lastWorkedCircuitId = result.circuitId
+      if (result.changed) state.isDirty = true
     }),
 
   moveCircuitsToRcdBus: (panelId, rcdProtectionId, circuitIds, insertIndex) => {
@@ -1176,10 +735,7 @@ export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
     let changed = false
     set((state) => {
       if (!state.currentProject) return
-      const panel = findPanelById(
-        getEditableProjectElectricalPanels(state.currentProject),
-        panelId
-      )
+      const panel = findPanelById(getEditableProjectElectricalPanels(state.currentProject), panelId)
       if (!panel) return
 
       changed = liftCircuitContentAboveOwnProtection(panel, circuitId)

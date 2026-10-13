@@ -1,3 +1,4 @@
+/* eslint react-refresh/only-export-components: off -- The build-time stub mirrors the hosted wall scan API. */
 import { create } from 'zustand'
 import type { WallScanState } from '@/stores/wallScanStore'
 

@@ -9,11 +9,27 @@ const NETWORK_STATUS_REFRESH_EVENT = 'condui-network-status-refresh'
 const APP_SERVER_REACHABILITY_EVENT = 'eendra-app-server-reachability'
 let networkUnavailableUntil = 0
 let appServerReachable = true
+let databaseUnavailable = false
+
+/** A service outage is independent of the browser's internet connection. */
+export function readDatabaseUnavailable(): boolean {
+  return databaseUnavailable
+}
+
+export function setDatabaseUnavailable(unavailable: boolean): void {
+  if (databaseUnavailable === unavailable) return
+  databaseUnavailable = unavailable
+  if (!unavailable) networkUnavailableUntil = 0
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(NETWORK_STATUS_REFRESH_EVENT))
+  }
+}
 
 export function readOnlineStatus(): boolean {
   return (
     readNavigatorOnLine() &&
     appServerReachable &&
+    !databaseUnavailable &&
     !readNetworkUnavailable()
   )
 }

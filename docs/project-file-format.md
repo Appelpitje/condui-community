@@ -215,6 +215,9 @@ fractional widths on this grid. Panel `gridView` may enable compact terminal-onl
 with `terminalStripTopRail` and `terminalStripBottomRail`. A terminal-strip slot assigned
 to one of those rows persists `terminalStripRail: "top"` or `"bottom"`; other device
 types ignore that marker and remain in the regular grid.
+Automatic slot persistence retains the rail marker. When older automatic slots contain
+overlapping distinct terminal strips in a regular row and a terminal rail is enabled,
+the editor recovers those strips onto free terminal-rail positions.
 
 A circuit terminal-strip occurrence may persist `terminalStripPanelId`, identifying the
 physical panel-canvas frame that contains the strip. This value is independent from the
@@ -224,6 +227,22 @@ behavior of showing the strip on its circuit-owning panel. A strip stored as an 
 (`symbol: "terminal_strip"`) may persist the same `terminalStripPanelId` on the endpoint; it
 moves together with trunk-device occurrences of the same `junctionIdentity`, but has no
 auxiliary-enclosure mounting.
+
+Relays, energy meters, energy converters and domotica modules may hang outside the panel
+that owns their circuit. A circuit trunk device of that kind persists the physical location
+in its existing `panelMounting`, and an endpoint with a panel-module symbol (`relay`,
+`energy_meter`, `domotica`, `transformer`, `rectifier`, `inverter`, `dc_dc_converter`), or a
+socket endpoint with `socketProps.modular: true`, may persist the same field on the
+endpoint. Modular sockets retain their derived two- or four-module width. Only
+`kind: "panel"` (a distribution panel, including the circuit's own panel) and
+`kind: "auxiliary"` (an auxiliary enclosure, which then needs no supply devices) apply; a
+missing value uses the default enclosure along the circuit: a preceding junction panel,
+or otherwise the circuit's own panel. An explicit mounting on the owning panel takes
+precedence over that junction-panel default. Its grid slot belongs to the target frame. A
+target that no longer exists falls back to the owning panel, and deleting an auxiliary
+enclosure clears the mounting of the modules it held. Mounting never changes the circuit,
+device order or electrical connections; readers that ignore it show the module in its own
+panel.
 
 Panel label editing is module-owned rather than slot-owned. Protection devices, endpoints,
 and trunk devices may contain an optional `labelNotes` string and optional `panelLabel`
@@ -237,10 +256,13 @@ source to `labelNotes`. The label export uses the bottom cell for single/on-row 
 exports the top and bottom cells separately for double-strip output.
 
 Junction-panel trunk devices may persist `junctionPanelGridView`. It stores the shared
-panel-canvas rows, columns, feed direction, and optional top or bottom terminal rails
+panel-canvas rows, columns, feed direction, module slots (including manual widths), and optional top or bottom terminal rails
 for the physical junction panel identified by `junctionIdentity`. Occurrences with the
 same identity represent one enclosure and receive the same grid configuration. Missing
 configuration defaults to one row and 18 columns.
+Module slot rows start at zero below the terminal row when no terminal rail is enabled.
+Moving a module out of the junction panel removes its old shared slot and preserves its
+manual width in the destination enclosure.
 
 Each junction-panel occurrence may also persist `junctionPanelTerminal`, containing the
 stable `id`, editable `label`, and `pinCount` of its terminal component. These terminals
@@ -751,7 +773,11 @@ downstream device or panel anchor, and subpanel feeds a receiving device or bus 
 Supply paths retain their stable feed-section or assembly-connection anchors. Anchor keys
 are opaque to external readers. Older node-pair anchors for shared supply-feed edges
 are rewritten to their canonical feed anchors on opening or saving, retaining run
-membership and per-segment lengths. Repeated drawing pieces share an anchor, and a busbar run
+membership and per-segment lengths. A circuit anchor whose stored domain no longer matches its
+device (a converter was added or removed upstream) is moved to the anchor with the current
+domain on opening, saving and editing, together with its run membership, per-segment lengths
+and length sources, core aliases, plan-trace `wireAnchor` and junction references, unless
+another run already holds that anchor. Repeated drawing pieces share an anchor, and a busbar run
 may contain several tap anchors. Editing its specification changes all members; editing
 `segmentLengths[anchor]` changes only that connection. Empty or unknown legacy wire owners
 remain default inputs until a run is authored. Drawing-only `wireAnchor`, `wireAnchors`, and

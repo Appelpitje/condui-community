@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { withCadDisplayLineWeight } from '@/lib/plan/cadLineWeight'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useProjectStore } from '@/stores/projectStore'
 import {
@@ -57,9 +58,21 @@ export function usePlanImage(
   } = resolvePlanImageDataUrls(activeFloor)
   const hasWhiteBackground = canonicalAsset?.hasWhiteBackground ?? activeFloor?.planAssetHasWhiteBackground ?? false
   const darkModeAware = canonicalAsset?.darkModeAware ?? hasWhiteBackground
-  const svgContent = importedPlanAssetUsesSvgContent(canonicalAsset?.kind)
+  const rawSvgContent = importedPlanAssetUsesSvgContent(canonicalAsset?.kind)
     ? canonicalAsset?.svgContent
     : undefined
+  const cadAssetWidth = canonicalAsset?.width
+  const isCadAsset = canonicalAsset?.cadReference != null
+  const svgContent = useMemo(
+    () =>
+      rawSvgContent && cadAssetWidth != null
+        ? withCadDisplayLineWeight(rawSvgContent, {
+            width: cadAssetWidth,
+            cadReference: isCadAsset || undefined,
+          })
+        : rawSvgContent,
+    [rawSvgContent, cadAssetWidth, isCadAsset]
+  )
   const grayscale = canonicalAsset?.grayscale === true
 
   // Load image when plan asset changes

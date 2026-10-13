@@ -1,3 +1,4 @@
+/* eslint react-refresh/only-export-components: off -- Community stubs mirror the hosted Documents API. */
 import type { ProjectDocument } from '@/lib/documents/projectDocuments'
 
 /** Community edition of the Documents canvas' hosted parts: no paid-project tables or team library. */

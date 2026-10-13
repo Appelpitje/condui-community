@@ -1,4 +1,4 @@
-import type { CableSpec } from '@/types/schema'
+import type { CableSpec, InstallationProfile } from '@/types/schema'
 
 export type WireTypeOption = { value: CableSpec['kind']; label: string }
 
@@ -31,7 +31,19 @@ export const DC_CABLE_SECTION_OPTIONS = [
   120,
 ] as const
 
-export function getWireSectionOptions(isDC: boolean): readonly number[] {
+const NON_HOUSEHOLD_AC_CABLE_SECTION_OPTIONS = [
+  ...AC_CABLE_SECTION_OPTIONS, 70, 95, 120, 240,
+] as const
+
+const NON_HOUSEHOLD_DC_CABLE_SECTION_OPTIONS = [...DC_CABLE_SECTION_OPTIONS, 240] as const
+
+export function getWireSectionOptions(
+  isDC: boolean,
+  profile: InstallationProfile = 'household',
+): readonly number[] {
+  if (profile === 'non_household') {
+    return isDC ? NON_HOUSEHOLD_DC_CABLE_SECTION_OPTIONS : NON_HOUSEHOLD_AC_CABLE_SECTION_OPTIONS
+  }
   return isDC ? DC_CABLE_SECTION_OPTIONS : AC_CABLE_SECTION_OPTIONS
 }
 

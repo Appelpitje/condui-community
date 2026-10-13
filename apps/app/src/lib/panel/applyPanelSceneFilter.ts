@@ -2,7 +2,7 @@
  * Derive a visible panel scene from a full BuiltPanelScene (filter + compact relayout).
  */
 import type { Panel } from '@/types/schema'
-import { panelGridModuleRefKey } from '@/components/canvas/panel/panelGridLayout'
+import { panelGridModuleRefKey } from '@/lib/panel/panelGridLayout'
 import {
   getProjectElectricalPanels,
   type ProjectWithOptionalV2Electrical,

@@ -7,7 +7,7 @@ import {
   canDropSymbolOnSupplyConverterDcWire,
   dropBehaviors,
   isEmptyProtectionCircuitForDcDrop,
-} from '@/handlers/eendraad/dropBehaviors'
+} from '@/lib/eendraad/dropBehaviors'
 import { PROTECTION_SYMBOL_IDS } from '@/lib/protectionKind'
 import { getCircuitBranches } from '@/lib/layout/endpointChains'
 import { getDomoticaEndpointInputDomain } from '@/lib/eendraad/domoticaOutputOrdering'

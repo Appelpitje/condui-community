@@ -16,6 +16,7 @@ type ShortcutKeyId =
   | 'ctrlCmdL'
   | 'ctrlCmdP'
   | 'ctrlCmdD'
+  | 'ctrlCmdK'
   | 'tab'
   | 'esc'
   | 'space'
@@ -75,6 +76,7 @@ const BASE_SHORTCUT_GROUPS: ShortcutGroup[] = [
       {
         id: 'projectPanels',
         entries: [
+          { id: 'openCommandPalette', keys: ['ctrlCmdK'] },
           { id: 'undo', keys: ['ctrlCmdZ'] },
           { id: 'redo', keys: ['ctrlCmdShiftZ', 'ctrlCmdY'] },
           { id: 'toggleLibrary', keys: ['ctrlCmdL'] },

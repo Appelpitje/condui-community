@@ -45,6 +45,7 @@ import type { Point } from '@/types/ui'
 import type { LayoutNode } from '@/lib/layout/layoutTree'
 import { getLayoutSubtreeSelectionIds } from '@/lib/eendraad/downstreamSelection'
 import { registerActivation } from '@/utils/repeatActivation'
+import { useCanvasDragImage } from '@/hooks/useCanvasDragImage'
 
 type EendraadPointerEvent = {
   cancelBubble: boolean
@@ -96,9 +97,11 @@ export function ProtectionSymbol({
   const fontFamily = useCanvasFontFamily()
   const isPreviewSelected = useIsPreviewSelected('protection', protection.id)
   const [processedImage, setProcessedImage] = useState<HTMLImageElement | null>(null)
+  const { begin: beginDragImage, update: updateDragImage, end: endDragImage } = useCanvasDragImage()
   const dragOriginParentRef = useRef<Konva.Container | null>(null)
   const dragOriginLayerListeningRef = useRef<{ layer: Konva.Layer; listening: boolean } | null>(null)
   const isolateDragNode = useCallback((target: Konva.Node) => {
+    if (beginDragImage(target)) return
     const dragLayer = target.getStage()?.findOne('.canvas-drag-layer')
     const originParent = target.getParent()
     if (!dragLayer || !originParent || dragLayer === originParent) return
@@ -114,8 +117,9 @@ export function ProtectionSymbol({
     dragOriginParentRef.current = originParent
     target.moveTo(dragLayer)
     target.setAbsolutePosition(absolutePosition)
-  }, [])
+  }, [beginDragImage])
   const restoreDragNode = useCallback((target: Konva.Node) => {
+    endDragImage()
     const originParent = dragOriginParentRef.current
     if (!originParent) return
     const absolutePosition = target.getAbsolutePosition()
@@ -127,7 +131,7 @@ export function ProtectionSymbol({
       originLayerListening.layer.listening(originLayerListening.listening)
       dragOriginLayerListeningRef.current = null
     }
-  }, [])
+  }, [endDragImage])
   useEffect(
     () => () => {
       const originLayerListening = dragOriginLayerListeningRef.current
@@ -350,6 +354,7 @@ export function ProtectionSymbol({
         onDragMove={
           moveInfo && isSelected && onDragMove
             ? (e) => {
+                updateDragImage()
                 onDragMove(
                   getCanvasPositionFromEvent?.(e) ?? { x: e.target.x(), y: e.target.y() }
                 )
@@ -432,6 +437,7 @@ export function ProtectionSymbol({
       onDragMove={
         moveInfo && isSelected && onDragMove
           ? (e) => {
+              updateDragImage()
               onDragMove(
                 getCanvasPositionFromEvent?.(e) ?? { x: e.target.x(), y: e.target.y() }
               )

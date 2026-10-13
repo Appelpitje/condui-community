@@ -4058,22 +4058,34 @@ function calculateBottomUpPanelLayout(
       device: TrunkDevice
     ): number | undefined => {
       // Circuit notes are solved before the drawable elements are materialized.
-      // Mirror the ordinary trunk-device positioning here so notes can already
-      // measure DC-bus subtrees instead of silently falling back to the branch row.
-      if (cl.parentCircuit) return undefined
-
-      const trunkDevices = (cl.circuit.trunkDevices ?? []).filter(
-        (candidate) => !candidate.converterDcConnection
-      )
+      // Mirror trunk-device positioning for both ordinary and nested circuits
+      // so notes clear the whole device stack before elements are materialized.
+      const trunkDevices = cl.parentCircuit
+        ? (cl.circuit.trunkDevices ?? [])
+        : (cl.circuit.trunkDevices ?? []).filter((candidate) => !candidate.converterDcConnection)
       if (!trunkDevices.includes(device)) return undefined
 
       const circuitBranches = branches.filter((branch) => branch.circuitId === cl.circuit.id)
-      const mcbYForDevices = cl.parentRcd
+      let mcbYForDevices = cl.parentRcd
         ? (trunks.find((trunk) => trunk.protectionId === cl.parentRcd!.id)?.y ??
             mainBusY - LAYOUT_CONSTANTS.RCD_TRUNK_OFFSET) - LAYOUT_CONSTANTS.MCB_Y_OFFSET
         : cl.circuit.supplySource?.kind === 'converter-backup'
           ? cl.protectionY
           : mainBusY - LAYOUT_CONSTANTS.MCB_Y_OFFSET
+      if (cl.parentCircuit) {
+        const parentLayout = layoutByCircuitId.get(cl.parentCircuit.id)
+        if (!parentLayout) return undefined
+        const parentBranches = branches.filter(
+          (branch) => branch.circuitId === parentLayout.circuit.id
+        )
+        const topmostParentBranch = getTopmostCircuitBranch(parentBranches)
+        const parentLineEndY =
+          parentBranches.some((branch) => branch.endpoints.length > 0) &&
+          parentLayout.secondaryBusY != null
+            ? parentLayout.secondaryBusY
+            : (topmostParentBranch?.branchY ?? mainBusY - LAYOUT_CONSTANTS.MCB_Y_OFFSET)
+        mcbYForDevices = parentLineEndY - LAYOUT_CONSTANTS.MCB_Y_OFFSET
+      }
       const terminalDcBusBranch =
         device.type === 'dc_bus' &&
         circuitBranches.length === 1 &&
@@ -4159,7 +4171,41 @@ function calculateBottomUpPanelLayout(
 
       const hasSubPanelAtLineEnd = !!cl.protection?.subPanelId
       let topY = getCircuitLineTopY(circuitBranches, mcbY, hasSubPanelAtLineEnd)
+      const topBranchWireY =
+        getTopmostCircuitBranch(circuitBranches)?.branchY ??
+        mcbY - LAYOUT_CONSTANTS.BRANCH_START_OFFSET
       const dcBusStep = LAYOUT_CONSTANTS.SYMBOL_SIZE + LAYOUT_CONSTANTS.TRUNK_DEVICE_SPACING
+
+      // A device above the final branch extends the circuit beyond that branch.
+      // Include its painted height (including tall converter specs) in the same
+      // top bound used to stack notes for this circuit and its parent column.
+      let topmostTrunkDevice: { device: TrunkDevice; y: number } | undefined
+      for (const device of cl.circuit.trunkDevices ?? []) {
+        const deviceY =
+          elements.find(
+            (element) => element.type === 'trunkDevice' && element.trunkDeviceId === device.id
+          )?.position.y ?? getTrunkDeviceYBeforeElements(cl, device)
+        if (deviceY == null) continue
+        if (!topmostTrunkDevice || deviceY < topmostTrunkDevice.y) {
+          topmostTrunkDevice = { device, y: deviceY }
+        }
+        topY = Math.min(
+          topY,
+          deviceY - getTrunkDeviceVerticalPaintHeight(device, LAYOUT_CONSTANTS.SYMBOL_SIZE) / 2
+        )
+      }
+      if (topmostTrunkDevice && topmostTrunkDevice.y <= topBranchWireY) {
+        // layoutTree and deriveWires extend the trunk above a topmost device.
+        // Notes must clear that wire stub as well as the device's painted body.
+        const { device, y } = topmostTrunkDevice
+        const hasUpperTrunkStub =
+          device.type !== 'dc_bus' &&
+          !(supportsCircuitConverterDcConnections(device) &&
+            getCircuitConverterDcConnectionCount(device) > 1)
+        if (hasUpperTrunkStub) {
+          topY = Math.min(topY, y - LAYOUT_CONSTANTS.BRANCH_START_OFFSET)
+        }
+      }
 
       for (const bus of (cl.circuit.trunkDevices ?? []).filter(
         (device) => device.type === 'dc_bus'

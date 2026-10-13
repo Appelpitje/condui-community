@@ -268,6 +268,8 @@ const aliases = {
   '@/lib/analytics/validationPanelAnalytics': './src/editions/community/communityAnalytics.ts',
   '@/lib/analytics/editorEventAnalytics': './src/editions/community/communityAnalytics.ts',
   '@/lib/analytics/supplyAssemblyAnalytics': './src/editions/community/communityAnalytics.ts',
+  '@/lib/crashReporting/submitCrashNetlifyForm':
+    './src/editions/community/communityCrashReportSubmission.ts',
   '@/lib/inspectionAgencyCatalog':
     './src/editions/community/communityInspectionAgencyCatalog.ts',
   '@/lib/synergridCatalog': './src/editions/community/communitySynergridCatalog.ts',

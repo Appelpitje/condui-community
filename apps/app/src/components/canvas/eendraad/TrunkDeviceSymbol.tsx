@@ -134,10 +134,8 @@ import {
   getSupplyConverterBodyGeometry,
   supportsCircuitConverterDcConnections,
 } from '@/lib/layout/circuitConverterGeometry'
-import {
-  clampConverterDcConnectionCount,
-  resizeConverterDcConnections,
-} from '@/lib/eendraad/resizeConverterDcConnections'
+import { clampConverterDcConnectionCount } from '@/lib/eendraad/resizeConverterDcConnections'
+import { resizeConverterDcConnections } from '@/handlers/eendraad/resizeConverterDcConnections'
 import { isVerticalSupplyDevice } from '@/lib/layout/supplyDeviceOrientation'
 import type { SupplyTopLabelPlacement } from '@/lib/layout/supplyTopLabelLayout'
 import { ConverterResizeViewportContext } from './ConverterResizeViewportContext'

@@ -15,12 +15,13 @@ import {
   type InstallDatePropagationMode,
   type InstallDateTarget,
 } from '@/lib/installDatePropagation'
-import { isProtectionOnSupplyPanel } from '@/components/canvas/panel/panelGridLayout'
+import { isProtectionOnSupplyPanel } from '@/lib/panel/panelGridLayout'
 import { InstallDateField } from '../shared/propertiesShared'
-import { ensureInstallDateTargetColors, visibilityToggleClass } from '../shared/propertiesSharedUtils'
+import { visibilityToggleClass } from '../shared/propertiesSharedUtils'
 import { AutomaticNamingOverrideControl } from '../shared/AutomaticNamingOverrideControl'
 import { installationDateUpdateFromYear } from '@/lib/installDates'
 import { getProjectElectricalInstallation } from '@/lib/projectV2/electrical'
+import { editProperties } from '@/handlers/properties/editProperties'
 // Circuit kind options for dropdown (order: general first, then special)
 const CIRCUIT_KIND_OPTIONS: Array<{ value: Circuit['kind']; labelKey: string }> = [
   { value: 'lighting', labelKey: 'circuits.lighting' },
@@ -60,13 +61,8 @@ export function CircuitProperties({
   const getProtectionForCircuit = useProjectStore(
     (state: ProjectState) => state.getProtectionForCircuit
   )
-  const updateEndpoint = useProjectStore((state: ProjectState) => state.updateEndpoint)
-  const updateInstallation = useProjectStore((state: ProjectState) => state.updateInstallation)
-  const withSingleUndoEntry = useProjectStore((state: ProjectState) => state.withSingleUndoEntry)
-  const applyAutomaticNaming = useProjectStore(
-    (state: ProjectState) => state.applyAutomaticEendraadNamingAllPanels
-  )
   const [localCode, setLocalCode] = React.useState(circuit?.code || '')
+  const [customCodeDraft, setCustomCodeDraft] = React.useState(false)
   const codeInputRef = React.useRef<HTMLInputElement>(null)
   const [focusCustomLabel, setFocusCustomLabel] = React.useState(false)
   const derivedKind = circuit
@@ -124,31 +120,31 @@ export function CircuitProperties({
 
   const setCustomLabel = (focusInput = true) => {
     const rowCircuits = protectionForCircuit?.circuits ?? (circuit ? [circuit] : [])
-    withSingleUndoEntry(() => {
-      for (const rowCircuit of rowCircuits) {
-        onUpdate(rowCircuit.id, { eendraadManualCodeLock: true })
-      }
-      return true
-    })
+    const ids = rowCircuits.map((rowCircuit) => rowCircuit.id)
+    if (ids.length > 0) {
+      editProperties({
+        edits: [{ kind: 'circuit', ids, set: { eendraadManualCodeLock: true } }],
+      })
+    }
     if (focusInput) setFocusCustomLabel(true)
   }
 
   const useAutomaticLabel = () => {
     const rowCircuits = protectionForCircuit?.circuits ?? (circuit ? [circuit] : [])
-    withSingleUndoEntry(() => {
-      for (const rowCircuit of rowCircuits) {
-        onUpdate(rowCircuit.id, { eendraadManualCodeLock: undefined })
-      }
-      applyAutomaticNaming()
-      return true
-    })
+    const ids = rowCircuits.map((rowCircuit) => rowCircuit.id)
+    if (ids.length > 0) {
+      editProperties({
+        edits: [{ kind: 'circuit', ids, set: { eendraadManualCodeLock: undefined } }],
+        refreshAutomaticNaming: true,
+      })
+    }
   }
 
   const handleCodeChange = (value: string) => {
     // Don't trim here - preserve user input until they commit
     setLocalCode(value)
     if (automaticNamingRow && !manualLabelOverride) {
-      setCustomLabel(false)
+      setCustomCodeDraft(true)
     }
   }
 
@@ -161,12 +157,14 @@ export function CircuitProperties({
 
     // If code didn't change, do nothing
     if (newCode === circuit.code) {
+      setCustomCodeDraft(false)
       return
     }
 
     // Check if code is empty
     if (!newCode) {
       setLocalCode(circuit.code) // Revert to original
+      setCustomCodeDraft(false)
       return
     }
 
@@ -175,11 +173,12 @@ export function CircuitProperties({
       return
     }
 
-    withSingleUndoEntry(() => {
-      onUpdate(circuitId, { code: newCode })
-      applyAutomaticNaming()
-      return true
+    editProperties({
+      edits: [{ kind: 'circuit', ids: [circuitId], set: { code: newCode } }],
+      actions: customCodeDraft ? [{ kind: 'lockCircuitRowForCode', circuitId }] : undefined,
+      refreshAutomaticNaming: !customCodeDraft,
     })
+    setCustomCodeDraft(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -191,6 +190,7 @@ export function CircuitProperties({
       // Revert to original on Escape
       e.preventDefault()
       setLocalCode(circuit?.code || '')
+      setCustomCodeDraft(false)
       e.currentTarget.blur()
     }
   }
@@ -204,33 +204,35 @@ export function CircuitProperties({
   }
 
   const applyInstallDateTargets = (targets: InstallDateTarget[], year: number | undefined) => {
-    withSingleUndoEntry(() => {
-      ensureInstallDateTargetColors(currentProject, targets, year)
-      for (const target of targets) {
-        const inheritedYear = currentProject
-          ? getInstallDateTargetInheritedYear(currentProject, target)
-          : undefined
-        const requestedYear = target.preserveYear ?? year
-        const targetYear =
-          target.clearOverride || (!target.forceOverride && requestedYear === inheritedYear)
-            ? undefined
-            : requestedYear
-        const dateUpdate = installationDateUpdateFromYear(targetYear)
-        if (target.type === 'circuit') onUpdate(target.id, dateUpdate)
-        else if (target.type === 'endpoint') updateEndpoint(target.id, dateUpdate)
-        else if (target.type === 'trunkDevice') {
-          const result = useProjectStore.getState().getTrunkDeviceById(target.id)
-          if (result?.isSupplyDevice) {
-            if (result.supplyFeedScope === 'shared') continue
-            useProjectStore.getState().updateSupplyTrunkDevice(target.id, dateUpdate)
-          } else if (result?.isGroundDevice) {
-            useProjectStore.getState().updateGroundTrunkDevice(target.id, dateUpdate)
-          } else if (result?.circuit) {
-            useProjectStore.getState().updateTrunkDevice(result.circuit.id, target.id, dateUpdate)
-          }
-        }
-      }
-      return true
+    const grouped = new Map<
+      string,
+      { kind: 'protection' | 'circuit' | 'endpoint' | 'trunkDevice'; ids: string[]; set: ReturnType<typeof installationDateUpdateFromYear> }
+    >()
+    for (const target of targets) {
+      if (target.type === 'panel') continue
+      if (
+        target.type === 'trunkDevice' &&
+        useProjectStore.getState().getTrunkDeviceById(target.id)?.supplyFeedScope === 'shared'
+      ) continue
+      const inheritedYear = currentProject
+        ? getInstallDateTargetInheritedYear(currentProject, target)
+        : undefined
+      const requestedYear = target.preserveYear ?? year
+      const targetYear =
+        target.clearOverride || (!target.forceOverride && requestedYear === inheritedYear)
+          ? undefined
+          : requestedYear
+      const set = installationDateUpdateFromYear(targetYear)
+      const key = `${target.type}:${JSON.stringify(set)}`
+      const existing = grouped.get(key)
+      if (existing) existing.ids.push(target.id)
+      else grouped.set(key, { kind: target.type, ids: [target.id], set })
+    }
+    editProperties({
+      edits: [...grouped.values()].map(({ kind, ids, set }) => ({ kind, ids, set })),
+      seedInstallDateColors: currentProject
+        ? { targets: targets.filter((target) => target.type !== 'panel'), year }
+        : undefined,
     })
   }
 
@@ -243,10 +245,7 @@ export function CircuitProperties({
       ? Number(updates.installationDate.slice(0, 4))
       : updates.rulesetDateOverride
     if (year == null) {
-      withSingleUndoEntry(() => {
-        onUpdate(circuitId, updates)
-        return true
-      })
+      onUpdate(circuitId, updates)
       return
     }
     const applyMode = (mode: InstallDatePropagationMode) => {
@@ -422,9 +421,11 @@ export function CircuitProperties({
           <button
             type="button"
             onClick={() =>
-              updateInstallation({
-                circuitNotesOrientation:
-                  circuitNotesOrientation === 'horizontal' ? 'vertical' : 'horizontal',
+              editProperties({
+                installation: {
+                  circuitNotesOrientation:
+                    circuitNotesOrientation === 'horizontal' ? 'vertical' : 'horizontal',
+                },
               })
             }
             className="one-wire-visibility-toggle p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400"

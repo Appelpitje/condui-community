@@ -1,4 +1,4 @@
-import { getModuleWidthInCols } from '@/components/canvas/panel/panelGridLayout'
+import { getModuleWidthInCols } from '@/lib/panel/panelGridLayout'
 import {
   cloneCircuitContent,
   findCircuitOnPanel,

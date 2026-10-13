@@ -12,6 +12,8 @@ type CompanionSiteUrlOptions = {
   port: string
   language: string
   localPort?: string
+  /** Self-hosted Community builds ship without the docs/AREI sites, so links use the public ones. */
+  communityEdition?: boolean
 }
 
 const isLocalHost = (hostname: string): boolean => {
@@ -72,8 +74,11 @@ export const resolveCompanionSiteUrl = ({
   port,
   language,
   localPort,
+  communityEdition = false,
 }: CompanionSiteUrlOptions): string => {
   const prefix = languagePath(language)
+
+  if (communityEdition) return `https://${site}.condui.be/${prefix}/`
 
   if (isLocalHost(hostname)) {
     const fallbackPort = site === 'docs' ? LOCALHOST_DOCS_PORT_FALLBACK : LOCALHOST_AREI_PORT_FALLBACK
@@ -86,6 +91,9 @@ export const resolveCompanionSiteUrl = ({
 }
 
 export const getCompanionSiteUrl = (site: CompanionSite, language: string): string => {
+  if (import.meta.env.VITE_CONDUI_EDITION === 'community') {
+    return resolveCompanionSiteUrl({ site, protocol: 'https:', hostname: '', port: '', language, communityEdition: true })
+  }
   if (typeof window === 'undefined') return `/${languagePath(language)}/`
 
   const { protocol, hostname, port } = window.location

@@ -23,6 +23,8 @@
   },
   "connectivity": {
     "offlineBanner": "You are offline. Local projects remain saved on this device.",
+    "databaseOfflineBanner": "Cloud services are temporarily unavailable. Keep working; changes are saved on this device and sync when the connection returns.",
+    "databaseOfflineIndicatorTitle": "Cloud temporarily unavailable",
     "offlineReloadNotReady": "Avoid reloading until you have opened the app once while online in this browser tab.",
     "offlineReloadDevHint": "Reload while offline only works with a production build (npm run build && vite preview), not the dev server.",
     "dismissOfflineBanner": "Dismiss offline notice",
@@ -152,6 +154,48 @@
     "pan": "Pan",
     "zoom": "Zoom"
   },
+  "commandPalette": {
+    "placeholder": "Search commands",
+    "empty": "No matching commands",
+    "moveToCircuit": "Move to circuit",
+    "reorderBranch": "Reorder branch",
+    "moveOnBus": "Move along bus",
+    "moveBusLeft": "Move left on bus",
+    "moveBusRight": "Move right on bus",
+    "moveModules": "Move panel modules",
+    "resizeModule": "Resize module",
+    "connectTo": "Connect to…",
+    "rewire": "Rewire modules",
+    "resizePanel": "Resize panel",
+    "autoArrange": "Arrange panel modules",
+    "renameFloor": "Rename floor",
+    "addCircuit": "Add circuit",
+    "apply": "Apply",
+    "unavailable": "Cannot apply this change. Check the values or reopen the action.",
+    "fields": {
+      "circuit": "Circuit",
+      "position": "Position",
+      "row": "Row",
+      "column": "Column",
+      "width": "Width (modules)",
+      "target": "Connect to",
+      "bus": "Bus",
+      "rows": "Rows",
+      "columns": "Columns",
+      "name": "Name",
+      "panel": "Panel",
+      "kind": "Circuit type",
+      "direction": "Feed side",
+      "left": "Left",
+      "right": "Right"
+    },
+    "kinds": {
+      "lighting": "Lighting",
+      "sockets": "Sockets",
+      "fixed_appliance": "Fixed appliance",
+      "other": "Other"
+    }
+  },
   "shortcuts": {
     "title": "Shortcuts",
     "intro": "All shortcuts used in the editor.",
@@ -179,6 +223,7 @@
       "ctrlCmdL": "Ctrl / Cmd + L",
       "ctrlCmdP": "Ctrl / Cmd + P",
       "ctrlCmdD": "Ctrl / Cmd + D",
+      "ctrlCmdK": "Ctrl / Cmd + K",
       "tab": "Tab",
       "esc": "Esc",
       "space": "Space",
@@ -222,6 +267,9 @@
       "arrowKeys": "Arrow keys"
     },
     "entries": {
+      "openCommandPalette": {
+        "description": "Command palette"
+      },
       "undo": {
         "description": "Undo"
       },
@@ -1021,6 +1069,7 @@
       "overCapacity": "{{used}} of {{capacity}} output channels used"
     },
     "solarPanel": {
+      "count": "Number of panels",
       "groupTitle": "Brand and model",
       "wattage": "Wattage (Wp)",
       "voltage": "Voltage (V)"
@@ -1166,6 +1215,7 @@
     "showHiddenDescription": "Select one or more devices to show.",
     "supplyPanel": "Grid panel",
     "virtualEnclosure": "Supply enclosure",
+    "moduleEnclosure": "Enclosure",
     "hideSupplyPanel": "Hide grid panel",
     "rewireTool": "Rewire tool",
     "rewireModeOn": "Deactivate Rewire Tool",
@@ -1201,6 +1251,7 @@
     "syncWithPanelView": "Sync with Panel view"
   },
   "canvas": {
+    "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Grid",
     "snap": "Snap",
     "projectedSnap": "Projected snap",

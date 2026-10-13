@@ -1,6 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, Menu, Tag } from 'lucide-react'
+import { ArrowLeft, FileDown, FileUp, Menu, Tag } from 'lucide-react'
+import {
+  MENU_FLYOUT_ATTRIBUTE,
+  MenuSubmenu,
+  type MenuActionItem,
+} from '@/components/menu/MenuSubmenu'
+import {
+  DocumentImportInput,
+  LARGE_MENU_ICON_CLASS,
+  createImportMenuItems,
+  menuSubmenusOnHover,
+  openMenuActionPicker,
+} from '@/components/menu/projectMenuActions'
+import { useResponsiveEditorMode } from '@/hooks/useResponsiveEditorMode'
+/* @project-documents-strip-start */
+import { isProjectDocumentsEnabled } from '@/lib/documents/availability'
+/* @project-documents-strip-end */
 import { useLocalizedNavigate } from '@/hooks/useLocalizedNavigate'
 import { useAutoSave } from '@/hooks/useAutoSave'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
@@ -90,6 +106,8 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const documentImportInputRef = useRef<HTMLInputElement>(null)
+  const compactEditor = useResponsiveEditorMode().isCompact
   const { openExportDialog, isExporting, exportProgress, currentPage } = useExportDialog()
 
   useAutoSave({ disabled: demoMode })
@@ -98,6 +116,8 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
   useEffect(() => {
     if (!menuOpen) return
     const closeMenu = (event: MouseEvent) => {
+      // The Import/Export flyouts render in a portal outside the menu container.
+      if ((event.target as Element | null)?.closest?.(`[${MENU_FLYOUT_ATTRIBUTE}]`)) return
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setMenuOpen(false)
       }
@@ -217,7 +237,63 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
 
   const menuItemClass =
     'flex w-full items-center gap-2.5 px-5 py-2.5 text-left text-[1.09375rem] leading-snug text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
+  const menuItemDisabledClass =
+    'flex w-full items-center gap-2.5 px-5 py-2.5 text-left text-[1.09375rem] leading-snug text-gray-400 dark:text-gray-500 cursor-not-allowed'
   const menuIconClass = 'h-5 w-5 shrink-0'
+  const closeMenu = () => setMenuOpen(false)
+  const projectDocumentsImportEnabled =
+    /* @project-documents-strip-start */
+    isProjectDocumentsEnabled() ||
+    /* @project-documents-strip-end */
+    false
+  // Same Import/Export groups as the hosted editor; TRiK import is hosted-only.
+  const importMenuItems: MenuActionItem[] = demoMode
+    ? []
+    : createImportMenuItems({
+        t,
+        menuIconClass,
+        closeMenu,
+        documentInput: () => documentImportInputRef.current,
+        documentsEnabled: projectDocumentsImportEnabled,
+      })
+  const exportMenuItems: MenuActionItem[] = [
+    {
+      id: 'pdf',
+      label: t('menu.exportKind.pdf'),
+      icon: <ExportPdfIcon className={menuIconClass} />,
+      largeIcon: <ExportPdfIcon className={LARGE_MENU_ICON_CLASS} />,
+      testId: 'app-menu-export-pdf',
+      onSelect: () => {
+        closeMenu()
+        openExportDialog()
+      },
+    },
+    {
+      id: 'labels',
+      label: t('menu.exportKind.labels'),
+      icon: <Tag className={menuIconClass} aria-hidden />,
+      largeIcon: <Tag className={LARGE_MENU_ICON_CLASS} aria-hidden />,
+      testId: 'app-menu-export-labels',
+      onSelect: openLabelStripExport,
+    },
+    {
+      id: 'project',
+      label: t('menu.exportKind.project'),
+      icon: <ProjectDownloadIcon className={menuIconClass} />,
+      largeIcon: <ProjectDownloadIcon className={LARGE_MENU_ICON_CLASS} />,
+      testId: 'app-menu-export-project',
+      onSelect: () => void downloadProject(),
+    },
+  ]
+  const submenusOnHover = menuSubmenusOnHover(compactEditor)
+  const openPicker = (kind: 'import' | 'export') => {
+    closeMenu()
+    openMenuActionPicker(
+      dialog,
+      t(kind === 'import' ? 'menu.importGroup' : 'menu.exportGroup'),
+      kind === 'import' ? importMenuItems : exportMenuItems,
+    )
+  }
   const iconButtonClass =
     'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
   const leftDockOptions = [
@@ -294,6 +370,7 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-white dark:bg-slate-950">
+      <DocumentImportInput inputRef={documentImportInputRef} />
       <header
         className={`relative z-[220] flex shrink-0 items-center gap-2 border-b border-slate-200 px-2 py-1.5 sm:justify-between sm:px-4 sm:py-3 dark:border-gray-700 ${eendraChromeHeaderBackgroundClass}`}
       >
@@ -331,38 +408,30 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
                 className="my-1.5 border-t border-gray-200 dark:border-gray-600"
                 role="separator"
               />
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="app-menu-export-pdf"
-                onClick={() => {
-                  setMenuOpen(false)
-                  openExportDialog()
-                }}
-                className={menuItemClass}
-              >
-                <ExportPdfIcon className={menuIconClass} />
-                {t('menu.exportPdf')}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="app-menu-export-labels"
-                onClick={openLabelStripExport}
-                className={menuItemClass}
-              >
-                <Tag className={menuIconClass} aria-hidden />
-                {t('menu.exportLabels')}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => void downloadProject()}
-                className={menuItemClass}
-              >
-                <ProjectDownloadIcon className={menuIconClass} />
-                {t('menu.exportProject')}
-              </button>
+              {importMenuItems.length > 0 ? (
+                <MenuSubmenu
+                  label={t('menu.importGroup')}
+                  icon={<FileUp className={menuIconClass} aria-hidden />}
+                  items={importMenuItems}
+                  onOpenPicker={() => openPicker('import')}
+                  itemClassName={menuItemClass}
+                  disabledItemClassName={menuItemDisabledClass}
+                  iconClassName="flex shrink-0"
+                  hoverEnabled={submenusOnHover}
+                  testId="app-menu-import"
+                />
+              ) : null}
+              <MenuSubmenu
+                label={t('menu.exportGroup')}
+                icon={<FileDown className={menuIconClass} aria-hidden />}
+                items={exportMenuItems}
+                onOpenPicker={() => openPicker('export')}
+                itemClassName={menuItemClass}
+                disabledItemClassName={menuItemDisabledClass}
+                iconClassName="flex shrink-0"
+                hoverEnabled={submenusOnHover}
+                testId="app-menu-export"
+              />
               <div
                 className="my-1.5 border-t border-gray-200 dark:border-gray-600"
                 role="separator"

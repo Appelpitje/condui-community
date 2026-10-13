@@ -1,3 +1,5 @@
+import { updateProjectMetadataInProject } from '@/lib/properties/generalPropertyMutations'
+import { healOrphanedAuxiliaryEnclosuresInProject } from '@/lib/panel/auxiliaryEnclosureHealing'
 import { normalizeInstallationNominalVoltage } from '@/constants/nominalVoltage'
 import {
   ensureLinkedSubPanelsHaveOwnPanelEndpoint,
@@ -43,6 +45,7 @@ import { shortProjectIdLabel } from '@/utils/project'
 import { logger } from '@/lib/logger'
 import { summarizeConverterDcPersistence } from '@/lib/supplyAssembly/persistenceDiagnostics'
 import { migrateLegacyWireRunEdgeAnchors } from '@/lib/wires/migrateWireRunAnchors'
+import { followWireAnchorDomains } from '@/lib/wires/followWireAnchorDomains'
 import { ensureProjectConductorIds } from '@/lib/wires/conductorIdentity'
 import { syncJunctionAssetsForEdition } from '@/lib/junction/junctionHostedHooks'
 import { joinSecondaryFeederRuns } from '@/lib/wires/secondaryFeederRuns'
@@ -95,6 +98,7 @@ export function hydrateProjectForEditor(project: ProjectInput): {
     repairCrossOutputSupplyConverterDcConnections(runtimeProject)
   const healedPanelMountedSupplySlots = healPanelMountedSupplyTrunkSlots(runtimeProject)
   const healedSupplyGrid = healSupplyTrunkMisplacedOnMainGrid(runtimeProject)
+  const healedOrphanedEnclosures = healOrphanedAuxiliaryEnclosuresInProject(runtimeProject)
   const dedupedProtections = dedupeAllPanelsProtectionsInProject(runtimeProject)
   const removedPromotedIncomingProtections =
     removePromotedIncomingProtectionsFromSubPanels(runtimeProject)
@@ -117,6 +121,8 @@ export function hydrateProjectForEditor(project: ProjectInput): {
   const healedPlanWiring = healPlanWiring(runtimeProject)
   const materializedDcRailConnections = materializeLegacyDcRailConnections(panels)
   const migratedWireRunAnchors = migrateLegacyWireRunEdgeAnchors(runtimeProject)
+  // Cables whose domain flipped (inverter added or removed) keep their spec, lengths and connections.
+  const followedWireAnchorDomains = followWireAnchorDomains(runtimeProject)
   // A secondary board's feeder edited on one board before this was joined: join its two ends.
   const joinedSecondaryFeederRuns = joinSecondaryFeederRuns(runtimeProject)
   // Cores written before core identity (or by an older client) get deterministic ids. Not a
@@ -154,6 +160,7 @@ export function hydrateProjectForEditor(project: ProjectInput): {
       normalizedNominalVoltage ||
       healedSupplyProtectionBreakingCapacity ||
       healedSupplyGrid ||
+      healedOrphanedEnclosures ||
       dedupedProtections ||
       removedPromotedIncomingProtections ||
       healedPromotedIncomingGridRefs ||
@@ -169,6 +176,7 @@ export function hydrateProjectForEditor(project: ProjectInput): {
       healedPlanWiring ||
       materializedDcRailConnections ||
       migratedWireRunAnchors ||
+      followedWireAnchorDomains ||
       joinedSecondaryFeederRuns,
   }
 }
@@ -181,7 +189,7 @@ export function applyProjectMetadataUpdate(
   project: Project,
   updates: Partial<Project['project']>
 ): void {
-  Object.assign(project.project, updates)
+  updateProjectMetadataInProject(project, updates)
 }
 
 export function prepareProjectForPersistence(project: Project): void {
@@ -193,6 +201,7 @@ export function prepareProjectForPersistence(project: Project): void {
   materializeLegacyDcRailConnections(selectProjectElectricalPanels(project))
   repairCrossOutputSupplyConverterDcConnections(project)
   migrateLegacyWireRunEdgeAnchors(project)
+  followWireAnchorDomains(project)
   ensureProjectConductorIds(project)
   syncJunctionAssetsForEdition(project)
   healPlanWiring(project)

@@ -1,6 +1,6 @@
 import type { Point2 } from '@/types/schema'
 import type { Door, Window } from '@/types/schema'
-import { computeOpeningGeometry, getWallTotalLength } from '@/handlers/plan/wallDrawing'
+import { computeOpeningGeometry, getWallTotalLength } from '@/lib/plan/wallOpeningGeometry'
 import { getSegmentInfos } from './segmentGeometry'
 import type { OpeningOnSegment, OpeningPositionsResult, OpeningMoveInput } from './types'
 import { MIN_OPENING_WIDTH, DISTANCE_EPS } from './constants'

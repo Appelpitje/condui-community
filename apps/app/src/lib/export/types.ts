@@ -217,7 +217,8 @@ export class ExportError extends Error {
   constructor(
     public code: ExportDiagnostic['code'],
     message: string,
-    public details?: Record<string, unknown>
+    public details?: Record<string, unknown>,
+    public diagnostics?: ExportDiagnostic[]
   ) {
     super(message)
     this.name = 'ExportError'

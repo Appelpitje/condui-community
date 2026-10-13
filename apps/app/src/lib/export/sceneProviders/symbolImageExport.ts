@@ -1,12 +1,46 @@
 /**
  * Shared logic for normalizing Konva.Image nodes before SVG/PDF export.
- * Converts image sources to embedded raster data so exported SVGs/PDFs keep
- * symbol images, floor plan images, rotation, and per-image opacity intact.
+ * Raster sources are converted to embedded raster data so exported SVGs/PDFs keep
+ * symbol images, floor plan images, rotation, and per-image opacity intact. Vector
+ * (SVG) sources stay vector: theme inversion and opacity are applied to the SVG.
  */
 
 import type Konva from 'konva'
 import { invertRgbInPlace } from '@/lib/image/planImagePixelOps'
+import { invertSvgForDarkMode, svgContentToDataUrl } from '@/utils/planImageProcessing'
+import { decodeSvgDataUrl } from '../exportSvgImageEmbed'
+import { exportRasterScale } from '../exportRasterLimits'
 import { isCatalogSymbolImageNode } from '../symbolSvgInject'
+
+const SVG_DATA_URL_RE = /^\s*data:image\/svg\+xml/i
+
+function withSvgOpacity(svgContent: string, opacity: number): string {
+  const doc = new DOMParser().parseFromString(svgContent, 'image/svg+xml')
+  const root = doc.documentElement
+  if (!root || doc.querySelector('parsererror')) return svgContent
+  const group = doc.createElementNS('http://www.w3.org/2000/svg', 'g')
+  group.setAttribute('opacity', String(opacity))
+  while (root.firstChild) group.appendChild(root.firstChild)
+  root.appendChild(group)
+  return new XMLSerializer().serializeToString(doc)
+}
+
+/**
+ * Vector plans (CAD imports, vectorised PDFs) are drawn in source units, e.g. one pixel
+ * per millimetre. Painting them onto a canvas at that size produced 100+ megapixel
+ * bitmaps and multi-megabyte PNGs that broke PDF composition, so keep them vector.
+ */
+async function processVectorImage(
+  src: string,
+  invert: boolean,
+  opacity: number,
+): Promise<HTMLImageElement | null> {
+  let svgContent = decodeSvgDataUrl(src)
+  if (!svgContent) return null
+  if (invert) svgContent = await invertSvgForDarkMode(svgContent)
+  if (opacity < 0.999) svgContent = withSvgOpacity(svgContent, opacity)
+  return loadHtmlImage(svgContentToDataUrl(svgContent))
+}
 
 function isHtmlImageElement(value: unknown): value is HTMLImageElement {
   return typeof HTMLImageElement !== 'undefined' && value instanceof HTMLImageElement
@@ -29,9 +63,13 @@ async function processSymbolImage(
   flipX: boolean,
   flipY: boolean,
 ): Promise<HTMLImageElement | null> {
-  const width = image.naturalWidth || image.width
-  const height = image.naturalHeight || image.height
-  if (!width || !height) return null
+  const naturalWidth = image.naturalWidth || image.width
+  const naturalHeight = image.naturalHeight || image.height
+  if (!naturalWidth || !naturalHeight) return null
+  // The node keeps its own display size, so shrinking only lowers the export resolution.
+  const scale = exportRasterScale(naturalWidth, naturalHeight)
+  const width = Math.max(1, Math.round(naturalWidth * scale))
+  const height = Math.max(1, Math.round(naturalHeight * scale))
 
   const canvas = document.createElement('canvas')
   canvas.width = width
@@ -72,14 +110,18 @@ async function processSymbolImage(
   const sin = Math.sin(rad)
   const rotatedWidth = Math.max(1, Math.ceil(Math.abs(width * cos) + Math.abs(height * sin)))
   const rotatedHeight = Math.max(1, Math.ceil(Math.abs(width * sin) + Math.abs(height * cos)))
+  const rotatedScale = exportRasterScale(rotatedWidth, rotatedHeight)
+  const outputWidth = Math.max(1, Math.round(rotatedWidth * rotatedScale))
+  const outputHeight = Math.max(1, Math.round(rotatedHeight * rotatedScale))
 
   const rotatedCanvas = document.createElement('canvas')
-  rotatedCanvas.width = rotatedWidth
-  rotatedCanvas.height = rotatedHeight
+  rotatedCanvas.width = outputWidth
+  rotatedCanvas.height = outputHeight
   const rotatedContext = rotatedCanvas.getContext('2d')
   if (!rotatedContext) return loadHtmlImage(canvas.toDataURL('image/png'))
 
-  rotatedContext.translate(rotatedWidth / 2, rotatedHeight / 2)
+  rotatedContext.translate(outputWidth / 2, outputHeight / 2)
+  rotatedContext.scale(rotatedScale, rotatedScale)
   rotatedContext.rotate(rad)
   rotatedContext.drawImage(canvas, -width / 2, -height / 2, width, height)
 
@@ -129,6 +171,10 @@ export async function adjustSymbolImagesForExport(
       : defaultShouldInvert
     const cacheKey = `${src || `img-${index}`}::invert=${needsInvert ? 1 : 0}::rot=${rotation}::opacity=${opacity.toFixed(4)}::flipX=${flipX ? 1 : 0}::flipY=${flipY ? 1 : 0}`
     let processedPromise = processedBySource.get(cacheKey)
+    if (!processedPromise && SVG_DATA_URL_RE.test(src) && rotation === 0 && !flipX && !flipY) {
+      processedPromise = processVectorImage(src, needsInvert, opacity)
+      processedBySource.set(cacheKey, processedPromise)
+    }
     if (!processedPromise) {
       processedPromise = processSymbolImage(
         sourceImage,

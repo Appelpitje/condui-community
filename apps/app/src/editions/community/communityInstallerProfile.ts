@@ -15,7 +15,9 @@ export type { InstallerAddress, InstallerProfile, InstallerProfileData }
 
 export function resetInstallerProfileSessionState(): void {}
 
-export async function getInstallerProfile(): Promise<InstallerProfile> {
+export async function getInstallerProfile(
+  _options?: { onCloudFallback?: () => void },
+): Promise<InstallerProfile> {
   if (!(await isServerStorageEnabled())) return getLocalInstallerProfile(null)
   const stored = await getServerSetting<unknown>(LEGACY_INSTALLER_PROFILE_KEY)
   if (stored === undefined) {

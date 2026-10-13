@@ -8,8 +8,8 @@ import {
   getSupplyPanelRows,
   panelGridModuleRefKey,
   resolveModuleWidthCols,
-} from '@/components/canvas/panel/panelGridLayout'
-import { findFirstFreeMainOrOverflowSlot } from '@/components/canvas/panel/autoArrangeLayout'
+} from '@/lib/panel/panelGridLayout'
+import { findFirstFreeMainOrOverflowSlot } from '@/lib/panel/autoArrangeLayout'
 import { getAllSupplyTrunkDevices, getPanelFeedProjection } from '@/lib/feedTopology'
 import {
   getProjectElectricalInstallation,

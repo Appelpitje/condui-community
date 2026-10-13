@@ -1,12 +1,9 @@
+import { editProperties } from '@/handlers/properties/editProperties'
+import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import { Eye, EyeOff } from 'lucide-react'
 import { DebouncedTextInput } from '@/components/forms'
 import CustomDropdown from '@/components/common/CustomDropdown'
-import type {
-  CableSpec,
-  CircuitPhaseAssignment,
-  Installation,
-  Panel,
-} from '@/types/schema'
+import type { CableSpec, CircuitPhaseAssignment, Installation, Panel } from '@/types/schema'
 import {
   applyCableKindChange,
   getAcWireTypeOptions,
@@ -15,26 +12,16 @@ import {
   getWireSectionOptions,
 } from '@/lib/wires/cableWireTypes'
 import {
-  buildSupplyWireFireClassVisibilityUpdate,
-  buildSupplyWireLabelVisibilityUpdate,
-  buildSupplyWireLengthUpdate,
-  buildSupplyWireLengthVisibilityUpdate,
   getSupplyWireLengthMForRole,
   isSupplyWireFireClassLabelVisibleForRole,
   isSupplyWireLabelVisibleForRole,
   isSupplyWireLengthLabelVisibleForRole,
   type SupplyWireRole,
 } from '@/lib/feedTopology'
-import {
-  getWireConductorOptions,
-  resolveConductorDropdownValue,
-} from '@/lib/wireConductorOptions'
+import { getWireConductorOptions, resolveConductorDropdownValue } from '@/lib/wireConductorOptions'
 import { visibilityToggleClass } from '../shared/propertiesSharedUtils'
 import { WireLengthField } from '../shared/propertiesShared'
-import {
-  WireRouteAndCableForm,
-  type WireRouteFormState,
-} from '../shared/propertiesShared'
+import { WireRouteAndCableForm, type WireRouteFormState } from '../shared/propertiesShared'
 import type { PhaseAssignmentConstraint } from '@/lib/wires/phaseAssignment'
 // Supply Wire Properties Component (for supply-to-main-bus wire)
 export function SupplyWireProperties({
@@ -43,8 +30,6 @@ export function SupplyWireProperties({
   panelId,
   supplyWireRole,
   supplyCable,
-  onUpdate,
-  onUpdateCable,
   wireDomain = 'AC',
   configuredPhaseAssignment,
   showPhaseLabel,
@@ -77,25 +62,20 @@ export function SupplyWireProperties({
     installation,
     panels,
     panel,
-    supplyWireRole,
+    supplyWireRole
   )
   const isFireClassLabelVisible = isSupplyWireFireClassLabelVisibleForRole(
     installation,
     panels,
     panel,
-    supplyWireRole,
+    supplyWireRole
   )
-  const supplyWireLengthM = getSupplyWireLengthMForRole(
-    installation,
-    panels,
-    panel,
-    supplyWireRole,
-  )
+  const supplyWireLengthM = getSupplyWireLengthMForRole(installation, panels, panel, supplyWireRole)
   const isWireLengthLabelVisible = isSupplyWireLengthLabelVisibleForRole(
     installation,
     panels,
     panel,
-    supplyWireRole,
+    supplyWireRole
   )
   const fireClassOptions: Array<NonNullable<CableSpec['fireClass']>> = [
     'Aca',
@@ -116,21 +96,13 @@ export function SupplyWireProperties({
       })
     : getAcWireTypeOptions(t('wires.other', 'Other'))
 
-  const thicknessOptions = getWireSectionOptions(isDC)
+  const thicknessOptions = getWireSectionOptions(isDC, installation.installationProfile)
 
-  const handleCableChange = (updates: Partial<CableSpec>) => {
-    const nextCable = { ...supplyCable, ...updates }
-    if (onUpdateCable) {
-      onUpdateCable(nextCable)
-    } else {
-      onUpdate({
-        mainSupply: {
-          ...installation.mainSupply,
-          cable: nextCable,
-        },
-      })
-    }
-  }
+  const applySupplyWire = (set: Record<string, unknown>) =>
+    editProperties({
+      actions: [{ kind: 'supplyWire', panelId: panel.id, role: supplyWireRole, set: set as never }],
+    })
+  const handleCableChange = (updates: Partial<CableSpec>) => applySupplyWire({ cable: updates })
 
   return (
     <div className="space-y-4">
@@ -188,17 +160,7 @@ export function SupplyWireProperties({
         </label>
         <button
           type="button"
-          onClick={() =>
-            onUpdate(
-              buildSupplyWireLabelVisibilityUpdate(
-                installation,
-                panels,
-                panel,
-                supplyWireRole,
-                !isSupplyLabelVisible,
-              ),
-            )
-          }
+          onClick={() => applySupplyWire({ hideWireLabel: isSupplyLabelVisible })}
           className={visibilityToggleClass(isSupplyLabelVisible)}
           title={
             isSupplyLabelVisible
@@ -211,11 +173,7 @@ export function SupplyWireProperties({
               : t('wires.showLabel', 'Show Wire Label')
           }
         >
-          {isSupplyLabelVisible ? (
-            <Eye className="w-4 h-4" />
-          ) : (
-            <EyeOff className="w-4 h-4" />
-          )}
+          {isSupplyLabelVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
         </button>
       </div>
 
@@ -234,9 +192,7 @@ export function SupplyWireProperties({
           <CustomDropdown
             value={supplyCable.kind}
             onChange={(nextValue) =>
-              handleCableChange(
-                applyCableKindChange(supplyCable, nextValue as CableSpec['kind'])
-              )
+              handleCableChange(applyCableKindChange(supplyCable, nextValue as CableSpec['kind']))
             }
             options={wireTypes.map((type) => ({ value: type.value, label: type.label }))}
             className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
@@ -295,17 +251,7 @@ export function SupplyWireProperties({
           <button
             type="button"
             disabled={!supplyCable.fireClass || isDC}
-            onClick={() =>
-              onUpdate(
-                buildSupplyWireFireClassVisibilityUpdate(
-                  installation,
-                  panels,
-                  panel,
-                  supplyWireRole,
-                  !isFireClassLabelVisible,
-                ),
-              )
-            }
+            onClick={() => applySupplyWire({ showFireClassLabel: !isFireClassLabelVisible })}
             className={visibilityToggleClass(isFireClassLabelVisible)}
             title={
               isFireClassLabelVisible
@@ -318,11 +264,7 @@ export function SupplyWireProperties({
                 : t('wires.showFireClassLabel', 'Show fire class on one-wire')
             }
           >
-            {isFireClassLabelVisible ? (
-              <Eye className="w-4 h-4" />
-            ) : (
-              <EyeOff className="w-4 h-4" />
-            )}
+            {isFireClassLabelVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
           </button>
         </div>
         <CustomDropdown
@@ -331,18 +273,10 @@ export function SupplyWireProperties({
             const fireClass = nextValue
               ? (nextValue as NonNullable<CableSpec['fireClass']>)
               : undefined
-            handleCableChange({ fireClass })
-            if (!fireClass) {
-              onUpdate(
-                buildSupplyWireFireClassVisibilityUpdate(
-                  installation,
-                  panels,
-                  panel,
-                  supplyWireRole,
-                  false,
-                ),
-              )
-            }
+            applySupplyWire({
+              cable: { fireClass },
+              ...(!fireClass ? { showFireClassLabel: false } : {}),
+            })
           }}
           options={[
             { value: '', label: t('common.none', 'None') },
@@ -355,30 +289,7 @@ export function SupplyWireProperties({
       <WireLengthField
         wireLengthM={supplyWireLengthM}
         showWireLengthLabel={isWireLengthLabelVisible ? true : false}
-        onChange={(updates) => {
-          if (updates.wireLengthM !== undefined) {
-            onUpdate(
-              buildSupplyWireLengthUpdate(
-                installation,
-                panels,
-                panel,
-                supplyWireRole,
-                updates.wireLengthM,
-              ),
-            )
-          }
-          if (updates.showWireLengthLabel !== undefined) {
-            onUpdate(
-              buildSupplyWireLengthVisibilityUpdate(
-                installation,
-                panels,
-                panel,
-                supplyWireRole,
-                updates.showWireLengthLabel,
-              ),
-            )
-          }
-        }}
+        onChange={(updates) => applySupplyWire(updates)}
         t={t}
       />
     </div>
@@ -397,7 +308,8 @@ export function GroundWireProperties({
 }) {
   const wireTypes = getGroundWireTypeOptions(t('wires.other', 'Other'))
 
-  const thicknessOptions = getWireSectionOptions(false)
+  const installationProfile = useInstallationProfile()
+  const thicknessOptions = getWireSectionOptions(false, installationProfile)
 
   const handleCableChange = (updates: Partial<CableSpec>) => {
     onUpdate({
@@ -421,9 +333,7 @@ export function GroundWireProperties({
           <CustomDropdown
             value={groundCable.kind}
             onChange={(nextValue) =>
-              handleCableChange(
-                applyCableKindChange(groundCable, nextValue as CableSpec['kind'])
-              )
+              handleCableChange(applyCableKindChange(groundCable, nextValue as CableSpec['kind']))
             }
             options={wireTypes.map((type) => ({ value: type.value, label: type.label }))}
             className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
@@ -477,4 +387,3 @@ export function GroundWireProperties({
     </div>
   )
 }
-

@@ -21,13 +21,22 @@ import {
   SELECTION_OUTLINE_STROKE_PX_MAX,
   SELECTION_OUTLINE_STROKE_PX_MIN,
 } from '@/constants/canvasConstants'
+import {
+  MULTI_SOCKET_OFFSET,
+  PANEL_SYMBOL_HEIGHT,
+  PANEL_SYMBOL_WIDTH,
+  PLAN_PANEL_VISUAL_SCALE,
+  SYMBOL_SIZE,
+} from '@/lib/canvas/symbolGeometry'
 
-// Base symbol size (used for actual symbol rendering - image dimensions)
-export const SYMBOL_SIZE = 20
-
-// Panel symbol dimensions (respects 88.2:48 aspect ratio from SVG)
-export const PANEL_SYMBOL_WIDTH = 22 // Width scaled to fit nicely in diagram
-export const PANEL_SYMBOL_HEIGHT = 12 // Height maintains proper aspect ratio (1.84:1)
+// Symbol size, multi-socket offset and panel symbol size live in lib for headless plan logic.
+export {
+  MULTI_SOCKET_OFFSET,
+  PANEL_SYMBOL_HEIGHT,
+  PANEL_SYMBOL_WIDTH,
+  PLAN_PANEL_VISUAL_SCALE,
+  SYMBOL_SIZE,
+}
 /** One-wire panels need a little more visual weight than ordinary endpoint symbols. */
 export const EENDRAAD_PANEL_SYMBOL_SCALE = 1.25
 export const EENDRAAD_PANEL_SYMBOL_WIDTH = PANEL_SYMBOL_WIDTH * EENDRAAD_PANEL_SYMBOL_SCALE
@@ -42,8 +51,6 @@ export const PANEL_OUTLINE_WIDTH = 24 // For panel symbols (width)
 export const PANEL_OUTLINE_HEIGHT = 14 // For panel symbols (height)
 export const EENDRAAD_PANEL_OUTLINE_WIDTH = PANEL_OUTLINE_WIDTH * EENDRAAD_PANEL_SYMBOL_SCALE
 export const EENDRAAD_PANEL_OUTLINE_HEIGHT = PANEL_OUTLINE_HEIGHT * EENDRAAD_PANEL_SYMBOL_SCALE
-// Extra visual scale factor for panels/junction panels on plan so they stand out
-export const PLAN_PANEL_VISUAL_SCALE = 1.6
 
 // Selection and hover styles
 export const SELECTION_COLOR = '#fbbf24' // Yellow
@@ -60,7 +67,6 @@ export const OUTLINE_CORNER_RADIUS = 2
 
 // Multi-socket offset: horizontal distance between repeated socket symbols (px in eendraad scale)
 // Increase to spread sockets further apart, decrease to overlap more.
-export const MULTI_SOCKET_OFFSET = 10
 
 /** Outlet SVG viewBox width/height (public/symbols/outlets/*.svg). */
 export const SOCKET_SYMBOL_SVG_SIZE = 48

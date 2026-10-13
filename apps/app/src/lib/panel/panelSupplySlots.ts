@@ -14,7 +14,7 @@ import {
   packAutoArrangeMainSlots,
   packAutoArrangeSupplySlots,
   packGroupsIntoLocalRows,
-} from '@/components/canvas/panel/autoArrangeLayout'
+} from '@/lib/panel/autoArrangeLayout'
 import {
   CELL_H,
   CELL_W,
@@ -23,7 +23,7 @@ import {
   getSupplyPanelRows,
   panelGridModuleRefKey,
   resolveModuleWidthCols,
-} from '@/components/canvas/panel/panelGridLayout'
+} from '@/lib/panel/panelGridLayout'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import { MIN_PANEL_GRID_MODULE_WIDTH, panelModulesToGridUnits } from '@/lib/panel/panelGridUnits'
 

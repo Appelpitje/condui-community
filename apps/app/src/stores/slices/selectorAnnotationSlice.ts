@@ -1,9 +1,13 @@
-import { editWireRunAtAnchor } from '@/lib/wires/editWireRun'
-import { estimateCableRoutes } from '@/lib/cableRouting/estimateCableRoutes'
+import { updateAnnotationPropertiesInProject } from '@/lib/properties/generalPropertyMutations'
 import { getProjectStoreApi } from './projectStoreHistory'
 import type { ProjectSliceCreator } from './projectStoreTypes'
+import { estimateCableRoutes } from '@/lib/cableRouting/estimateCableRoutes'
 import { syncDerivedEndpointFlags } from '@/lib/eendraad/endpointInsertAfter'
 import { pruneEendraadFrames } from '@/lib/eendraad/frameContent'
+import {
+  collectAllGroundTrunkDevices,
+  findGroundTrunkDeviceOwner,
+} from '@/lib/eendraad/panelGround'
 import {
   findCircuitById,
   findEndpointById,
@@ -13,40 +17,26 @@ import {
   getAllEndpoints,
   getAllProtections,
   getDefaultPanelGridModuleRefs,
-  resolveTerminalStripModule,
   getPanelPathFromRoot,
-  isModuleRefValid,
   normalizeDomoticaCircuit,
-  panelGridModuleIsVisibleByDefault,
   panelGridModuleIsAlwaysVisibleInPanel,
+  panelGridModuleIsVisibleByDefault,
   panelGridModuleRefKey,
   removeEndpointIdsFromCircuit,
 } from '@/lib/eendraad/projectElectricalDomain'
 import { repairCircuitBranchMembership } from '@/lib/eendraad/repairCircuitBranchMembership'
-import {
-  ensureInstallationFeedTopology,
-  getAllSupplyTrunkDevices,
-  getPanelFeedProjection,
-} from '@/lib/feedTopology'
+import { getAllSupplyTrunkDevices, getPanelFeedProjection } from '@/lib/feedTopology'
+import { getPanelGridModulesInProject } from '@/lib/panel/panelGridModules'
 import {
   ejectSupplyTrunkFromMainGridSlot,
   healPanelMountedSupplyTrunkSlotsForPanel,
 } from '@/lib/panel/healSupplyTrunkGrid'
-import { getSuppressedPanelGridModuleKeys } from '@/lib/panel/panelGridDuplicates'
-import {
-  resolveSupplyDeviceMounting,
-} from '@/lib/panel/auxiliarySupplyEnclosures'
+import { setPanelFeedOrganizationInProject } from '@/lib/panel/panelFeedOrganization'
+import { findPanelById } from '@/lib/panel/panelTree'
 import {
   getSupplyDeviceVisibilitySurface,
   isSupplyDeviceVisibleInPanel,
 } from '@/lib/panel/supplyPanelVisibility'
-import { getTerminalStripId } from '@/lib/terminalStrip/labels'
-import { setPanelFeedOrganizationInProject } from '@/lib/panel/panelFeedOrganization'
-import { findPanelById } from '@/lib/panel/panelTree'
-import {
-  collectAllGroundTrunkDevices,
-  findGroundTrunkDeviceOwner,
-} from '@/lib/eendraad/panelGround'
 import {
   buildAutoSitplanPlacement,
   getViewportCenterPlanSpaceIfApplicable,
@@ -58,12 +48,13 @@ import {
 import { resolvePanelForDistributionEndpoint } from '@/lib/plan/panelDistributionEndpoint'
 import { duplicateJunctionOccurrenceIds } from '@/lib/plan/sharedJunctionPlacements'
 import { resolveSitplanTargetFloorId } from '@/lib/plan/sitplanTargetFloor'
+import { addEendraadNoteInProject } from '@/lib/projectMutations/storeActions'
 import {
-  queryOneWireFrames,
-  queryOneWireNotes,
   editOneWireFrames,
   editOneWireNotes,
   editOneWireSegments,
+  queryOneWireFrames,
+  queryOneWireNotes,
   queryOneWireSegments,
   querySitplanNotes,
   replaceOneWireFrames,
@@ -71,108 +62,44 @@ import {
   replaceSitplanNotes,
 } from '@/lib/projectV2/annotations'
 import {
-  readLegacyCompatibilityFloors,
   mutateBuildingFloorView,
+  readLegacyCompatibilityFloors,
 } from '@/lib/projectV2/buildingFloors'
 import {
+  editProjectElectricalPanels,
+  getEditableProjectElectricalInstallation,
   selectProjectAuxiliaryElectricalEnclosures,
   selectProjectElectricalInstallation,
   selectProjectElectricalPanels,
-  editProjectElectricalPanels,
-  getEditableProjectElectricalInstallation,
-  type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
 import { getElectricalLookupIndex } from '@/lib/projectV2/electricalLookupIndex'
 import { queryQuarantinedItems } from '@/lib/projectV2/validation'
 import {
-  removeFromQuarantine as doRemoveFromQuarantine,
-  restoreFromQuarantine as doRestoreFromQuarantine,
   quarantineCircuit,
   quarantineEndpoint,
+  removeFromQuarantine as doRemoveFromQuarantine,
+  restoreFromQuarantine as doRestoreFromQuarantine,
 } from '@/lib/validation/quarantine'
+import { editWireRunAtAnchor } from '@/lib/wires/editWireRun'
 import { useUIStore } from '@/stores/uiStore'
-import type {
-  Circuit,
-  Endpoint,
-  Frame,
-  Note,
-  PanelGridModuleRef,
-  PanelGridSlot,
-  Placement,
-  ProtectionDevice,
-  TrunkDevice,
-  WireSegment,
+import {
+  DEFAULT_ELECTRICAL_DOMAIN,
+  type Circuit,
+  type Endpoint,
+  type Frame,
+  type Note,
+  type PanelGridModuleRef,
+  type PanelGridSlot,
+  type Placement,
+  type ProtectionDevice,
+  type TrunkDevice,
+  type WireSegment,
 } from '@/types/schema'
-import { DEFAULT_ELECTRICAL_DOMAIN } from '@/types/schema'
 import {
   findCircuitForEndpointInPanel,
   findCircuitForEndpointInProject,
-  findTrunkDeviceInProject,
   generateId,
 } from '@/utils/project'
-
-function isDownstreamOfJunctionPanel(
-  ref: PanelGridModuleRef,
-  panel: ReturnType<typeof findPanelById>,
-  project: ProjectWithOptionalV2Electrical | null
-): boolean {
-  if (!panel || !project) return false
-  const circuits = getAllCircuits(panel)
-  const boundaryCircuitIds = new Set(
-    circuits
-      .filter((circuit) =>
-        (circuit.trunkDevices ?? []).some(
-          (device) => device.type === 'junction_panel' || device.symbol === 'junction_panel'
-        )
-      )
-      .map((circuit) => circuit.id)
-  )
-  const downstreamCircuitIds = new Set<string>()
-  const frontier = [...boundaryCircuitIds]
-  while (frontier.length > 0) {
-    const circuitId = frontier.pop()!
-    const circuit = circuits.find((candidate) => candidate.id === circuitId)
-    for (const childId of circuit?.subCircuitIds ?? []) {
-      if (downstreamCircuitIds.has(childId)) continue
-      downstreamCircuitIds.add(childId)
-      frontier.push(childId)
-    }
-  }
-
-  if (ref.kind === 'domotica') {
-    // A terminal strip assigned to this panel is physically here, whatever its circuit does.
-    if (resolveTerminalStripModule(project, ref)?.panelId === panel.id) return false
-    return boundaryCircuitIds.has(ref.circuitId) || downstreamCircuitIds.has(ref.circuitId)
-  }
-  if (ref.kind === 'protection') {
-    const protection = getAllProtections(panel).find((candidate) => candidate.id === ref.id)
-    return (protection?.circuits ?? []).some((circuit) => downstreamCircuitIds.has(circuit.id))
-  }
-  if (ref.scope === 'circuit' && ref.circuitId) {
-    if (resolveTerminalStripModule(project, ref)?.panelId === panel.id) {
-      return false
-    }
-    if (downstreamCircuitIds.has(ref.circuitId)) return true
-    const circuit = circuits.find((candidate) => candidate.id === ref.circuitId)
-    const devices = [...(circuit?.trunkDevices ?? [])].sort(
-      (left, right) => (left.trunkPosition ?? 0) - (right.trunkPosition ?? 0)
-    )
-    const boundaryIndex = devices.findIndex(
-      (device) => device.type === 'junction_panel' || device.symbol === 'junction_panel'
-    )
-    const deviceIndex = devices.findIndex((device) => device.id === ref.id)
-    return boundaryIndex >= 0 && deviceIndex > boundaryIndex
-  }
-  if (ref.scope === 'supply') {
-    const devices = getAllSupplyTrunkDevices(project)
-    const boundaryIndex = devices.findIndex(
-      (device) => device.type === 'junction_panel' || device.symbol === 'junction_panel'
-    )
-    const deviceIndex = devices.findIndex((device) => device.id === ref.id)
-    return boundaryIndex >= 0 && deviceIndex > boundaryIndex
-  }
-  return false
-}
 
 export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => ({
   // Selectors
@@ -307,279 +234,7 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
 
   getPanelGridModules: (panelId) => {
     const { currentProject } = get()
-    if (!currentProject) return []
-    const panel = findPanelById(selectProjectElectricalPanels(currentProject), panelId)
-    if (!panel) return []
-    const installation = selectProjectElectricalInstallation(currentProject)
-    const panels = selectProjectElectricalPanels(currentProject)
-    if (!installation) return []
-    ensureInstallationFeedTopology(installation, panels)
-    const projection = panel.isMain ? getPanelFeedProjection(installation, panels, panel) : null
-    const sharedSupplyKeys = new Set(
-      (projection?.sharedFeed.trunkDevices ?? []).map((device) =>
-        panelGridModuleRefKey({ kind: 'trunkDevice', id: device.id, scope: 'supply' })
-      )
-    )
-    const rootSupplyKeys = new Set(
-      (projection?.rootFeed?.trunkDevices ?? []).map((device) =>
-        panelGridModuleRefKey({ kind: 'trunkDevice', id: device.id, scope: 'supply' })
-      )
-    )
-    const hiddenKeys = new Set(panel.gridView?.hiddenModuleKeys ?? [])
-    const shownKeys = new Set(panel.gridView?.shownModuleKeys ?? [])
-    const defaultRefs = getDefaultPanelGridModuleRefs(
-      panel,
-      selectProjectElectricalInstallation(currentProject),
-      selectProjectElectricalPanels(currentProject)
-    )
-    // Electrical ownership may belong to another root feed; physical mounting
-    // still makes the device a module in this enclosure, including secondary panels.
-    const defaultKeys = new Set(defaultRefs.map(panelGridModuleRefKey))
-    const mountedSupplyKeys = new Set<string>()
-    for (const device of getAllSupplyTrunkDevices(currentProject)) {
-      const mounting = resolveSupplyDeviceMounting(currentProject, device.id)
-      const ref: PanelGridModuleRef = { kind: 'trunkDevice', id: device.id, scope: 'supply' }
-      const key = panelGridModuleRefKey(ref)
-      if (mounting?.kind === 'panel' && mounting.panelId === panel.id) {
-        mountedSupplyKeys.add(key)
-        if (!defaultKeys.has(key)) defaultRefs.push(ref)
-      }
-    }
-    const slots = panel.gridView?.slots ?? []
-    const supplySlots = panel.gridView?.supplyPanelSlots ?? []
-
-    // Filter out invalid slots (single source of truth - only return valid refs)
-    const validSlots = slots.filter((s) => {
-      try {
-        return isModuleRefValid(s.module, currentProject)
-      } catch {
-        return false
-      }
-    })
-    const validSupplySlots = supplySlots.filter((s) => {
-      try {
-        return isModuleRefValid(s.module, currentProject)
-      } catch {
-        return false
-      }
-    })
-    const sharedSupplySlots = panel.isMain
-      ? validSupplySlots.filter((slot) => sharedSupplyKeys.has(panelGridModuleRefKey(slot.module)))
-      : validSupplySlots
-    const rootSupplySlots = panel.isMain
-      ? validSupplySlots.filter((slot) => rootSupplyKeys.has(panelGridModuleRefKey(slot.module)))
-      : []
-    const supplyKeys = new Set(sharedSupplySlots.map((s) => panelGridModuleRefKey(s.module)))
-    const mainKeys = new Set(validSlots.map((s) => panelGridModuleRefKey(s.module)))
-
-    // Slots are purely visual (position), order always comes from data arrays (defaultRefs)
-    // Create a map of slots by module key for quick lookup
-    const slotMap = new Map(
-      [...validSlots, ...rootSupplySlots].map((s) => [panelGridModuleRefKey(s.module), s])
-    )
-
-    // Always use data array order (defaultRefs), look up slot position if it exists
-    const result: Array<{
-      ref: PanelGridModuleRef
-      terminalStripMemberRefs?: PanelGridModuleRef[]
-      slot?: {
-        row: number
-        col: number
-        moduleWidth?: number
-        moduleWidthManual?: boolean
-        terminalStripRail?: 'top' | 'bottom'
-      }
-      inSupplyPanel?: boolean
-    }> = defaultRefs
-      .filter((ref) => {
-        const assignedStripPanelId = resolveTerminalStripModule(currentProject, ref)?.panelId
-        if (assignedStripPanelId != null && assignedStripPanelId !== panel.id) {
-          return false
-        }
-        if (
-          assignedStripPanelId !== panel.id &&
-          isDownstreamOfJunctionPanel(ref, panel, currentProject)
-        )
-          return false
-        const key = panelGridModuleRefKey(ref)
-        if (ref.kind === 'trunkDevice' && ref.scope === 'supply') {
-          if (!isSupplyDeviceVisibleInPanel(currentProject, ref.id)) return false
-          const mounting = resolveSupplyDeviceMounting(currentProject, ref.id)
-          if (mounting?.kind === 'auxiliary') return false
-          if (mounting?.kind === 'grid') return false
-          if (mounting?.kind === 'panel' && mounting.panelId !== panel.id) return false
-        }
-        if (hiddenKeys.has(key) && !panelGridModuleIsAlwaysVisibleInPanel(ref, panels)) return false
-        if (
-          !panelGridModuleIsVisibleByDefault(ref, panel, installation, panels) &&
-          !mountedSupplyKeys.has(key) &&
-          !shownKeys.has(key)
-        )
-          return false
-        // Supply devices on main panel:
-        // - shared supply devices default to the shared supply panel unless explicitly placed in main
-        // - root-local supply devices always materialize in the main panel body
-        if (panel.isMain && ref.kind === 'trunkDevice' && ref.scope === 'supply') {
-          if (rootSupplyKeys.has(key)) return true
-          // A stale shared-strip slot can survive a physical panel-mounting update. The
-          // mounting is authoritative, so keep the device on its panel surface even before
-          // the load-time healer has moved that slot into the panel body.
-          if (supplyKeys.has(key) && !mountedSupplyKeys.has(key)) return false
-          return mainKeys.has(key) || mountedSupplyKeys.has(key)
-        }
-        return !supplyKeys.has(key)
-      })
-      .map((ref) => {
-        const key = panelGridModuleRefKey(ref)
-        const slot = slotMap.get(key)
-        return {
-          ref,
-          slot: slot
-            ? {
-                row: slot.row,
-                col: slot.col,
-                moduleWidth: slot.moduleWidth,
-                moduleWidthManual: slot.moduleWidthManual,
-                terminalStripRail: slot.terminalStripRail,
-              }
-            : undefined,
-          inSupplyPanel: false,
-        }
-      })
-    // For supply modules, ensure order matches the single source of truth: supplyTrunkDevices array
-    // This ensures panel canvas matches eendraad canvas order
-    // IMPORTANT: Add ALL supply devices from the array, even if they don't have slots yet
-    // (newly inserted devices may not have slots, but should still appear and get auto-placed)
-    if (panel.isMain) {
-      const installation = selectProjectElectricalInstallation(currentProject)
-      if (!installation) return result
-      const supplyDevices = getAllSupplyTrunkDevices(currentProject).filter(
-        (device) =>
-          sharedSupplyKeys.has(
-            panelGridModuleRefKey({ kind: 'trunkDevice', id: device.id, scope: 'supply' })
-          ) && resolveSupplyDeviceMounting(currentProject, device.id)?.kind === 'grid'
-      )
-      const supplySlotMap = new Map(
-        sharedSupplySlots.map((s) => [panelGridModuleRefKey(s.module), s])
-      )
-
-      // Add supply modules in the order they appear in supplyTrunkDevices array
-      for (const device of supplyDevices) {
-        const ref: PanelGridModuleRef = { kind: 'trunkDevice', id: device.id, scope: 'supply' }
-        const key = panelGridModuleRefKey(ref)
-        if (hiddenKeys.has(key)) continue // Skip hidden devices
-        // If user explicitly placed this supply module in main panel, don't also emit it in supply panel.
-        if (mainKeys.has(key) && !supplyKeys.has(key)) continue
-
-        const slot = supplySlotMap.get(key)
-        result.push({
-          ref,
-          slot: slot
-            ? {
-                row: slot.row,
-                col: slot.col,
-                moduleWidth: slot.moduleWidth,
-                moduleWidthManual: slot.moduleWidthManual,
-                terminalStripRail: slot.terminalStripRail,
-              }
-            : undefined,
-          inSupplyPanel: true,
-        })
-      }
-    } else {
-      // For non-main panels or when no supply devices, use original order
-      for (const s of validSupplySlots) {
-        result.push({
-          ref: s.module,
-          slot: {
-            row: s.row,
-            col: s.col,
-            moduleWidth: s.moduleWidth,
-            moduleWidthManual: s.moduleWidthManual,
-            terminalStripRail: s.terminalStripRail,
-          },
-          inSupplyPanel: true,
-        })
-      }
-    }
-    const suppressedDuplicateKeys = getSuppressedPanelGridModuleKeys(
-      currentProject,
-      result.map((item, index) => ({
-        ref: item.ref,
-        area: item.inSupplyPanel ? 'supply' : 'main',
-        row: item.slot?.row ?? 0,
-        col: item.slot?.col ?? 0,
-        order: index,
-      }))
-    )
-    // A strip identity denotes one physical rail-mounted device. Several one-wire
-    // occurrences may connect different pins, but the panel contains it only once.
-    const terminalGroups = new Map<string, typeof result>()
-    for (const item of result) {
-      let strip: { symbol?: string; type?: string; junctionIdentity?: string; label?: string }
-      if (item.ref.kind === 'trunkDevice') {
-        const device = findTrunkDeviceInProject(currentProject, item.ref.id)
-        if (!device) continue
-        strip = device
-      } else if (item.ref.kind === 'domotica') {
-        // Endpoint-form strips (dropped after an endpoint) share physical identity too.
-        const endpointId = item.ref.endpointId
-        const found = panels
-          .map((candidate) => findEndpointById(candidate, endpointId))
-          .find((candidate) => candidate != null)
-        if (!found) continue
-        strip = found.endpoint
-      } else {
-        continue
-      }
-      if (strip.symbol !== 'terminal_strip' && strip.type !== 'terminal_strip') continue
-      const identity = getTerminalStripId(strip).trim().toUpperCase()
-      if (!identity) continue
-      const group = terminalGroups.get(identity) ?? []
-      group.push(item)
-      terminalGroups.set(identity, group)
-    }
-    const collapsedTerminalKeys = new Set<string>()
-    for (const group of terminalGroups.values()) {
-      if (group.length < 2) continue
-      const representative = group.find((item) => item.slot != null) ?? group[0]
-      if (!representative) continue
-      representative.terminalStripMemberRefs = group.map((item) => item.ref)
-      for (const item of group) {
-        if (item !== representative) collapsedTerminalKeys.add(panelGridModuleRefKey(item.ref))
-      }
-    }
-
-    // Final safety net: never return duplicate module keys.
-    const seen = new Set<string>()
-    return result.filter((m) => {
-      const assignedStripPanelId = resolveTerminalStripModule(currentProject, m.ref)?.panelId
-      if (assignedStripPanelId != null && assignedStripPanelId !== panel.id) return false
-      if (
-        assignedStripPanelId !== panel.id &&
-        isDownstreamOfJunctionPanel(m.ref, panel, currentProject)
-      )
-        return false
-      const key = panelGridModuleRefKey(m.ref)
-      if (
-        m.ref.kind === 'trunkDevice' &&
-        m.ref.scope === 'supply' &&
-        !isSupplyDeviceVisibleInPanel(currentProject, m.ref.id)
-      )
-        return false
-      if (hiddenKeys.has(key) && !panelGridModuleIsAlwaysVisibleInPanel(m.ref, panels)) return false
-      if (
-        !panelGridModuleIsVisibleByDefault(m.ref, panel, installation, panels) &&
-        !mountedSupplyKeys.has(key) &&
-        !shownKeys.has(key)
-      )
-        return false
-      if (suppressedDuplicateKeys.has(key)) return false
-      if (collapsedTerminalKeys.has(key)) return false
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+    return currentProject ? getPanelGridModulesInProject(currentProject, panelId) : []
   },
 
   getPanelHiddenModuleRefs: (panelId) => {
@@ -1278,9 +933,16 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
   updateWireRunAtAnchor: (anchor, cable, changes) =>
     set((state) => {
       if (!state.currentProject) return
-      if (changes.lengthSource === 'estimated' && !estimateCableRoutes(state.currentProject).routes.some((route) =>
-        (route.anchor === anchor || route.aliasAnchors?.includes(anchor)) && route.scaleCalibrated !== false && route.highM > 0,
-      )) return
+      if (
+        changes.lengthSource === 'estimated' &&
+        !estimateCableRoutes(state.currentProject).routes.some(
+          (route) =>
+            (route.anchor === anchor || route.aliasAnchors?.includes(anchor)) &&
+            route.scaleCalibrated !== false &&
+            route.highM > 0
+        )
+      )
+        return
       editWireRunAtAnchor(state.currentProject, anchor, cable, changes)
       state.isDirty = true
     }),
@@ -1288,9 +950,11 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
   acceptWireLengthEstimates: (entries) =>
     set((state) => {
       if (!state.currentProject || entries.length === 0) return
-      const calibratedAnchors = new Set(estimateCableRoutes(state.currentProject).routes
-        .filter((route) => route.scaleCalibrated !== false && route.highM > 0)
-        .flatMap((route) => [route.anchor, ...(route.aliasAnchors ?? [])]))
+      const calibratedAnchors = new Set(
+        estimateCableRoutes(state.currentProject)
+          .routes.filter((route) => route.scaleCalibrated !== false && route.highM > 0)
+          .flatMap((route) => [route.anchor, ...(route.aliasAnchors ?? [])])
+      )
       for (const entry of entries) {
         if (!calibratedAnchors.has(entry.anchor)) continue
         editWireRunAtAnchor(state.currentProject, entry.anchor, entry.cable, {
@@ -1363,29 +1027,25 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
   // Eendraad Note actions
   addEendraadNote: (note: Note) =>
     set((state) => {
-      if (state.currentProject) {
-        replaceOneWireNotes(state.currentProject, [
-          ...queryOneWireNotes(state.currentProject),
-          note,
-        ])
-        state.isDirty = true
-      }
+      if (!state.currentProject) return
+      const result = addEendraadNoteInProject(state.currentProject, note)
+      if (result.circuitId) state.lastWorkedCircuitId = result.circuitId
+      if (result.changed) state.isDirty = true
     }),
 
   updateEendraadNote: (id: string, updates: Partial<Note>) =>
     set((state) => {
-      if (state.currentProject) {
-        const notes = editOneWireNotes(state.currentProject)
-        const idx = notes.findIndex((n: Note) => n.id === id)
-        if (idx !== -1) {
-          const note = notes[idx]
-          if (!note) return
-          const nextNotes = notes.slice()
-          nextNotes[idx] = { ...note, ...updates }
-          replaceOneWireNotes(state.currentProject, nextNotes)
-          state.isDirty = true
-        }
-      }
+      if (
+        state.currentProject &&
+        updateAnnotationPropertiesInProject(
+          state.currentProject,
+          'note',
+          id,
+          updates as Record<string, unknown>,
+          'oneWire'
+        )
+      )
+        state.isDirty = true
     }),
 
   deleteEendraadNote: (id: string) =>
@@ -1438,18 +1098,17 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
 
   updateSitplanNote: (id: string, updates: Partial<Note>) =>
     set((state) => {
-      if (state.currentProject) {
-        const notes = querySitplanNotes(state.currentProject)
-        const idx = notes.findIndex((n: Note) => n.id === id)
-        if (idx !== -1) {
-          const note = notes[idx]
-          if (!note) return
-          const nextNotes = notes.slice()
-          nextNotes[idx] = { ...note, ...updates }
-          replaceSitplanNotes(state.currentProject, nextNotes)
-          state.isDirty = true
-        }
-      }
+      if (
+        state.currentProject &&
+        updateAnnotationPropertiesInProject(
+          state.currentProject,
+          'note',
+          id,
+          updates as Record<string, unknown>,
+          'sitplan'
+        )
+      )
+        state.isDirty = true
     }),
 
   deleteSitplanNote: (id: string) =>
@@ -1499,13 +1158,17 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
 
   updateFrame: (id: string, updates: Partial<Frame>) =>
     set((state) => {
-      if (state.currentProject) {
-        const frame = editOneWireFrames(state.currentProject).find((f: Frame) => f.id === id)
-        if (frame) {
-          Object.assign(frame, updates)
-          state.isDirty = true
-        }
-      }
+      if (
+        state.currentProject &&
+        updateAnnotationPropertiesInProject(
+          state.currentProject,
+          'frame',
+          id,
+          updates as Record<string, unknown>,
+          undefined
+        )
+      )
+        state.isDirty = true
     }),
 
   deleteFrame: (id: string) =>

@@ -23,6 +23,8 @@
   },
   "connectivity": {
     "offlineBanner": "You are offline. Local projects remain saved on this device.",
+    "databaseOfflineBanner": "Chmura jest chwilowo niedostępna. Możesz dalej pracować; zmiany są zapisywane na tym urządzeniu i synchronizowane po przywróceniu połączenia.",
+    "databaseOfflineIndicatorTitle": "Chmura chwilowo niedostępna",
     "offlineReloadNotReady": "Unikaj ponownego ładowania, dopóki przynajmniej raz nie otworzysz aplikacji online w tej zakładce przeglądarki.",
     "offlineReloadDevHint": "Ponowne ładowanie w trybie offline działa tylko z wersją produkcyjną (npm run build i& vite Preview), a nie z serwerem deweloperskim.",
     "dismissOfflineBanner": "Zamknij powiadomienie offline",
@@ -152,6 +154,48 @@
     "pan": "Patelnie",
     "zoom": "Zoom"
   },
+  "commandPalette": {
+    "placeholder": "Szukaj poleceń",
+    "empty": "Brak pasujących poleceń",
+    "moveToCircuit": "Przenieś do obwodu",
+    "reorderBranch": "Zmień kolejność odgałęzień",
+    "moveOnBus": "Przenieś na szynie",
+    "moveBusLeft": "Przenieś w lewo na szynie",
+    "moveBusRight": "Przenieś w prawo na szynie",
+    "moveModules": "Przenieś moduły rozdzielnicy",
+    "resizeModule": "Zmień rozmiar modułu",
+    "connectTo": "Połącz z…",
+    "rewire": "Zmień okablowanie modułów",
+    "resizePanel": "Zmień rozmiar rozdzielnicy",
+    "autoArrange": "Rozmieść moduły rozdzielnicy",
+    "renameFloor": "Zmień nazwę kondygnacji",
+    "addCircuit": "Dodaj obwód",
+    "apply": "Zastosuj",
+    "unavailable": "Nie można zastosować tej zmiany. Sprawdź wartości lub ponownie otwórz działanie.",
+    "fields": {
+      "circuit": "Obwód",
+      "position": "Pozycja",
+      "row": "Rząd",
+      "column": "Kolumna",
+      "width": "Szerokość (moduły)",
+      "target": "Połącz z",
+      "bus": "Szyna",
+      "rows": "Rzędy",
+      "columns": "Kolumny",
+      "name": "Nazwa",
+      "panel": "Rozdzielnica",
+      "kind": "Typ obwodu",
+      "direction": "Strona zasilania",
+      "left": "Lewa",
+      "right": "Prawa"
+    },
+    "kinds": {
+      "lighting": "Oświetlenie",
+      "sockets": "Gniazda",
+      "fixed_appliance": "Urządzenie stałe",
+      "other": "Inne"
+    }
+  },
   "shortcuts": {
     "title": "Skróty",
     "intro": "Wszystkie skróty klawiaturowe używane w edytorze.",
@@ -179,6 +223,7 @@
       "ctrlCmdL": "Ctrl/Cmd+L",
       "ctrlCmdP": "Ctrl/Cmd+P",
       "ctrlCmdD": "Ctrl/Cmd + D",
+      "ctrlCmdK": "Ctrl/Cmd + K",
       "tab": "Tab",
       "esc": "Wyjście",
       "space": "Przestrzeń",
@@ -222,6 +267,9 @@
       "arrowKeys": "Klawisze strzałek"
     },
     "entries": {
+      "openCommandPalette": {
+        "description": "Paleta poleceń"
+      },
       "undo": {
         "description": "Cofnij"
       },
@@ -1021,6 +1069,7 @@
       "overCapacity": "Używane kanały wyjściowe: {{used}} z {{capacity}}"
     },
     "solarPanel": {
+      "count": "Liczba paneli",
       "groupTitle": "Marka i model",
       "wattage": "Moc (Wp)",
       "voltage": "Napięcie (V)"
@@ -1166,6 +1215,7 @@
     "showHiddenDescription": "Wybierz jedno lub więcej urządzeń do wyświetlenia.",
     "supplyPanel": "Deska sieciowa",
     "virtualEnclosure": "Skrzynka zasilająca",
+    "moduleEnclosure": "Obudowa",
     "hideSupplyPanel": "Ukryj tablicę sieciową",
     "rewireTool": "Narzędzie do resetowania",
     "rewireModeOn": "Tryb resetowania Wyłącz",
@@ -1201,6 +1251,7 @@
     "syncWithPanelView": "Synchronizacja z widokiem tablicy"
   },
   "canvas": {
+    "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Pokaż siatkę",
     "snap": "Wyrównaj",
     "projectedSnap": "Wyrównanie projekcji",

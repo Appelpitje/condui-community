@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { withCadDisplayLineWeight } from '@/lib/plan/cadLineWeight'
 import {
   applyDarkModeInversion,
   grayscaleSvgColors,
@@ -25,9 +26,21 @@ export function usePlanImageBitmap(
   const planImageProcessedDataUrl = canonicalAsset?.processedDataUrl ?? floor?.planAssetProcessed
   const hasWhiteBackground = canonicalAsset?.hasWhiteBackground ?? floor?.planAssetHasWhiteBackground ?? false
   const darkModeAware = canonicalAsset?.darkModeAware ?? hasWhiteBackground
-  const svgContent = importedPlanAssetUsesSvgContent(canonicalAsset?.kind)
+  const rawSvgContent = importedPlanAssetUsesSvgContent(canonicalAsset?.kind)
     ? canonicalAsset?.svgContent
     : undefined
+  const cadAssetWidth = canonicalAsset?.width
+  const isCadAsset = canonicalAsset?.cadReference != null
+  const svgContent = useMemo(
+    () =>
+      rawSvgContent && cadAssetWidth != null
+        ? withCadDisplayLineWeight(rawSvgContent, {
+            width: cadAssetWidth,
+            cadReference: isCadAsset || undefined,
+          })
+        : rawSvgContent,
+    [rawSvgContent, cadAssetWidth, isCadAsset]
+  )
   const grayscale = canonicalAsset?.grayscale === true
 
   useEffect(() => {

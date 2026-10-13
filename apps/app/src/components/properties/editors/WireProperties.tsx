@@ -1,3 +1,8 @@
+import {
+  editProperties,
+  updateInstallationProperties,
+  updateTrunkProperties,
+} from '@/handlers/properties/editProperties'
 import { findWireRunForAnchor, selectProjectWireRuns } from '@/lib/projectV2/wireRuns'
 import { CanonicalWireProperties } from './CanonicalWireProperties'
 import { sharedTrunkAnchors } from '@/lib/wires/editWireRun'
@@ -6,7 +11,7 @@ import { useTranslation } from 'react-i18next'
 import { useUIStore, type UIState } from '@/stores/uiStore'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useEendraadWireSegments } from '@/hooks/eendraad'
-import type { AcLinePhase, CableSpec, Circuit, Panel, WireSegment } from '@/types/schema'
+import type { CableSpec, Circuit, WireSegment } from '@/types/schema'
 import { getDomainForSymbol, resolveSymbolPortsForWire } from '@/lib/symbols'
 import {
   collectRootPanels,
@@ -17,7 +22,6 @@ import {
   findSectionWireOverrideWithFeederFallback,
   findSubPanelFeederWireOverride,
   getSectionRefFromWireSegment,
-  upsertSectionWireOverride,
 } from '@/lib/wires/sectionWireOverrides'
 import {
   ensurePanelBusCableMinimum,
@@ -27,13 +31,13 @@ import {
 import {
   getInheritedPhaseConstraint,
   getInheritedCircuitPhaseState,
-  getBusbarPhaseOrder,
+  getAutomaticBusbarPhaseAssignment,
   getPanelIncomingPhaseState,
   getProtectionPhaseConstraint,
   isPhaseAssignmentLabelVisible,
   supportsExplicitPhaseSelection,
 } from '@/lib/wires/phaseAssignment'
-import CustomDropdown from '@/components/common/CustomDropdown'
+import { BusbarPhaseOrderProperties } from './BusbarPhaseOrderProperties'
 import { panelStringT, visibilityToggleClass } from '../shared/propertiesSharedUtils'
 import { WireRouteAndCableForm, type WireRouteFormState } from '../shared/propertiesShared'
 import { GroundWireProperties, SupplyWireProperties } from './SupplyGroundWireProperties'
@@ -98,54 +102,93 @@ function WireDomainBadge({ domain, title }: { domain: 'AC' | 'DC'; title: string
   )
 }
 
-function BusbarPhaseOrderProperties({
-  panel,
-  ownerId,
-  onUpdate,
+/** Wire runs own cable properties; circuit/bus owners retain phase properties. */
+function CanonicalSegmentProperties({
+  segment,
+  anchor,
+  sharedGeometry = false,
 }: {
-  panel: Panel
-  ownerId?: string
-  onUpdate: (id: string, updates: Partial<Panel>) => void
+  segment: WireSegment
+  anchor: string
+  sharedGeometry?: boolean
 }) {
   const { t } = useTranslation()
-  const order = getBusbarPhaseOrder(panel, ownerId)
-  const options = (['L1', 'L2', 'L3'] as AcLinePhase[]).map((phase) => ({
-    value: phase,
-    label: phase,
-  }))
-  const updateOrder = (index: number, nextPhase: AcLinePhase) => {
-    const next = [...order]
-    const previousIndex = next.indexOf(nextPhase)
-    if (previousIndex >= 0)
-      [next[index], next[previousIndex]] = [next[previousIndex]!, next[index]!]
-    else next[index] = nextPhase
-    const current = panel.busbarPhases ?? {}
-    onUpdate(panel.id, {
-      busbarPhases: ownerId
-        ? {
-            ...current,
-            secondary: { ...current.secondary, [ownerId]: next },
-          }
-        : { ...current, main: next },
-    })
-  }
-
+  const project = useProjectStore((s) => s.currentProject)
+  const getCircuitById = useProjectStore((s) => s.getCircuitById)
+  const getProtectionForCircuit = useProjectStore((s) => s.getProtectionForCircuit)
+  const getPanelById = useProjectStore((s) => s.getPanelById)
+  const installation = project ? getProjectElectricalInstallation(project) : undefined
+  const panels = project ? getProjectElectricalPanels(project) : []
+  const system = installation?.nominalVoltage.system
+  const panel = getPanelById(segment.panelId)
+  const ownerId = segment.wireBusGroup?.startsWith('circuit-bus:')
+    ? segment.wireBusGroup.slice('circuit-bus:'.length)
+    : segment.wireBusGroup?.startsWith('protection-bus:')
+      ? segment.wireBusGroup.slice('protection-bus:'.length)
+      : undefined
+  const isRail =
+    (segment.type === 'mainBus' || (segment.type === 'trunk' && !!ownerId)) &&
+    !!segment.wireBusGroup
+  const circuit =
+    !isRail &&
+    !sharedGeometry &&
+    segment.circuitId &&
+    (segment.fromElementType === 'protection' || segment.toElementType === 'protection')
+      ? getCircuitById(segment.circuitId)
+      : undefined
+  const inherited = circuit
+    ? getInheritedCircuitPhaseState(circuit, panels, system, installation)
+    : {}
+  const automatic = circuit ? getAutomaticBusbarPhaseAssignment(circuit, panels, system) : undefined
+  const constraint = circuit
+    ? (getInheritedPhaseConstraint(inherited.assignment) ??
+      getProtectionPhaseConstraint(
+        getProtectionForCircuit(circuit.id) ?? undefined,
+        system,
+        automatic
+      ) ??
+      (automatic ? { inheritedAssignment: automatic } : undefined))
+    : undefined
   return (
-    <div className="space-y-3">
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-        {t('wires.busbarPhaseOrder', 'Busbar phase order')}
-      </label>
-      <div className="grid grid-cols-3 gap-2">
-        {order.map((phase, index) => (
-          <CustomDropdown
-            key={index}
-            value={phase}
-            onChange={(value) => updateOrder(index, value as AcLinePhase)}
-            options={options}
-            ariaLabel={`${t('wires.phase', 'Phase')} ${index + 1}`}
+    <div className="space-y-4">
+      {system &&
+        supportsExplicitPhaseSelection(system) &&
+        segment.domain !== 'DC' &&
+        (isRail && panel ? (
+          <BusbarPhaseOrderProperties
+            panel={panel}
+            ownerId={ownerId}
+            busSectionId={ownerId ? undefined : segment.busSectionId}
           />
-        ))}
-      </div>
+        ) : circuit ? (
+          <WireRouteAndCableForm
+            state={{
+              cable: segment.cable,
+              phaseAssignment: circuit.phaseAssignment,
+              phaseConstraint: constraint,
+              showPhaseLabel: isPhaseAssignmentLabelVisible(
+                segment.phaseAssignment,
+                system,
+                circuit.showPhaseLabel ?? inherited.showPhaseLabel ?? segment.showPhaseLabel
+              ),
+            }}
+            onChange={(set) =>
+              editProperties({ edits: [{ kind: 'circuit', ids: [circuit.id], set }] })
+            }
+            phaseSystem={system}
+            isDC={false}
+            showPhaseAssignment
+            phaseOnly
+            t={panelStringT(t)}
+          />
+        ) : null)}
+      <CanonicalWireProperties
+        anchor={anchor}
+        cable={segment.cable}
+        domain={segment.domain}
+        defaults={segment}
+        sharedGeometry={sharedGeometry}
+      />
     </div>
   )
 }
@@ -159,23 +202,50 @@ export function WirePropertiesWithLayout({
 }) {
   const { t } = useTranslation()
   const wireSegments = useEendraadWireSegments()
-  const project = useProjectStore(s => s.currentProject)
-  const selectedAnchor = useUIStore(s => s.selection.wireAnchor ?? s.selection.wireMetadata?.find(m => m.id === wireSegmentId)?.wireAnchor)
-  const segment = wireSegments.find(w => w.id === wireSegmentId) ??
-    wireSegments.find(w => selectedAnchor ? w.wireAnchor === selectedAnchor : false)
+  const project = useProjectStore((s) => s.currentProject)
+  const selectedAnchor = useUIStore(
+    (s) =>
+      s.selection.wireAnchor ??
+      s.selection.wireMetadata?.find((m) => m.id === wireSegmentId)?.wireAnchor
+  )
+  const segment =
+    wireSegments.find((w) => w.id === wireSegmentId) ??
+    wireSegments.find((w) => (selectedAnchor ? w.wireAnchor === selectedAnchor : false))
   if (selectedAnchor && !segment) return null
   if (segment?.wireBusGroup && segment.wireAnchors?.length) {
     const runs = project ? selectProjectWireRuns(project) : []
-    const owners = new Set(segment.wireAnchors.map(anchor => findWireRunForAnchor(runs, anchor)?.id))
-    if (owners.size === 1) return <CanonicalWireProperties anchor={segment.wireAnchors[0]!} cable={segment.cable} domain={segment.domain} defaults={segment} sharedGeometry />
+    const owners = new Set(
+      segment.wireAnchors.map((anchor) => findWireRunForAnchor(runs, anchor)?.id)
+    )
+    if (owners.size === 1)
+      return (
+        <CanonicalSegmentProperties
+          segment={segment}
+          anchor={segment.wireAnchors[0]!}
+          sharedGeometry
+        />
+      )
   }
-  if (project && segment?.type === 'vertical' && segment.circuitId &&
-      !segment.toElementId && (segment.wireAnchors?.length ?? 0) > 1 &&
-      sharedTrunkAnchors(project, segment.wireAnchors![0]!, new Set(segment.wireAnchors))
-        .length === segment.wireAnchors!.length)
-    return <CanonicalWireProperties anchor={segment.wireAnchors![0]!} cable={segment.cable} domain={segment.domain} defaults={segment} sharedGeometry />
-  if ((segment?.wireAnchors?.length ?? 0) > 1) return <p className="text-sm text-gray-500">{t('wires.multipleConnections')}</p>
-  if (segment?.wireAnchor) return <CanonicalWireProperties anchor={segment.wireAnchor} cable={segment.cable} domain={segment.domain} defaults={segment} />
+  if (
+    project &&
+    segment?.type === 'vertical' &&
+    segment.circuitId &&
+    !segment.toElementId &&
+    (segment.wireAnchors?.length ?? 0) > 1 &&
+    sharedTrunkAnchors(project, segment.wireAnchors![0]!, new Set(segment.wireAnchors)).length ===
+      segment.wireAnchors!.length
+  )
+    return (
+      <CanonicalSegmentProperties
+        segment={segment}
+        anchor={segment.wireAnchors![0]!}
+        sharedGeometry
+      />
+    )
+  if ((segment?.wireAnchors?.length ?? 0) > 1)
+    return <p className="text-sm text-gray-500">{t('wires.multipleConnections')}</p>
+  if (segment?.wireAnchor)
+    return <CanonicalSegmentProperties segment={segment} anchor={segment.wireAnchor} />
   return (
     <WireProperties wireSegmentId={wireSegmentId} wireSegments={wireSegments} onUpdate={onUpdate} />
   )
@@ -185,7 +255,6 @@ export function WirePropertiesWithLayout({
 function WireProperties({
   wireSegmentId,
   wireSegments,
-  onUpdate,
 }: {
   wireSegmentId: string
   wireSegments: WireSegment[]
@@ -203,13 +272,8 @@ function WireProperties({
     ? getProjectElectricalInstallation(currentProject)
     : undefined
   const panelsForPhase = currentProject ? getProjectElectricalPanels(currentProject) : []
-  const updateInstallation = useProjectStore((state: ProjectState) => state.updateInstallation)
-  const updateEndpoint = useProjectStore((state: ProjectState) => state.updateEndpoint)
+  const updateInstallation = updateInstallationProperties
   const getPanelById = useProjectStore((state: ProjectState) => state.getPanelById)
-  const updatePanel = useProjectStore((state: ProjectState) => state.updatePanel)
-  const updateSupplyAssemblyConnection = useProjectStore(
-    (state: ProjectState) => state.updateSupplyAssemblyConnection
-  )
 
   // Get selection to access wire metadata
   const selection = useUIStore((state: UIState) => state.selection)
@@ -334,33 +398,27 @@ function WireProperties({
             wireProperties?.showWireLengthLabel ?? wireSegment.showWireLengthLabel,
           defaultWireLabelVisible: wireSegment.hideWireLabel !== true,
         }
-        const setWireProperties = (updates: Partial<WireRouteFormState>) => {
-          const next = {
-            ...wireProperties,
-            ...updates,
-            cable: updates.cable ?? wireFormState.cable,
-          }
-          delete next.defaultWireLabelVisible
-          delete next.phaseAssignment
-          delete next.phaseConstraint
-          delete next.showPhaseLabel
-          updateInstallation({
-            feedTopology: {
-              ...topology,
-              rootFeeds: topology.rootFeeds.map((feed) =>
-                feed.id === rootFeed.id
-                  ? {
-                      ...feed,
-                      wireSections: {
-                        ...feed.wireSections,
-                        [wireSegment.supplySectionKey!]: next,
-                      },
-                    }
-                  : feed
-              ),
-            },
+        const setWireProperties = (set: Partial<WireRouteFormState>) => {
+          const {
+            defaultWireLabelVisible: _defaultWireLabelVisible,
+            phaseAssignment: _phaseAssignment,
+            phaseConstraint: _phaseConstraint,
+            showPhaseLabel: _showPhaseLabel,
+            ...updates
+          } = set
+          editProperties({
+            edits: [
+              {
+                kind: 'rootFeedWireSection',
+                ids: [rootFeed.id],
+                sectionKey: wireSegment.supplySectionKey!,
+                set: updates,
+                defaultCable: wireFormState.cable,
+              },
+            ],
           })
         }
+
         return (
           <div className="space-y-4">
             <SupplyWireDiagnosticBadge diagnostic={supplyWireDiagnostic} />
@@ -399,14 +457,33 @@ function WireProperties({
         showWireLengthLabel: wireProperties?.showWireLengthLabel,
         defaultWireLabelVisible: false,
       }
-      const setWireProperties = (updates: Partial<WireRouteFormState>) => {
-        const next = { ...wireProperties, ...updates, cable: updates.cable ?? wireFormState.cable }
-        delete next.defaultWireLabelVisible
-        delete next.phaseAssignment
-        delete next.phaseConstraint
-        delete next.showPhaseLabel
-        updateSupplyAssemblyConnection(assembly.id, connection.id, { wireProperties: next })
+      const setWireProperties = (set: Partial<WireRouteFormState>) => {
+        const {
+          defaultWireLabelVisible: _defaultWireLabelVisible,
+          phaseAssignment: _phaseAssignment,
+          phaseConstraint: _phaseConstraint,
+          showPhaseLabel: _showPhaseLabel,
+          ...updates
+        } = set
+        editProperties({
+          edits: [
+            {
+              kind: 'supplyConnection',
+              ids: [connection.id],
+              assemblyId: assembly.id,
+              set: {
+                wireProperties: {
+                  ...updates,
+                  ...(!wireProperties?.cable && !updates.cable
+                    ? { cable: wireFormState.cable }
+                    : {}),
+                },
+              },
+            },
+          ],
+        })
       }
+
       return (
         <div className="space-y-4">
           <SupplyWireDiagnosticBadge diagnostic={supplyWireDiagnostic} />
@@ -454,7 +531,7 @@ function WireProperties({
         <BusbarPhaseOrderProperties
           panel={panel}
           ownerId={isSelectedSecondaryBusbar ? selectedBusbarOwnerId : undefined}
-          onUpdate={updatePanel}
+          busSectionId={isSelectedSecondaryBusbar ? undefined : wireSegment.busSectionId}
         />
       )
     }
@@ -508,17 +585,18 @@ function WireProperties({
 
     const baseCable = circuit.cable
     const effectiveCable = wireProps.cable ?? baseCable
-    const setWireProps = (updates: Partial<typeof wireProps>) => {
-      const nextOverrides = [...wireOverrides]
-      const merged = { ...wireProps, ...updates }
-      nextOverrides[outputIndex] = merged
-      updateEndpoint(parentEndpoint.id, {
-        domoticaProps: {
-          ...dom,
-          endpointOutputWires: nextOverrides,
-        },
+    const setWireProps = (set: Partial<typeof wireProps>) =>
+      editProperties({
+        edits: [
+          {
+            kind: 'domoticaOutputWire',
+            ids: [parentEndpoint.id],
+            outputGroup: 'endpoint',
+            outputIndex,
+            set,
+          },
+        ],
       })
-    }
 
     const wireFormState: WireRouteFormState = {
       // For domotica outputs, only the explicit override should drive the form.
@@ -696,51 +774,25 @@ function WireProperties({
           ? 'Panel boundary'
           : 'Main panel (to bus)'
 
-    const onUpdateSupplyCable = (cable: CableSpec) => {
-      if (effectiveSupplyWireRole === 'upstream') {
-        updateInstallation({
-          mainSupply: { ...mainSupply, cable },
-        })
-        return
-      }
-      if (effectiveSupplyWireRole === 'crossing') {
-        updateInstallation({
-          mainSupply: { ...mainSupply, crossingCable: cable },
-        })
-        return
-      }
-      if (soleMain) {
-        updateInstallation({
-          mainSupply: { ...mainSupply, rootCable: cable },
-        })
-        return
-      }
-      if (!rootFeed) return
-      const topology = ensureInstallationFeedTopology(installation, panels)
-      updateInstallation({
-        feedTopology: {
-          ...topology,
-          rootFeeds: topology.rootFeeds.map((feed) =>
-            feed.id === rootFeed.id ? { ...feed, cable } : feed
-          ),
-        },
+    const onUpdateSupplyCable = (cable: CableSpec) =>
+      editProperties({
+        actions: [
+          {
+            kind: 'supplyWire',
+            panelId: wireSegment.panelId,
+            role: effectiveSupplyWireRole,
+            set: { cable },
+          },
+        ],
       })
-    }
-
     const onUpdateSupplyPhase = (
-      updates: Partial<Pick<WireRouteFormState, 'phaseAssignment' | 'showPhaseLabel'>>
-    ) => {
-      if (!rootFeed) return
-      const topology = ensureInstallationFeedTopology(installation, panels)
-      updateInstallation({
-        feedTopology: {
-          ...topology,
-          rootFeeds: topology.rootFeeds.map((feed) =>
-            feed.id === rootFeed.id ? { ...feed, ...updates } : feed
-          ),
-        },
+      set: Partial<Pick<WireRouteFormState, 'phaseAssignment' | 'showPhaseLabel'>>
+    ) =>
+      editProperties({
+        actions: [
+          { kind: 'supplyWire', panelId: wireSegment.panelId, role: effectiveSupplyWireRole, set },
+        ],
       })
-    }
 
     return (
       <div className="space-y-3">
@@ -930,50 +982,36 @@ function WireProperties({
     cable:
       wireDomain === 'DC' && !sectionOverride?.cable && !domainOverride?.cable
         ? { ...resolvedCircuitCable, conductors: 2, hasPE: false }
-      : effectiveCircuitCable,
+        : effectiveCircuitCable,
   }
 
-  const onCircuitWireFormChange = (u: Partial<WireRouteFormState>) => {
-    const hasPhaseAssignmentUpdate = Object.prototype.hasOwnProperty.call(u, 'phaseAssignment')
-    const hasShowPhaseLabelUpdate = Object.prototype.hasOwnProperty.call(u, 'showPhaseLabel')
-    const { phaseAssignment, showPhaseLabel, ...wireUpdates } = u
-    const sharedPhaseUpdates: Partial<Circuit> = {
-      ...(hasPhaseAssignmentUpdate ? { phaseAssignment } : {}),
-      ...(hasShowPhaseLabelUpdate ? { showPhaseLabel } : {}),
-    }
-    if (sectionRef) {
-      const hasSectionWireUpdates = Object.keys(wireUpdates).length > 0
-      const nextOverrides = hasSectionWireUpdates
-        ? upsertSectionWireOverride(circuit, sectionRef, wireUpdates)
-        : circuit.sectionWireOverrides
-      onUpdate(circuit.id, {
-        ...(hasSectionWireUpdates ? { sectionWireOverrides: nextOverrides } : {}),
-        ...sharedPhaseUpdates,
-      })
-      return
-    }
-    if (wireDomain === 'DC') {
-      const currentDomainOverrides = circuit.domainWireOverrides ?? {}
-      const existing = currentDomainOverrides.DC ?? {}
-      const nextDomainOverride = {
-        ...existing,
-        ...wireUpdates,
-        cable: wireUpdates.cable ?? existing.cable,
-      }
-      onUpdate(circuit.id, {
-        domainWireOverrides: {
-          ...currentDomainOverrides,
-          DC: nextDomainOverride,
-        },
-        ...sharedPhaseUpdates,
-      })
-      return
-    }
-
-    const updates: Partial<Circuit> = { ...wireUpdates }
-    if (wireUpdates.cable) updates.cable = wireUpdates.cable
-    Object.assign(updates, sharedPhaseUpdates)
-    onUpdate(circuit.id, updates)
+  const onCircuitWireFormChange = (set: Partial<WireRouteFormState>) => {
+    const {
+      defaultWireLabelVisible: _defaultWireLabelVisible,
+      phaseConstraint: _phaseConstraint,
+      phaseAssignment,
+      showPhaseLabel,
+      ...wireSet
+    } = set
+    editProperties({
+      ...('phaseAssignment' in set || 'showPhaseLabel' in set
+        ? {
+            edits: [
+              {
+                kind: 'circuit',
+                ids: [circuit.id],
+                set: {
+                  ...('phaseAssignment' in set ? { phaseAssignment } : {}),
+                  ...('showPhaseLabel' in set ? { showPhaseLabel } : {}),
+                },
+              },
+            ],
+          }
+        : {}),
+      ...(Object.keys(wireSet).length
+        ? { wireEdits: [{ circuitId: circuit.id, sectionRef, domain: wireDomain, set: wireSet }] }
+        : {}),
+    })
   }
 
   return (
@@ -986,15 +1024,9 @@ function WireProperties({
             <button
               type="button"
               onClick={() => {
-                const { device, circuit, isSupplyDevice, isGroundDevice } = fromTrunkDevice
+                const { device } = fromTrunkDevice
                 const updates = { showDomainChangeLabel: !currentShowDomainChangeLabel }
-                if (isSupplyDevice) {
-                  useProjectStore.getState().updateSupplyTrunkDevice(device.id, updates)
-                } else if (isGroundDevice) {
-                  useProjectStore.getState().updateGroundTrunkDevice(device.id, updates)
-                } else if (circuit) {
-                  useProjectStore.getState().updateTrunkDevice(circuit.id, device.id, updates)
-                }
+                updateTrunkProperties(device.id, updates)
               }}
               className={visibilityToggleClass(currentShowDomainChangeLabel)}
               title={

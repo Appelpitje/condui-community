@@ -6,6 +6,7 @@ import type {
   PanelGridModuleRef,
   ProtectionDevice,
   Circuit,
+  Endpoint,
   TrunkDevice,
 } from '@/types/schema'
 import { findConverterBackupProtectionRefs } from '@/lib/panel/converterBackupPanelFeed'
@@ -17,10 +18,15 @@ import {
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
 import { findPanelById } from '@/lib/panel/panelTree'
+import { symbolCanAppearInPanelGrid } from '@/lib/panel/panelGridSymbolEligibility'
+import { getCircuitEndpointTrunkParent } from '@/lib/panel/circuitModuleRelations'
 import { resolveTerminalStripModule } from '@/lib/eendraad/projectElectricalDomain'
 import { findGroundTrunkDeviceOwner } from '@/lib/eendraad/panelGround'
-import { panelGridModuleRefKey } from './panelGridLayout'
-import { assemblyOwnsPanelInput, buildSupplyElectricalTopology } from '@/lib/supplyAssembly/electricalTopology'
+import { panelGridModuleRefKey } from '@/lib/panel/panelGridLayout'
+import {
+  assemblyOwnsPanelInput,
+  buildSupplyElectricalTopology,
+} from '@/lib/supplyAssembly/electricalTopology'
 import { selectProjectSupplyAssemblies } from '@/lib/projectV2/electrical'
 import { getProtectionBusSectionId } from '@/lib/panel/panelBusSections'
 
@@ -244,6 +250,57 @@ export function findPanelContainingModuleRef(
   return null
 }
 
+/** Endpoints drawn as panel modules: domotica, relays and the like, and terminal strips. */
+function isEndpointModule(endpoint: Endpoint): boolean {
+  return endpoint.symbol === 'terminal_strip' || symbolCanAppearInPanelGrid(endpoint.symbol)
+}
+
+function findEndpointCircuit(
+  panels: Panel[],
+  endpointId: string
+): { circuit: Circuit; endpoint: Endpoint } | null {
+  for (const panel of flattenPanelsDepthFirst(panels)) {
+    for (const circuit of [
+      ...panel.circuits,
+      ...panel.protections.flatMap((protection) => protection.circuits ?? []),
+    ]) {
+      const endpoint = circuit.endpoints.find((candidate) => candidate.id === endpointId)
+      if (endpoint) return { circuit, endpoint }
+    }
+  }
+  return null
+}
+
+/**
+ * The module an endpoint module is wired from inside its branch, as the one-wire draws it: an
+ * earlier module in the branch, or the module operating an earlier contact (a terminal strip
+ * after a domotica channel hangs on that domotica module). Field points pass the wire on.
+ * Null at the start of the branch, where the circuit trunk feeds it.
+ */
+function upstreamBranchModule(
+  circuit: Circuit,
+  endpointId: string,
+  panels: Panel[]
+): PanelGridModuleRef | null {
+  const branch = circuit.branches?.find((candidate) => candidate.endpointIds.includes(endpointId))
+  if (!branch) return null
+  const endpointById = new Map(circuit.endpoints.map((endpoint) => [endpoint.id, endpoint]))
+  for (let index = branch.endpointIds.indexOf(endpointId) - 1; index >= 0; index -= 1) {
+    const previous = endpointById.get(branch.endpointIds[index]!)
+    if (!previous) continue
+    if (previous.symbol === 'contact') {
+      const operatorId = previous.domoticaChildProps?.parentEndpointId ?? previous.controlLink?.deviceId
+      const operator = operatorId ? findEndpointCircuit(panels, operatorId) : null
+      if (operator && isEndpointModule(operator.endpoint))
+        return { kind: 'domotica', endpointId: operator.endpoint.id, circuitId: operator.circuit.id }
+      continue
+    }
+    if (isEndpointModule(previous))
+      return { kind: 'domotica', endpointId: previous.id, circuitId: circuit.id }
+  }
+  return null
+}
+
 /** A protection is "on the main bus" if no other protection in the panel claims its
  *  circuits via subCircuitIds (i.e. it has no parent protection in the hierarchy). */
 function isMainBusProtection(pr: ProtectionDevice, panel: Panel): boolean {
@@ -283,29 +340,44 @@ export function getRelationEdges(
   const panels = projectPanels(project)
   const installation = projectInstallation(project)
   const supplyGraph = selectProjectSupplyAssemblies(project).length
-    ? buildSupplyElectricalTopology(project) : undefined
+    ? buildSupplyElectricalTopology(project)
+    : undefined
 
   if (ref.kind === 'trunkDevice' && ref.scope === 'supply' && supplyGraph?.handlesDevice(ref.id)) {
     for (const target of supplyGraph.deviceAdjacent(ref.id, 'parents')) {
-      if (target.kind === 'device') parentRefs.push({ kind: 'trunkDevice', id: target.deviceId, scope: 'supply' })
+      if (target.kind === 'device')
+        parentRefs.push({ kind: 'trunkDevice', id: target.deviceId, scope: 'supply' })
     }
     for (const target of supplyGraph.deviceAdjacent(ref.id, 'children')) {
-      if (target.kind === 'device') childRefs.push({ kind: 'trunkDevice', id: target.deviceId, scope: 'supply' })
+      if (target.kind === 'device')
+        childRefs.push({ kind: 'trunkDevice', id: target.deviceId, scope: 'supply' })
       else if (target.kind === 'circuit') {
         const owner = findPanelOwningCircuitInTree(panels, target.circuitId)
         const protection = owner && findProtectionForCircuit(owner, target.circuitId)
         if (protection) childRefs.push({ kind: 'protection', id: protection.id })
         else {
           const first = owner && orderedTrunkDevices(findCircuitInPanel(owner, target.circuitId))[0]
-          if (first) childRefs.push({ kind: 'trunkDevice', id: first.id, scope: 'circuit', circuitId: target.circuitId })
+          if (first)
+            childRefs.push({
+              kind: 'trunkDevice',
+              id: first.id,
+              scope: 'circuit',
+              circuitId: target.circuitId,
+            })
         }
       } else {
         const fedPanel = findPanelById(panels, target.panelId)
-        const protections = fedPanel?.protections.filter((protection) =>
-          isMainBusProtection(protection, fedPanel) &&
-          getProtectionBusSectionId(fedPanel, protection) === target.busSectionId
-        ) ?? []
-        childRefs.push(...protections.map((protection): PanelGridModuleRef => ({ kind: 'protection', id: protection.id })))
+        const protections =
+          fedPanel?.protections.filter(
+            (protection) =>
+              isMainBusProtection(protection, fedPanel) &&
+              getProtectionBusSectionId(fedPanel, protection) === target.busSectionId
+          ) ?? []
+        childRefs.push(
+          ...protections.map(
+            (protection): PanelGridModuleRef => ({ kind: 'protection', id: protection.id })
+          )
+        )
         if (!protections.length) childPanelIds.push(target.panelId)
       }
     }
@@ -333,7 +405,8 @@ export function getRelationEdges(
       for (const circuit of pr.circuits) {
         if (supplyGraph?.hasCircuit(circuit.id)) {
           for (const target of supplyGraph.circuitParents(circuit.id)) {
-            if (target.kind === 'device') parentRefs.push({ kind: 'trunkDevice', id: target.deviceId, scope: 'supply' })
+            if (target.kind === 'device')
+              parentRefs.push({ kind: 'trunkDevice', id: target.deviceId, scope: 'supply' })
           }
         } else if (circuit.supplySource?.kind === 'converter-backup') {
           parentRefs.push({
@@ -354,14 +427,18 @@ export function getRelationEdges(
             circuitId: circuit.id,
           })
         }
-        // Circuit-level branches start after the final trunk device. Only circuits without
-        // trunks attach domotica and sub-protections directly to their protection.
-        if (trunks.length === 0) {
-          for (const ep of circuit.endpoints) {
-            if (ep.symbol === 'domotica' || ep.symbol === 'terminal_strip') {
-              childRefs.push({ kind: 'domotica', endpointId: ep.id, circuitId: circuit.id })
-            }
+        // Only branch roots fed by this protection belong here. A module fed by an
+        // earlier branch module or a contact's operator must not also attach to the trunk.
+        for (const ep of circuit.endpoints) {
+          if (
+            isEndpointModule(ep) &&
+            !upstreamBranchModule(circuit, ep.id, panels) &&
+            !getCircuitEndpointTrunkParent(circuit, ep.id)
+          ) {
+            childRefs.push({ kind: 'domotica', endpointId: ep.id, circuitId: circuit.id })
           }
+        }
+        if (trunks.length === 0) {
           // Child protections: other protections whose circuits are referenced via subCircuitIds
           // (any panel in the tree — e.g. main MCB → sub-panel board)
           for (const subCId of circuit.subCircuitIds ?? []) {
@@ -433,13 +510,15 @@ export function getRelationEdges(
     // Main-bus protections: incoming PANEL feed (another board) wins over utility supply;
     // sub-panels fall back to the upstream feeder MCB when the PANEL line has no trunks yet.
     const hasConverterBackupSource = (pr?.circuits ?? []).some(
-      (circuit) => circuit.supplySource?.kind === 'converter-backup' || supplyGraph?.hasCircuit(circuit.id)
+      (circuit) =>
+        circuit.supplySource?.kind === 'converter-backup' || supplyGraph?.hasCircuit(circuit.id)
     )
     if (pr && isMainBusProtection(pr, protectionPanel) && !hasConverterBackupSource) {
       const incoming = getPanelIncomingMainBusFeedDevice(protectionPanel)
       if (supplyGraph && assemblyOwnsPanelInput(project, protectionPanel, pr.busSectionId)) {
         for (const target of supplyGraph.busParents(protectionPanel, pr.busSectionId)) {
-          if (target.kind === 'device') parentRefs.push({ kind: 'trunkDevice', id: target.deviceId, scope: 'supply' })
+          if (target.kind === 'device')
+            parentRefs.push({ kind: 'trunkDevice', id: target.deviceId, scope: 'supply' })
         }
       } else if (incoming) {
         parentRefs.push({
@@ -731,12 +810,18 @@ export function getRelationEdges(
           }
         }
       }
-      if (circuit && idx === list.length - 1) {
+      if (circuit && idx >= 0) {
         for (const ep of circuit.endpoints) {
-          if (ep.symbol === 'domotica' || ep.symbol === 'terminal_strip') {
+          if (
+            isEndpointModule(ep) &&
+            !upstreamBranchModule(circuit, ep.id, panels) &&
+            getCircuitEndpointTrunkParent(circuit, ep.id)?.id === ref.id
+          ) {
             childRefs.push({ kind: 'domotica', endpointId: ep.id, circuitId: circuit.id })
           }
         }
+      }
+      if (circuit && idx === list.length - 1) {
         const allProjectProtections = allProtectionsInProject(project)
         for (const subCircuitId of circuit.subCircuitIds ?? []) {
           const child = allProjectProtections.find(({ pr }) =>
@@ -777,19 +862,38 @@ export function getRelationEdges(
   }
 
   if (ref.kind === 'domotica') {
-    const circuit = findCircuitInPanel(panel, ref.circuitId)
-    const circuitTrunks = orderedTrunkDevices(circuit)
-    const lastTrunk = circuitTrunks[circuitTrunks.length - 1]
-    if (lastTrunk) {
+    // Modules wired from this one inside their branch, in any circuit (its contacts' loads).
+    for (const candidatePanel of flattenPanelsDepthFirst(panels)) {
+      for (const candidateCircuit of [
+        ...candidatePanel.circuits,
+        ...candidatePanel.protections.flatMap((protection) => protection.circuits ?? []),
+      ]) {
+        for (const endpoint of candidateCircuit.endpoints) {
+          if (endpoint.id === ref.endpointId || !isEndpointModule(endpoint)) continue
+          const upstream = upstreamBranchModule(candidateCircuit, endpoint.id, panels)
+          if (upstream?.kind === 'domotica' && upstream.endpointId === ref.endpointId)
+            childRefs.push({ kind: 'domotica', endpointId: endpoint.id, circuitId: candidateCircuit.id })
+        }
+      }
+    }
+    const circuitOwner = findPanelOwningCircuitInTree(panels, ref.circuitId) ?? panel
+    const circuit = findCircuitInPanel(circuitOwner, ref.circuitId)
+    const upstream = circuit ? upstreamBranchModule(circuit, ref.endpointId, panels) : null
+    if (upstream) {
+      parentRefs.push(upstream)
+      return { parentRefs, childRefs, childPanelIds }
+    }
+    const trunkParent = getCircuitEndpointTrunkParent(circuit, ref.endpointId)
+    if (trunkParent) {
       parentRefs.push({
         kind: 'trunkDevice',
-        id: lastTrunk.id,
+        id: trunkParent.id,
         scope: 'circuit',
         circuitId: ref.circuitId,
       })
       return { parentRefs, childRefs, childPanelIds }
     }
-    const protection = findProtectionForCircuit(panel, ref.circuitId)
+    const protection = findProtectionForCircuit(circuitOwner, ref.circuitId)
     if (protection) {
       parentRefs.push({ kind: 'protection', id: protection.id })
     }
@@ -798,32 +902,8 @@ export function getRelationEdges(
   return { parentRefs, childRefs, childPanelIds }
 }
 
-function findProtectionByIdInPanel(panel: Panel, id: string): ProtectionDevice | null {
-  const pr = panel.protections.find((p) => p.id === id)
-  if (pr) return pr
-  for (const sub of panel.subPanels ?? []) {
-    const found = findProtectionByIdInPanel(sub, id)
-    if (found) return found
-  }
-  return null
-}
-
 /**
  * Resolve a panel grid module ref to a target circuit ID for "assign to circuit" flow.
  * Returns null for supply/ground trunk devices (no circuit).
  */
-export function getCircuitIdFromModuleRef(
-  ref: PanelGridModuleRef,
-  panel: Panel,
-  project: ProjectWithOptionalV2Electrical | null
-): string | null {
-  if (!project) return null
-  if (ref.kind === 'protection') {
-    const pr = findProtectionByIdInPanel(panel, ref.id)
-    const first = pr?.circuits?.[0]
-    return first?.id ?? null
-  }
-  if (ref.kind === 'trunkDevice' && ref.scope === 'circuit' && ref.circuitId) return ref.circuitId
-  if (ref.kind === 'domotica') return ref.circuitId
-  return null
-}
+export { getCircuitIdFromModuleRef } from '@/lib/panel/panelModuleCircuit'

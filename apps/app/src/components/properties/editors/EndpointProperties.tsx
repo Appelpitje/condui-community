@@ -6,6 +6,7 @@ import { DebouncedTextInput, DebouncedTextarea } from '@/components/forms'
 import CustomDropdown, { type CustomDropdownOption } from '@/components/common/CustomDropdown'
 import { useDialogStore } from '@/stores/dialogStore'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
+import { useUIStore } from '@/stores/uiStore'
 import type {
   Circuit,
   Endpoint,
@@ -42,11 +43,6 @@ import { useEditionFeatureAvailability } from '@/hooks/useEditionFeatureAvailabi
 import { endpointSupportsMultiplier, getEndpointMultiplier } from '@/utils/endpointMultipliers'
 import { allowedSocketCountsForEndpoint, isModularSocket } from '@/lib/socket/modularSocket'
 import { collectCircuits, deduplicateCircuitsById } from '@/utils/eendraad/panelHelpers'
-import { isInBetweenEndpoint } from '@/utils/symbolMapping'
-import {
-  createSyncEndpointMultiplierDeps,
-  syncEndpointMultiplierCount,
-} from '@/lib/eendraad/syncEndpointMultiplierCount'
 import AddCircuitDialog from '../AddCircuitDialog'
 import { InstallDateField } from '../shared/propertiesShared'
 import { JunctionIdentityField } from '../shared/JunctionIdentityField'
@@ -82,8 +78,8 @@ import {
   withDomoticaRowLabelVisibility,
 } from '@/lib/eendraad/domoticaRowLabel'
 import { AutomaticNamingLockedField } from '../shared/AutomaticNamingLockedField'
-import { assignTerminalStripPin } from '@/handlers/terminalStripAssignments'
-import { getTerminalStripPin } from '@/lib/terminalStrip/labels'
+import { getTerminalStripPin, terminalStripOccurrenceId } from '@/lib/terminalStrip/labels'
+import { editProperties } from '@/handlers/properties/editProperties'
 import {
   ApplianceTypeDropdown,
   DomoticaEndpointFields,
@@ -103,6 +99,7 @@ import {
   TwoWayPolesGrid,
 } from './EndpointControls'
 import {
+  hasApplianceTypePicker,
   HVAC_TYPE_SYMBOLS,
   normalizeSocketSymbol,
   normalizeSwitchSymbol,
@@ -125,6 +122,7 @@ export function EndpointProperties({
   const { t } = useTranslation()
   const openDialog = useDialogStore((state) => state.openDialog)
   const closeDialog = useDialogStore((state) => state.closeDialog)
+  const activeFloorId = useUIStore((state) => state.activeFloorId)
   const eendraadAutomaticNaming = useProjectStore(
     (state: ProjectState) =>
       !!(state.currentProject
@@ -392,12 +390,7 @@ export function EndpointProperties({
             ? getInstallDateTargetInheritedYear(project, { id: endpointId, type: 'endpoint' })
             : undefined
         }
-        onUpdate={(updates) =>
-          useProjectStore.getState().withSingleUndoEntry(() => {
-            onUpdate(endpointId, updates)
-            return true
-          })
-        }
+        onUpdate={(updates) => onUpdate(endpointId, updates)}
       />
       <div>
         {!domoticaRowLabelState && (
@@ -417,15 +410,17 @@ export function EndpointProperties({
             onCommit={(junctionIdentity) => {
               if (endpoint.symbol === 'terminal_strip') {
                 const currentPin = getTerminalStripPin(endpoint) ?? 1
-                assignTerminalStripPin(
-                  useProjectStore.getState(),
-                  endpointId,
-                  junctionIdentity,
-                  currentPin,
-                  getJunctionIdentity(endpoint).toUpperCase() === junctionIdentity.toUpperCase()
-                    ? currentPin
-                    : undefined
-                )
+                editProperties({
+                  actions: [{
+                    kind: 'terminalStripPin',
+                    occurrenceId: terminalStripOccurrenceId(endpointId, 'incoming'),
+                    stripId: junctionIdentity,
+                    pin: currentPin,
+                    vacatedPin: getJunctionIdentity(endpoint).toUpperCase() === junctionIdentity.toUpperCase()
+                      ? currentPin
+                      : undefined,
+                  }],
+                })
               } else {
                 onUpdate(endpointId, { junctionIdentity })
               }
@@ -503,13 +498,15 @@ export function EndpointProperties({
               value={String(getTerminalStripPin(endpoint) ?? 1)}
               onCommit={(value) => {
                 const nextPin = Math.max(1, Math.round(Number(value) || 1))
-                assignTerminalStripPin(
-                  useProjectStore.getState(),
-                  endpointId,
-                  getJunctionIdentity(endpoint) || '1',
-                  nextPin,
-                  getTerminalStripPin(endpoint)
-                )
+                editProperties({
+                  actions: [{
+                    kind: 'terminalStripPin',
+                    occurrenceId: terminalStripOccurrenceId(endpointId, 'incoming'),
+                    stripId: getJunctionIdentity(endpoint) || '1',
+                    pin: nextPin,
+                    vacatedPin: getTerminalStripPin(endpoint),
+                  }],
+                })
               }}
               className={selectClass}
             />
@@ -1070,7 +1067,9 @@ export function EndpointProperties({
                 const target = Math.floor(Number(e.target.value || 1))
                 if (!Number.isFinite(target) || target < 1) return
                 if (target === getEndpointMultiplier(endpoint)) return
-                syncEndpointMultiplierCount(createSyncEndpointMultiplierDeps(), endpointId, target)
+                editProperties({
+                  actions: [{ kind: 'endpointMultiplier', endpointId, count: target, activeFloorId }],
+                })
               }}
               className={selectClass}
             />
@@ -1248,19 +1247,7 @@ export function EndpointProperties({
       )}
 
       {/* Appliance type: mirror library list (fixed_appliance only, exclude energy conversion devices) */}
-      {endpoint.type === 'fixed_appliance' &&
-        !isInBetweenEndpoint(endpoint) &&
-        symbol !== 'junction_box' &&
-        symbol !== 'junction_panel' &&
-        symbol !== 'terminal_strip' &&
-        symbol !== 'domotica' &&
-        symbol !== 'energy_meter' &&
-        symbol !== 'solar_panel' &&
-        symbol !== 'battery' &&
-        symbol !== 'transformer' &&
-        symbol !== 'rectifier' &&
-        symbol !== 'inverter' &&
-        symbol !== 'dc_dc_converter' && (
+      {hasApplianceTypePicker(endpoint) && (
           <>
             <div>
               <ApplianceTypeDropdown
@@ -1435,7 +1422,9 @@ export function EndpointProperties({
                     const target = Math.floor(Number(e.target.value || 1))
                     if (!Number.isFinite(target) || target < 1) return
                     if (target === getEndpointMultiplier(endpoint)) return
-                    syncEndpointMultiplierCount(createSyncEndpointMultiplierDeps(), endpointId, target)
+                    editProperties({
+                      actions: [{ kind: 'endpointMultiplier', endpointId, count: target, activeFloorId }],
+                    })
                   }}
                   className={selectClass}
                 />
@@ -1512,6 +1501,24 @@ export function EndpointProperties({
       {/* Solar panel specific properties */}
       {symbol === 'solar_panel' && (
         <div className="space-y-2">
+          <div>
+            <label className={labelClass}>{t('endpoints.solarPanel.count', 'Number of panels')}</label>
+            <input
+              key={`solar-count-${endpointId}-${getEndpointMultiplier(endpoint)}`}
+              type="number"
+              min={1}
+              defaultValue={getEndpointMultiplier(endpoint)}
+              onBlur={(e) => {
+                const target = Math.floor(Number(e.target.value || 1))
+                if (!Number.isFinite(target) || target < 1) return
+                if (target === getEndpointMultiplier(endpoint)) return
+                editProperties({
+                  actions: [{ kind: 'endpointMultiplier', endpointId, count: target, activeFloorId }],
+                })
+              }}
+              className={selectClass}
+            />
+          </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
               <label className={labelClass + ' mb-0'}>

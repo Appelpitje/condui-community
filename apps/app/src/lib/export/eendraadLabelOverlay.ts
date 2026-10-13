@@ -15,7 +15,7 @@ import {
 import type { ExportTheme, SceneBounds, ComposedPagePlacement } from './types'
 import type { Note, WireSegment } from '@/types/schema'
 import { noteContentToLines } from '@/utils/noteMarkdown'
-import { getThemeColors } from '@/lib/theme/colors'
+import { getEendraadExportColors } from './eendraadExportColors'
 import { getExportFontFamily } from './fontPostProcessor'
 import {
   isFireClassLabelVisibleForSegment,
@@ -212,7 +212,7 @@ export function collectEendraadTextOverlays(
   exportTheme: ExportTheme,
 ): ExportTextOverlay[] {
   const overlays: ExportTextOverlay[] = []
-  const colors = getThemeColors(exportTheme)
+  const colors = getEendraadExportColors(exportTheme)
   const fontFamily = getExportFontFamily()
 
   const subPanelFeedAnchors = getSubPanelIncomingFeedLabelAnchors(panelLayout)
@@ -379,7 +379,7 @@ export function collectEendraadFreeNoteOverlays(
   exportTheme: ExportTheme,
 ): ExportTextOverlay[] {
   if (!notes || notes.length === 0) return []
-  const colors = getThemeColors(exportTheme)
+  const colors = getEendraadExportColors(exportTheme)
   const overlays: ExportTextOverlay[] = []
 
   for (const note of notes) {
@@ -411,7 +411,7 @@ export function collectEendraadWireLabelOverlays(
 ): ExportTextOverlay[] {
   if (!wireSegments.length) return []
 
-  const colors = getThemeColors(exportTheme)
+  const colors = getEendraadExportColors(exportTheme)
   const fontFamily = getExportFontFamily()
   const overlays: ExportTextOverlay[] = []
 
@@ -564,7 +564,7 @@ export function collectEendraadSecondaryBusReferenceOverlays(
 ): ExportTextOverlay[] {
   if (!wireSegments.length) return []
 
-  const colors = getThemeColors(exportTheme)
+  const colors = getEendraadExportColors(exportTheme)
   const groups = new Map<
     string,
     {
@@ -1006,7 +1006,7 @@ export function drawEendraadTextOverlaysOnPdf(
 ): void {
   if (!overlays.length) return
 
-  const colors = getThemeColors(exportTheme)
+  const colors = getEendraadExportColors(exportTheme)
   const fontFamily = getExportFontFamily()
 
   for (const o of overlays) {
@@ -1480,7 +1480,7 @@ export function injectEendraadLabelsIntoSvg(
   const labelGroup = doc.createElementNS(ns, 'g')
   labelGroup.setAttribute('data-export', 'eendraad-labels')
 
-  const colors = getThemeColors(exportTheme)
+  const colors = getEendraadExportColors(exportTheme)
   const fontFamily = getExportFontFamily()
   const fill = colors.textColor
   const notesFill = colors.secondaryText ?? colors.textColor

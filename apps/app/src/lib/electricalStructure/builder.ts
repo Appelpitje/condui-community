@@ -18,6 +18,7 @@ import {
   resolveAssemblyPanelInput,
 } from '@/lib/supplyAssembly/electricalTopology'
 import { ELECTRICAL_STRUCTURE_INFERENCE_RULES as RULES } from './inferenceRules'
+import { indexPhysicalEnclosures } from '@/lib/panel/physicalEnclosureIndex'
 import type {
   ElectricalStructureDiagnostic,
   ElectricalStructureNode,
@@ -72,6 +73,46 @@ function source(
 
 function inferred(rule: { id: string }): StructureBasis {
   return { knowledge: 'inferred', inferenceRuleId: rule.id }
+}
+
+/** Records on every piece of equipment the enclosure it physically hangs in. */
+function stampPhysicalEnclosures(
+  project: ProjectV2,
+  nodes: ElectricalStructureNode[],
+  relationships: ElectricalStructureRelationship[]
+): void {
+  const enclosures = indexPhysicalEnclosures(project)
+  const enclosureOf = (node: ElectricalStructureNode): string | undefined => {
+    const entityId = node.source.entityId
+    if (!entityId) return undefined
+    switch (node.kind) {
+      case 'panel':
+        return `panel:${entityId}`
+      case 'auxiliary-enclosure':
+        return `auxiliary:${entityId}`
+      case 'bus-section':
+        return node.panelId ? `panel:${node.panelId}` : undefined
+      case 'protection':
+      case 'trunk-device':
+      case 'endpoint':
+        return enclosures.get(entityId)
+      default:
+        return undefined
+    }
+  }
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  for (const node of nodes) {
+    const enclosure = enclosureOf(node)
+    if (enclosure) node.enclosure = enclosure
+  }
+  // A junction panel terminal is a strip inside its junction panel.
+  for (const relationship of relationships) {
+    if (relationship.kind !== 'contains') continue
+    const terminal = byId.get(relationship.to)
+    const owner = byId.get(relationship.from)
+    if (terminal?.kind === 'junction-panel-terminal' && owner?.enclosure)
+      terminal.enclosure = owner.enclosure
+  }
 }
 
 export function buildElectricalStructureSnapshot(project: ProjectV2): ElectricalStructureSnapshot {
@@ -1579,7 +1620,10 @@ export function buildElectricalStructureSnapshot(project: ProjectV2): Electrical
       enclosure.id,
       `disciplines.electrical.auxiliaryEnclosures[${index}]`,
       enclosure,
-      { label: enclosure.name }
+      {
+        label: enclosure.name,
+        ...(enclosure.ownerPanelId ? { panelId: enclosure.ownerPanelId } : {}),
+      }
     )
     if (enclosure.ownerPanelId)
       edge(
@@ -1788,6 +1832,7 @@ export function buildElectricalStructureSnapshot(project: ProjectV2): Electrical
       a.id.localeCompare(b.id)
   )
   stampTransitionWires(project, relationships, nodes)
+  stampPhysicalEnclosures(project, nodes, relationships)
   const liveWireAnchors = new Set(relationships.flatMap((relationship) =>
     typeof relationship.properties?.wireAnchor === 'string'
       ? [relationship.properties.wireAnchor] : []))

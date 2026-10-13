@@ -19,7 +19,7 @@ export function classifyEendraadMoveSelection(
     isProtection: (id: string) => boolean
     isEndpoint: (id: string) => boolean
     isTrunkDevice: (id: string) => boolean
-  },
+  }
 ): ClassifiedEendraadMoveSelection {
   const uniqueIds = [...new Set(ids)]
   return {
@@ -36,7 +36,7 @@ export function classifyEendraadMoveSelection(
  */
 export function resolveEendraadMultiMoveKind(
   selection: ClassifiedEendraadMoveSelection,
-  target: DropTarget | null | undefined,
+  target: DropTarget | null | undefined
 ): EendraadMoveKind | null {
   if (!target || target.type === null) return null
 
@@ -63,7 +63,11 @@ export function resolveEendraadMultiMoveKind(
 }
 
 export interface PlannedEndpointSelectionMove {
-  updates: Array<{ circuitId: string; endpoints: Circuit['endpoints']; branches: NonNullable<Circuit['branches']> }>
+  updates: Array<{
+    circuitId: string
+    endpoints: Circuit['endpoints']
+    branches: NonNullable<Circuit['branches']>
+  }>
   movedEndpointIds: string[]
 }
 
@@ -75,7 +79,7 @@ export interface ProtectionMoveItem {
 export function circuitClosureContains(
   rootCircuitId: string,
   targetCircuitId: string,
-  getCircuitById: (circuitId: string) => Circuit | null | undefined,
+  getCircuitById: (circuitId: string) => Circuit | null | undefined
 ): boolean {
   const pending = [rootCircuitId]
   const visited = new Set<string>()
@@ -92,15 +96,15 @@ export function circuitClosureContains(
 /** Avoid relocating a selected descendant twice when its selected ancestor carries it along. */
 export function collapseProtectionMoveRoots(
   items: ProtectionMoveItem[],
-  getCircuitById: (circuitId: string) => Circuit | null | undefined,
+  getCircuitById: (circuitId: string) => Circuit | null | undefined
 ): ProtectionMoveItem[] {
   return items.filter(
     (item) =>
       !items.some(
         (other) =>
           other.id !== item.id &&
-          circuitClosureContains(other.circuitId, item.circuitId, getCircuitById),
-      ),
+          circuitClosureContains(other.circuitId, item.circuitId, getCircuitById)
+      )
   )
 }
 
@@ -121,6 +125,7 @@ export function planEndpointSelectionMove(
   target: DropTarget,
   getCircuitForEndpoint: (endpointId: string) => Circuit | null | undefined,
   getCircuitById: (circuitId: string) => Circuit | null | undefined,
+  newId?: () => string
 ): PlannedEndpointSelectionMove | null {
   if (!target.circuitId || selectedEndpointIds.length === 0) return null
   if (target.endpointId && selectedEndpointIds.includes(target.endpointId)) return null
@@ -164,6 +169,7 @@ export function planEndpointSelectionMove(
     if (sourceCircuitId === target.circuitId) {
       const result = moveEndpointSelectionOnCircuit(source, anchorId, endpointIds, target, {
         allowSingle: true,
+        newId,
       })
       if (!result) return null
       working.set(sourceCircuitId, {
@@ -180,7 +186,7 @@ export function planEndpointSelectionMove(
       anchorId,
       endpointIds,
       target,
-      { allowSingle: true },
+      { allowSingle: true, newId }
     )
     if (!result) return null
     working.set(sourceCircuitId, {

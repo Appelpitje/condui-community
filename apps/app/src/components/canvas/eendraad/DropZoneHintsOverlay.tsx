@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Group, Circle, Line, Rect } from 'react-konva'
+import { LocalSvgCanvasOverlay, type CanvasSvgOverlayItem } from '../shared/LocalSvgCanvasOverlay'
 import {
   collectDropZoneHints,
   isRelocationDropZoneHintCompatible,
@@ -11,7 +11,6 @@ import { SECONDARY_BUS_PREVIEW_STUB_LENGTH, type DropTarget } from '@/lib/layout
 import type { LayoutTree } from '@/lib/layout/layoutTree'
 import {
   declutterDropZoneHints,
-  getDropZoneHintProximity,
   getMinimumScreenSizeScale,
 } from '@/lib/layout/dropZoneHintDeclutter'
 import { useEffectiveCanvasZoom } from '@/hooks/useEffectiveCanvasZoom'
@@ -43,8 +42,6 @@ interface DropZoneHintsOverlayProps {
   activeDropTarget?: DropTarget | null
   activeDropTargetNodeId?: string | null
   activePosition?: Point | null
-  /** Pointer during the drag; hints fade in as it gets close. */
-  pointerPosition?: Point | null
   relocation?: DropZoneHintRelocation | null
   movingPanelAttachmentId?: string | null
 }
@@ -56,7 +53,6 @@ export function DropZoneHintsOverlay({
   activeDropTarget = null,
   activeDropTargetNodeId = null,
   activePosition = null,
-  pointerPosition = null,
   relocation = null,
   movingPanelAttachmentId = null,
 }: DropZoneHintsOverlayProps) {
@@ -82,9 +78,7 @@ export function DropZoneHintsOverlay({
   const fullRadius = HINT_RADIUS * sizeScale
 
   const visibleHints = useMemo(() => {
-    const sameSymbolHints = hints.filter((h) =>
-      h.nodeId.startsWith('same-symbol-add-more-')
-    )
+    const sameSymbolHints = hints.filter((h) => h.nodeId.startsWith('same-symbol-add-more-'))
     const activeHint = hints.find((hint) => hint.nodeId === activeHintNodeId) ?? null
     const candidates = hints.filter((hint) => {
       if (!isRelocationDropZoneHintCompatible(hint, relocation)) return false
@@ -109,85 +103,109 @@ export function DropZoneHintsOverlay({
     return declutterDropZoneHints(candidates, activeHint, fullRadius * HINT_SPACING_RADII)
   }, [hints, activeHintNodeId, relocation, fullRadius])
 
-  if (visibleHints.length === 0) return null
-
-  const scaledDash = PREVIEW_DASH.map((length) => length * sizeScale)
-  const proximityOf = (hint: { x: number; y: number }) =>
-    getDropZoneHintProximity(hint, pointerPosition, zoom)
-  const opacityFor = (proximity: number) =>
-    HINT_FAINT_OPACITY + (1 - HINT_FAINT_OPACITY) * proximity
-
-  return (
-    <Group listening={false} name="drop-zone-hints">
-      {visibleHints.map((hint) => {
-        const proximity = proximityOf(hint)
-        const radius = fullRadius * (HINT_FAINT_SCALE + (1 - HINT_FAINT_SCALE) * proximity)
-        return hint.outline ? (
-          <Group key={hint.nodeId} opacity={opacityFor(proximity)} listening={false}>
-            <Rect
-              {...hint.outline}
+  // Target transitions change only these local SVGs, not the full Konva overlay.
+  const items = useMemo<CanvasSvgOverlayItem[]>(() => {
+    const dash = PREVIEW_DASH.map((length) => length * sizeScale).join(' ')
+    const radius = fullRadius * HINT_FAINT_SCALE
+    return visibleHints.map((hint) => {
+      const sameSymbol = hint.nodeId.startsWith('same-symbol-add-more-')
+      const circleRadius = hint.outline ? 7 * sizeScale : radius
+      let left = hint.outline?.x ?? hint.x - circleRadius
+      let top = hint.outline?.y ?? hint.y - circleRadius
+      let right = hint.outline ? left + hint.outline.width : hint.x + circleRadius
+      let bottom = hint.outline ? top + hint.outline.height : hint.y + circleRadius
+      if (hint.outline && sameSymbol) {
+        left = Math.min(left, hint.x - circleRadius)
+        top = Math.min(top, hint.y - circleRadius)
+        right = Math.max(right, hint.x + circleRadius)
+        bottom = Math.max(bottom, hint.y + circleRadius)
+      }
+      if (!hint.outline && hint.secondaryBusPreviewY != null) {
+        right = Math.max(right, hint.x + SECONDARY_BUS_PREVIEW_STUB_LENGTH)
+        top = Math.min(top, hint.secondaryBusPreviewY)
+        bottom = Math.max(bottom, hint.secondaryBusPreviewY)
+      }
+      const padding = (SECONDARY_BUS_STUB_WIDTH * sizeScale) / 2 + 1
+      return {
+        id: hint.nodeId,
+        opacity: hint.nodeId === activeHintNodeId ? 1 : HINT_FAINT_OPACITY,
+        bounds: {
+          x: left - padding,
+          y: top - padding,
+          width: right - left + padding * 2,
+          height: bottom - top + padding * 2,
+        },
+        content: hint.outline ? (
+          <>
+            <rect
+              x={hint.outline.x}
+              y={hint.outline.y}
+              width={hint.outline.width}
+              height={hint.outline.height}
+              rx={hint.outline.cornerRadius}
+              ry={hint.outline.cornerRadius}
               fill={PREVIEW_FILL}
               stroke={PREVIEW_STROKE}
               strokeWidth={2 * sizeScale}
-              dash={scaledDash}
-              listening={false}
+              strokeDasharray={dash}
             />
-            {hint.nodeId.startsWith('same-symbol-add-more-') && (
+            {sameSymbol && (
               <>
-                <Circle
-                  x={hint.x}
-                  y={hint.y}
-                  radius={7 * sizeScale}
+                <circle
+                  cx={hint.x}
+                  cy={hint.y}
+                  r={7 * sizeScale}
                   fill={PREVIEW_FILL}
                   stroke={PREVIEW_STROKE}
                   strokeWidth={HINT_STROKE_WIDTH * sizeScale}
-                  listening={false}
                 />
-                <Line
-                  points={[hint.x - 3 * sizeScale, hint.y, hint.x + 3 * sizeScale, hint.y]}
+                <line
+                  x1={hint.x - 3 * sizeScale}
+                  y1={hint.y}
+                  x2={hint.x + 3 * sizeScale}
+                  y2={hint.y}
                   stroke={PREVIEW_STROKE}
                   strokeWidth={HINT_STROKE_WIDTH * sizeScale}
-                  listening={false}
                 />
-                <Line
-                  points={[hint.x, hint.y - 3 * sizeScale, hint.x, hint.y + 3 * sizeScale]}
+                <line
+                  x1={hint.x}
+                  y1={hint.y - 3 * sizeScale}
+                  x2={hint.x}
+                  y2={hint.y + 3 * sizeScale}
                   stroke={PREVIEW_STROKE}
                   strokeWidth={HINT_STROKE_WIDTH * sizeScale}
-                  listening={false}
                 />
               </>
             )}
-          </Group>
+          </>
         ) : (
-          <Group key={hint.nodeId} opacity={opacityFor(proximity)} listening={false}>
+          <>
             {hint.secondaryBusPreviewY != null && (
-              <Line
-                points={[
-                  hint.x,
-                  hint.secondaryBusPreviewY,
-                  hint.x + SECONDARY_BUS_PREVIEW_STUB_LENGTH,
-                  hint.secondaryBusPreviewY,
-                ]}
+              <line
+                x1={hint.x}
+                y1={hint.secondaryBusPreviewY}
+                x2={hint.x + SECONDARY_BUS_PREVIEW_STUB_LENGTH}
+                y2={hint.secondaryBusPreviewY}
                 stroke={PREVIEW_STROKE}
                 strokeWidth={SECONDARY_BUS_STUB_WIDTH * sizeScale}
-                dash={scaledDash}
-                lineCap="round"
-                listening={false}
+                strokeDasharray={dash}
+                strokeLinecap="round"
               />
             )}
-            <Circle
-              x={hint.x}
-              y={hint.y}
-              radius={radius}
+            <circle
+              cx={hint.x}
+              cy={hint.y}
+              r={radius}
               fill={PREVIEW_FILL}
               stroke={PREVIEW_STROKE}
               strokeWidth={HINT_STROKE_WIDTH * sizeScale}
-              dash={scaledDash}
-              listening={false}
+              strokeDasharray={dash}
             />
-          </Group>
-        )
-      })}
-    </Group>
-  )
+          </>
+        ),
+      }
+    })
+  }, [visibleHints, activeHintNodeId, fullRadius, sizeScale])
+
+  return <LocalSvgCanvasOverlay name="drop-zone-hints" items={items} />
 }

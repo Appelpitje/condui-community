@@ -23,6 +23,8 @@
   },
   "connectivity": {
     "offlineBanner": "Je bent offline. Lokale projecten blijven op dit apparaat opgeslagen.",
+    "databaseOfflineBanner": "De cloud is tijdelijk niet beschikbaar. Je kunt verder werken; wijzigingen worden op dit apparaat opgeslagen en gesynchroniseerd zodra de verbinding hersteld is.",
+    "databaseOfflineIndicatorTitle": "Cloud tijdelijk niet beschikbaar",
     "offlineReloadNotReady": "Vermijd herladen tot je de app minstens één keer online in deze browsertab hebt geopend.",
     "offlineReloadDevHint": "Herladen terwijl je offline bent werkt alleen met een productiebuild (npm run build && vite preview), niet met de dev-server.",
     "dismissOfflineBanner": "Offline melding sluiten",
@@ -152,6 +154,48 @@
     "pan": "Pannen",
     "zoom": "Zoomen"
   },
+  "commandPalette": {
+    "placeholder": "Opdrachten zoeken",
+    "empty": "Geen opdrachten gevonden",
+    "moveToCircuit": "Verplaats naar kring",
+    "reorderBranch": "Herschik tak",
+    "moveOnBus": "Verplaats langs rail",
+    "moveBusLeft": "Verplaats naar links op rail",
+    "moveBusRight": "Verplaats naar rechts op rail",
+    "moveModules": "Verplaats bordmodules",
+    "resizeModule": "Wijzig modulebreedte",
+    "connectTo": "Verbind met…",
+    "rewire": "Herbedraad modules",
+    "resizePanel": "Wijzig bordafmetingen",
+    "autoArrange": "Schik bordmodules",
+    "renameFloor": "Hernoem verdieping",
+    "addCircuit": "Voeg kring toe",
+    "apply": "Toepassen",
+    "unavailable": "Deze wijziging kan niet worden toegepast. Controleer de waarden of open de actie opnieuw.",
+    "fields": {
+      "circuit": "Kring",
+      "position": "Positie",
+      "row": "Rij",
+      "column": "Kolom",
+      "width": "Breedte (modules)",
+      "target": "Verbind met",
+      "bus": "Rail",
+      "rows": "Rijen",
+      "columns": "Kolommen",
+      "name": "Naam",
+      "panel": "Bord",
+      "kind": "Kringtype",
+      "direction": "Voedingszijde",
+      "left": "Links",
+      "right": "Rechts"
+    },
+    "kinds": {
+      "lighting": "Verlichting",
+      "sockets": "Stopcontacten",
+      "fixed_appliance": "Vast toestel",
+      "other": "Overig"
+    }
+  },
   "shortcuts": {
     "title": "Sneltoetsen",
     "intro": "Alle sneltoetsen die in de editor gebruikt worden.",
@@ -179,6 +223,7 @@
       "ctrlCmdL": "Ctrl / Cmd + L",
       "ctrlCmdP": "Ctrl / Cmd + P",
       "ctrlCmdD": "Ctrl / Cmd + D",
+      "ctrlCmdK": "Ctrl / Cmd + K",
       "tab": "Tab",
       "esc": "Esc",
       "space": "Spatie",
@@ -222,6 +267,9 @@
       "arrowKeys": "Pijltjestoetsen"
     },
     "entries": {
+      "openCommandPalette": {
+        "description": "Opdrachtenpalet"
+      },
       "undo": {
         "description": "Ongedaan maken"
       },
@@ -1021,6 +1069,7 @@
       "overCapacity": "{{used}} van {{capacity}} uitgangskanalen in gebruik"
     },
     "solarPanel": {
+      "count": "Aantal panelen",
       "groupTitle": "Merk en model",
       "wattage": "Vermogen (Wp)",
       "voltage": "Spanning (V)"
@@ -1166,6 +1215,7 @@
     "showHiddenDescription": "Selecteer een of meer toestellen om te tonen.",
     "supplyPanel": "Netbord",
     "virtualEnclosure": "Voedingskast",
+    "moduleEnclosure": "Kast",
     "hideSupplyPanel": "Netbord verbergen",
     "rewireTool": "Herschakel gereedschap",
     "rewireModeOn": "Herschakelmodus Deactiveren",
@@ -1201,6 +1251,7 @@
     "syncWithPanelView": "Sync met Bordweergave"
   },
   "canvas": {
+    "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Raster Tonen",
     "snap": "Uitlijnen",
     "projectedSnap": "Projectie-uitlijning",

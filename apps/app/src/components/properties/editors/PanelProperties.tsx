@@ -1,3 +1,8 @@
+import {
+  editProperties,
+  updateInstallationProperties,
+  updatePanelGridProperties,
+} from '@/handlers/properties/editProperties'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DebouncedTextInput } from '@/components/forms'
@@ -19,7 +24,7 @@ import {
   type InstallDateTarget,
 } from '@/lib/installDatePropagation'
 import { InstallDateField } from '../shared/propertiesShared'
-import { ensureInstallDateTargetColors, selectClass } from '../shared/propertiesSharedUtils'
+import { selectClass } from '../shared/propertiesSharedUtils'
 import { installationDateUpdateFromYear } from '@/lib/installDates'
 import {
   getProjectElectricalInstallation,
@@ -39,12 +44,8 @@ export function PanelProperties({
 }) {
   const { t, i18n } = useTranslation()
   const currentProject = useProjectStore((s: ProjectState) => s.currentProject)
-  const updateInstallation = useProjectStore((s: ProjectState) => s.updateInstallation)
-  const updatePanelGrid = useProjectStore((s: ProjectState) => s.updatePanelGrid)
-  const updateProtection = useProjectStore((s: ProjectState) => s.updateProtection)
-  const updateCircuit = useProjectStore((s: ProjectState) => s.updateCircuit)
-  const updateEndpoint = useProjectStore((s: ProjectState) => s.updateEndpoint)
-  const withSingleUndoEntry = useProjectStore((s: ProjectState) => s.withSingleUndoEntry)
+  const updateInstallation = updateInstallationProperties
+  const updatePanelGrid = updatePanelGridProperties
   const openDialog = useDialogStore((s) => s.openDialog)
   const { advancedPanelLabels } = useEditionFeatureAvailability(currentProject?.project.id)
 
@@ -80,12 +81,13 @@ export function PanelProperties({
     [t]
   )
 
-  const handlePanelNetTypeLabelsChange = (enabled: boolean) => {
-    updateInstallation({ panelNetTypeLabelsEnabled: enabled })
-    if (enabled && !earthingValue) {
-      onUpdate(panelId, { earthingSystem: 'TT' })
-    }
-  }
+  const handlePanelNetTypeLabelsChange = (enabled: boolean) =>
+    editProperties({
+      installation: { panelNetTypeLabelsEnabled: enabled },
+      ...(enabled && !earthingValue
+        ? { edits: [{ kind: 'panel', ids: [panelId], set: { earthingSystem: 'TT' } }] }
+        : {}),
+    })
 
   if (!panel) {
     return (
@@ -94,36 +96,22 @@ export function PanelProperties({
   }
 
   const applyInstallDateTargets = (targets: InstallDateTarget[], year: number | undefined) => {
-    withSingleUndoEntry(() => {
-      ensureInstallDateTargetColors(currentProject, targets, year)
-      for (const target of targets) {
-        const inheritedYear = currentProject
-          ? getInstallDateTargetInheritedYear(currentProject, target)
-          : undefined
-        const requestedYear = target.preserveYear ?? year
-        const targetYear =
-          target.clearOverride || (!target.forceOverride && requestedYear === inheritedYear)
-            ? undefined
-            : requestedYear
-        const dateUpdate = installationDateUpdateFromYear(targetYear)
-        if (target.type === 'panel') onUpdate(target.id, dateUpdate)
-        else if (target.type === 'protection') updateProtection(target.id, dateUpdate)
-        else if (target.type === 'circuit') updateCircuit(target.id, dateUpdate)
-        else if (target.type === 'endpoint') updateEndpoint(target.id, dateUpdate)
-        else if (target.type === 'trunkDevice') {
-          const result = useProjectStore.getState().getTrunkDeviceById(target.id)
-          if (result?.isSupplyDevice) {
-            if (result.supplyFeedScope === 'shared') continue
-            useProjectStore.getState().updateSupplyTrunkDevice(target.id, dateUpdate)
-          } else if (result?.isGroundDevice) {
-            useProjectStore.getState().updateGroundTrunkDevice(target.id, dateUpdate)
-          } else if (result?.circuit) {
-            useProjectStore.getState().updateTrunkDevice(result.circuit.id, target.id, dateUpdate)
-          }
-        }
+    const edits = targets.map((target) => {
+      const inheritedYear = currentProject
+        ? getInstallDateTargetInheritedYear(currentProject, target)
+        : undefined
+      const requestedYear = target.preserveYear ?? year
+      const targetYear =
+        target.clearOverride || (!target.forceOverride && requestedYear === inheritedYear)
+          ? undefined
+          : requestedYear
+      return {
+        kind: target.type,
+        ids: [target.id],
+        set: installationDateUpdateFromYear(targetYear),
       }
-      return true
     })
+    editProperties({ edits, seedInstallDateColors: { targets, year } })
   }
 
   const handleInstallDateUpdate = (updates: {
@@ -135,10 +123,7 @@ export function PanelProperties({
       ? Number(updates.installationDate.slice(0, 4))
       : updates.rulesetDateOverride
     if (year == null || !currentProject) {
-      withSingleUndoEntry(() => {
-        onUpdate(panelId, updates)
-        return true
-      })
+      onUpdate(panelId, updates)
       return
     }
     const applyPanelOnly = () =>
@@ -197,7 +182,6 @@ export function PanelProperties({
             if (v.trim().length === 0) return
             onUpdate(panelId, {
               nameByLocale: {
-                ...(panel.nameByLocale ?? {}),
                 [projectLocale]: v,
               },
               name:

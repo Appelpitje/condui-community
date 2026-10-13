@@ -1,9 +1,9 @@
+import { updateDocumentProperties } from '@/handlers/properties/editGeneralProperties'
 import { create } from 'zustand'
 import { createUuid } from '@/lib/uuid'
 import {
   createProjectDocumentAsset,
   getProjectDocumentKind,
-  getProjectDocumentPatchAsset,
   exportPagesAfterPagesDeletion,
   getFloorPlanDocumentUsage,
   getProjectDocumentReplacementAsset,
@@ -258,12 +258,16 @@ export async function replaceProjectDocumentFile(
   if (usedByOthers + prepared.blob.size > PROJECT_DOCUMENTS_STORAGE_LIMIT_BYTES) return 'overBudget'
   const dataUrl = await readFileAsDataUrl(prepared.blob, prepared.mimeType)
   const project = useProjectStore.getState()
-  const asset = getProjectDocumentReplacementAsset(project.currentProject?.assets ?? [], documentId, {
-    fileName: file.name,
-    mimeType: prepared.mimeType,
-    dataUrl,
-    sizeBytes: prepared.blob.size,
-  })
+  const asset = getProjectDocumentReplacementAsset(
+    project.currentProject?.assets ?? [],
+    documentId,
+    {
+      fileName: file.name,
+      mimeType: prepared.mimeType,
+      dataUrl,
+      sizeBytes: prepared.blob.size,
+    }
+  )
   if (asset) project.upsertProjectAssets([asset])
   return null
 }
@@ -289,7 +293,9 @@ export async function deleteProjectDocumentPages(
   const { bytes, pageCount } = await deletePdfPages(dataUrlToBytes(asset.dataUrl), pageNumbers)
   const mimeType = asset.mimeType ?? 'application/pdf'
   // Another edit may have landed while the PDF was rebuilt; write onto the latest asset.
-  const latest = useProjectStore.getState().currentProject?.assets.find(({ id }) => id === documentId)
+  const latest = useProjectStore
+    .getState()
+    .currentProject?.assets.find(({ id }) => id === documentId)
   if (!latest || latest.dataUrl !== asset.dataUrl) return
   useProjectStore.getState().upsertProjectAssets([
     {
@@ -322,7 +328,9 @@ export async function reduceProjectDocumentSize(
 ): Promise<{ changed: boolean; beforeBytes: number; afterBytes: number }> {
   const asset = useProjectStore
     .getState()
-    .currentProject?.assets.find((candidate) => candidate.id === documentId && isProjectDocumentAsset(candidate))
+    .currentProject?.assets.find(
+      (candidate) => candidate.id === documentId && isProjectDocumentAsset(candidate)
+    )
   if (!asset?.dataUrl || asset.document?.sourceAssetId) throw new Error('Not an uploaded document')
   const original = new Blob([new Uint8Array(dataUrlToBytes(asset.dataUrl))], {
     type: asset.mimeType ?? 'application/octet-stream',
@@ -335,22 +343,22 @@ export async function reduceProjectDocumentSize(
 
   const dataUrl = await readFileAsDataUrl(prepared.blob, prepared.mimeType)
   // Another edit may have landed while reducing; write onto the latest asset.
-  const latest = useProjectStore.getState().currentProject?.assets.find(({ id }) => id === documentId)
+  const latest = useProjectStore
+    .getState()
+    .currentProject?.assets.find(({ id }) => id === documentId)
   if (!latest || latest.dataUrl !== asset.dataUrl) {
     return { changed: false, beforeBytes, afterBytes: beforeBytes }
   }
-  useProjectStore.getState().upsertProjectAssets([
-    { ...latest, mimeType: prepared.mimeType, dataUrl, sizeBytes: prepared.blob.size },
-  ])
+  useProjectStore
+    .getState()
+    .upsertProjectAssets([
+      { ...latest, mimeType: prepared.mimeType, dataUrl, sizeBytes: prepared.blob.size },
+    ])
   return { changed: true, beforeBytes, afterBytes: prepared.blob.size }
 }
 
 export function updateProjectDocument(documentId: string, patch: ProjectDocumentPatch): void {
-  const project = useProjectStore.getState()
-  const assets = project.currentProject?.assets
-  if (!assets) return
-  const asset = getProjectDocumentPatchAsset(assets, documentId, patch)
-  if (asset) project.upsertProjectAssets([asset])
+  updateDocumentProperties(documentId, patch)
 }
 
 /** Redraws a placed floor plan: dark-mode adaptation and, for vector plans, colour or greyscale. */
@@ -366,10 +374,14 @@ export function setFloorPlanDocumentDisplay(
 }
 
 /** Floors showing a floor-plan document, for the removal warning; null for other documents. */
-export function getFloorPlanDocumentFloors(documentId: string): Array<{ id: string; name?: string }> | null {
+export function getFloorPlanDocumentFloors(
+  documentId: string
+): Array<{ id: string; name?: string }> | null {
   const project = useProjectStore.getState().currentProject
   if (!project) return null
-  return getFloorPlanDocumentUsage(project.assets, project.building.floors, documentId)?.floors ?? null
+  return (
+    getFloorPlanDocumentUsage(project.assets, project.building.floors, documentId)?.floors ?? null
+  )
 }
 
 /**

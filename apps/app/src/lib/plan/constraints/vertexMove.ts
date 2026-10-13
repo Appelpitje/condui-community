@@ -1,6 +1,6 @@
 import type { Point2 } from '@/types/schema'
 import type { Door, Window } from '@/types/schema'
-import { getWallTotalLength } from '@/handlers/plan/wallDrawing'
+import { getWallTotalLength } from '@/lib/plan/wallOpeningGeometry'
 import type { VertexMoveResult } from './types'
 import type { OpeningOnSegment } from './types'
 import {

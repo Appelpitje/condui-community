@@ -7,7 +7,7 @@ import type {
   SharedFeedPath,
   TrunkDevice,
 } from '@/types/schema'
-import { nanoid } from 'nanoid'
+import { generateId } from '@/utils/id'
 import {
   getProjectElectricalInstallation,
   getProjectElectricalPanels,
@@ -340,7 +340,7 @@ export function ensureInstallationFeedTopology(installation: Installation, panel
     return rememberFeedTopology(installation, panels, topology)
   }
 
-  const connectorId = nanoid(16)
+  const connectorId = generateId()
   const topology: FeedTopology = {
     version: 1,
     rootConnector: {
@@ -831,6 +831,26 @@ export function buildSupplyWireLengthVisibilityUpdate(
       [showKey]: visible,
     },
   }
+}
+
+/** Stored device owners without normalizing topology or positions during a read/check. */
+export function queryAllSupplyTrunkDevices(project: ProjectWithOptionalV2Electrical): TrunkDevice[] {
+  const installation = getProjectElectricalInstallation(project)
+  if (!installation) return []
+  const topology = installation.feedTopology
+  const all: TrunkDevice[] = []
+  const seen = new Set<string>()
+  const push = (device: TrunkDevice) => {
+    if (seen.has(device.id)) return
+    seen.add(device.id)
+    all.push(device)
+  }
+
+  for (const device of installation.mainSupply.supplyTrunkDevices ?? topology?.sharedFeed.trunkDevices ?? []) push(device)
+  for (const feed of topology?.rootFeeds ?? []) {
+    for (const device of feed.trunkDevices ?? []) push(device)
+  }
+  return all
 }
 
 export function getAllSupplyTrunkDevices(project: ProjectWithOptionalV2Electrical): TrunkDevice[] {

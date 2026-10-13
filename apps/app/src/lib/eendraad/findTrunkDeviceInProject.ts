@@ -1,4 +1,4 @@
-import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import {
   getProjectElectricalInstallation,
   getProjectElectricalPanels,
@@ -13,7 +13,7 @@ export function findTrunkDeviceInProject(
   project: ProjectWithOptionalV2Electrical,
   id: string
 ): TrunkDevice | null {
-  const supply = getAllSupplyTrunkDevices(project).find((device) => device.id === id)
+  const supply = queryAllSupplyTrunkDevices(project).find((device) => device.id === id)
   if (supply) return supply
 
   const ground = findGroundTrunkDeviceOwner(

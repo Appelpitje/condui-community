@@ -52,8 +52,10 @@ export function getSupplyDeviceVisibilitySurface(
 export function isSupplyDeviceVisibleInPanel(
   project: ProjectWithOptionalV2Electrical,
   deviceId: string,
+  knownDevice?: TrunkDevice
 ): boolean {
-  const device = getAllSupplyTrunkDevices(project).find((candidate) => candidate.id === deviceId)
+  const device =
+    knownDevice ?? getAllSupplyTrunkDevices(project).find((candidate) => candidate.id === deviceId)
   if (!device) return false
   const grid = getSupplyDeviceVisibilitySurface(project, deviceId)?.gridView
   const key = `trunkDevice:${deviceId}:supply`

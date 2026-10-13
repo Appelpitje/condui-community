@@ -8,6 +8,7 @@ import type {
   ProtectionType,
   TrunkDevice,
   PolesConfig,
+  InstallationProfile,
 } from '@/types/schema'
 import { polesConfigFromVoltageSystem } from '@/constants/poleConfig'
 import { polesFromConfig } from '@/constants/poleConfig'
@@ -28,6 +29,25 @@ export const DEFAULT_RESIDUAL_CURRENT_TYPE = 'A' as const
 export const BE_STANDARD_BREAKER_RATINGS_A = [
   2, 4, 6, 10, 12, 16, 20, 25, 32, 40, 50, 63, 80, 100,
 ] as const
+
+const NON_HOUSEHOLD_BREAKER_RATINGS_A = [
+  ...BE_STANDARD_BREAKER_RATINGS_A,
+  160,
+  200,
+  360,
+  1000,
+] as const
+
+export function getProtectionRatingOptions(
+  type: ProtectionType,
+  profile: InstallationProfile = 'household'
+): readonly number[] | null {
+  if (type === 'RCD') return [25, 40, 63, 80, 100, 125]
+  if (type !== 'MCB' && type !== 'RCBO') return null
+  return profile === 'non_household'
+    ? NON_HOUSEHOLD_BREAKER_RATINGS_A
+    : BE_STANDARD_BREAKER_RATINGS_A
+}
 
 /** Default short-circuit breaking capacity for new MCB/RCBO (3000 / 3 kA). */
 export const DEFAULT_BREAKING_CAPACITY_KA = 3
@@ -60,8 +80,21 @@ export const MCB_RCBO_BREAKING_CAPACITY_OPTIONS: BreakingCapacityDropdownOption[
   { value: '30', label: '30 kA', ka: 30 },
 ]
 
+const NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS: BreakingCapacityDropdownOption[] = [
+  ...MCB_RCBO_BREAKING_CAPACITY_OPTIONS,
+  { value: '36', label: '36 kA', ka: 36 },
+]
+
+export function getBreakerBreakingCapacityOptions(
+  profile: InstallationProfile = 'household'
+): readonly BreakingCapacityDropdownOption[] {
+  return profile === 'non_household'
+    ? NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS
+    : MCB_RCBO_BREAKING_CAPACITY_OPTIONS
+}
+
 export function breakingCapacityKaFromSelectValue(value: string): number | undefined {
-  const option = MCB_RCBO_BREAKING_CAPACITY_OPTIONS.find((o) => o.value === value)
+  const option = NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS.find((o) => o.value === value)
   if (option) return option.ka
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : undefined
@@ -70,7 +103,7 @@ export function breakingCapacityKaFromSelectValue(value: string): number | undef
 export function breakingCapacityPatchFromSelectValue(
   value: string
 ): { breakingCapacityKa: number; breakingCapacityOption: string } | undefined {
-  const option = MCB_RCBO_BREAKING_CAPACITY_OPTIONS.find((o) => o.value === value)
+  const option = NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS.find((o) => o.value === value)
   if (!option) return undefined
   return { breakingCapacityKa: option.ka, breakingCapacityOption: option.value }
 }
@@ -80,15 +113,15 @@ export function resolveBreakingCapacitySelectValue(
   option: string | undefined,
   ka: number | undefined
 ): string {
-  if (option && MCB_RCBO_BREAKING_CAPACITY_OPTIONS.some((entry) => entry.value === option)) {
+  if (option && NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS.some((entry) => entry.value === option)) {
     return option
   }
   if (ka != null) {
-    const ampEntry = MCB_RCBO_BREAKING_CAPACITY_OPTIONS.find(
+    const ampEntry = NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS.find(
       (entry) => entry.ka === ka && BREAKING_CAPACITY_AMP_OPTION_VALUES.has(entry.value)
     )
     if (ampEntry) return ampEntry.value
-    const kaEntry = MCB_RCBO_BREAKING_CAPACITY_OPTIONS.find(
+    const kaEntry = NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS.find(
       (entry) => entry.ka === ka && !BREAKING_CAPACITY_AMP_OPTION_VALUES.has(entry.value)
     )
     if (kaEntry) return kaEntry.value
@@ -98,7 +131,7 @@ export function resolveBreakingCapacitySelectValue(
 }
 
 export function breakingCapacityLabelForOption(optionValue: string): string {
-  const entry = MCB_RCBO_BREAKING_CAPACITY_OPTIONS.find((o) => o.value === optionValue)
+  const entry = NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS.find((o) => o.value === optionValue)
   return entry?.label ?? optionValue
 }
 

@@ -5,8 +5,20 @@
  * title/QR and scale down until that reserved rectangle is clear.
  */
 
+import { describeExportError } from './describeExportError'
+import { withSvg2PdfImageSources } from './svg2pdfImageSources'
 import type { jsPDF } from 'jspdf'
 import { svg2pdf } from 'svg2pdf.js'
+
+/** svg2pdf with raster images passed as blob URLs (see svg2pdfImageSources). */
+function renderSvgToPdf(
+  element: Element,
+  pdf: jsPDF,
+  options: { width: number; height: number }
+): Promise<jsPDF> {
+  return withSvg2PdfImageSources(element, () => svg2pdf(element, pdf, options))
+}
+
 import type {
   ExportPage,
   ExportDiagnostic,
@@ -334,7 +346,7 @@ export async function composePdfPage(
       positionedSvg.appendChild(infoGroup)
     }
 
-    await svg2pdf(positionedSvg, pdf, {
+    await renderSvgToPdf(positionedSvg, pdf, {
       width: pageWidth,
       height: pageHeight,
     })
@@ -356,7 +368,7 @@ export async function composePdfPage(
       level: 'error',
       code: 'PDF_COMPOSE_FAILED',
       pageId: page.id,
-      message: `Failed to compose PDF page: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Failed to compose PDF page: ${describeExportError(error)}`,
       details: { error },
     })
     throw error
@@ -600,7 +612,7 @@ export async function composeLimitedRasterPdfPage(
       level: 'error',
       code: 'PDF_COMPOSE_FAILED',
       pageId: page.id,
-      message: `Failed to compose limited PDF page: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Failed to compose limited PDF page: ${describeExportError(error)}`,
       details: { error },
     })
     throw error
@@ -629,7 +641,7 @@ export async function composeFullSvgPage(
     svgElement.setAttribute('height', `${pageHeight}`)
     svgElement.setAttribute('viewBox', `0 0 ${pageWidth} ${pageHeight}`)
 
-    await svg2pdf(svgElement, pdf, {
+    await renderSvgToPdf(svgElement, pdf, {
       width: pageWidth,
       height: pageHeight,
     })
@@ -638,7 +650,7 @@ export async function composeFullSvgPage(
       level: 'error',
       code: 'PDF_COMPOSE_FAILED',
       pageId,
-      message: `Failed to compose SVG page: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Failed to compose SVG page: ${describeExportError(error)}`,
       details: { error },
     })
     throw error

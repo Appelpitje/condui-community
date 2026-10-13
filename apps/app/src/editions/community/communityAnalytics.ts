@@ -4,6 +4,7 @@ export type ValidationPanelAnalyticsSource = 'menu' | 'state'
 export function initializeGoogleAnalytics(): void {}
 export function trackGoogleAnalyticsEvent(): void {}
 export function trackGoogleAnalyticsPageView(): void {}
+export function trackCrashReport(): void {}
 export function trackValidationPanelVisibility(): void {}
 export function trackProjectVersionsVisibility(): void {}
 export function trackSymbolPlace(): void {}

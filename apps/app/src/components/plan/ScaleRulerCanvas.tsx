@@ -94,15 +94,13 @@ function ScaleRulerCanvas({
     setEndPoint(initialReference.p2)
     onPointsReady?.(initialReference.p1, initialReference.p2, initialReference.meters)
   }, [
-    initialReference?.p1.x,
-    initialReference?.p1.y,
-    initialReference?.p2.x,
-    initialReference?.p2.y,
+    initialReference?.p1,
+    initialReference?.p2,
     initialReference?.meters,
     startPoint,
     endPoint,
     onPointsReady,
-  ]) // eslint-disable-line react-hooks/exhaustive-deps -- synchronize only when the saved reference changes
+  ])
 
   useEffect(() => { onPointsChange?.(startPoint, endPoint) }, [startPoint, endPoint, onPointsChange])
   useEffect(() => () => { if (rafRef.current != null) cancelAnimationFrame(rafRef.current) }, [])

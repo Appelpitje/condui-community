@@ -1,3 +1,4 @@
+import { editProperties, updateCanonicalWireProperties } from '@/handlers/properties/editProperties'
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '@/stores/projectStore'
@@ -37,17 +38,29 @@ export function CanonicalWireProperties({
 }) {
   const { t } = useTranslation()
   const project = useProjectStore((s) => s.currentProject)
-  const update = useProjectStore((s) => s.updateWireRunAtAnchor)
-  const makeProjectDefault = useProjectStore((s) => s.makeWireCableProjectDefault)
+  const update = updateCanonicalWireProperties
+  const makeProjectDefault = (anchor: string, cable: CableSpec) =>
+    editProperties({ actions: [{ kind: 'wireCableDefault', anchor, cable }] })
   // The anchor whose cable type was just changed here; offers "Make project default" once.
   const [changedAnchor, setChangedAnchor] = useState<string>()
-  const liveWires = useMemo(() => project
-    ? buildElectricalStructureSnapshot(project).relationships.flatMap((edge) =>
-        edge.properties?.wireAnchor === anchor
-          ? [{ ...(edge.properties.wire as { medium?: string; followsDefaultCable?: boolean; cable?: CableSpec } | undefined),
-              busGroup: edge.properties.wireBusGroup }]
-          : [])
-    : [], [project, anchor])
+  const liveWires = useMemo(
+    () =>
+      project
+        ? buildElectricalStructureSnapshot(project).relationships.flatMap((edge) =>
+            edge.properties?.wireAnchor === anchor
+              ? [
+                  {
+                    ...(edge.properties.wire as
+                      | { medium?: string; followsDefaultCable?: boolean; cable?: CableSpec }
+                      | undefined),
+                    busGroup: edge.properties.wireBusGroup,
+                  },
+                ]
+              : []
+          )
+        : [],
+    [project, anchor]
+  )
   let lengthSuggestion: { placeholder?: string; hint?: ReactNode } = {}
   
   if (!project) return null
@@ -59,9 +72,14 @@ export function CanonicalWireProperties({
   const followsDefault = defaultEligible && liveWire?.followsDefaultCable === true
   const run = findWireRunForAnchor(selectProjectWireRuns(project), anchor)
   const state: WireRouteFormState = {
-    cable: isRailEdge && liveWire?.cable ? liveWire.cable : run
-      ? followsDefault ? withProjectDefaultCableKind(run.cable, defaultKind) : run.cable
-      : cable,
+    cable:
+      isRailEdge && liveWire?.cable
+        ? liveWire.cable
+        : run
+          ? followsDefault
+            ? withProjectDefaultCableKind(run.cable, defaultKind)
+            : run.cable
+          : cable,
     ...(run
       ? {
           ...fromWireRunRoute(run.route),
@@ -72,22 +90,24 @@ export function CanonicalWireProperties({
       : defaults),
   }
   const onChange = (value: Partial<WireRouteFormState>) => {
-    const changes: WireRunChanges = isRailEdge || run
-      ? {}
-      : {
-          route: toWireRunRoute(state.wireRoute, state.inWall),
-          inTube: state.inTube,
-          lengthM: state.wireLengthM,
-          labels: {
-            hideWireLabel: state.hideWireLabel,
-            showFireClassLabel: state.showFireClassLabel,
-            showWireLengthLabel: state.showWireLengthLabel,
-          },
-        }
+    const changes: WireRunChanges =
+      isRailEdge || run
+        ? {}
+        : {
+            route: toWireRunRoute(state.wireRoute, state.inWall),
+            inTube: state.inTube,
+            lengthM: state.wireLengthM,
+            labels: {
+              hideWireLabel: state.hideWireLabel,
+              showFireClassLabel: state.showFireClassLabel,
+              showWireLengthLabel: state.showWireLengthLabel,
+            },
+          }
     if (value.cable) {
       changes.cable = value.cable
       // Section or core edits keep an inherited type; choosing a type makes it this wire's own.
-      if (followsDefault && value.cable.kind === state.cable.kind) changes.followsDefaultCable = true
+      if (followsDefault && value.cable.kind === state.cable.kind)
+        changes.followsDefaultCable = true
       else setChangedAnchor(anchor)
     }
     if ('wireRoute' in value) changes.route = toWireRunRoute(value.wireRoute, value.inWall)
@@ -135,7 +155,9 @@ export function CanonicalWireProperties({
       showLength={!sharedGeometry}
       groundConductor={anchor.startsWith('ground:')}
       busbar={isRailEdge}
-      onMediumChange={railEligible ? (medium, cable) => update(anchor, state.cable, { medium, cable }) : undefined}
+      onMediumChange={
+        railEligible ? (medium, cable) => update(anchor, state.cable, { medium, cable }) : undefined
+      }
       cableHint={cableHint}
       lengthPlaceholder={lengthSuggestion.placeholder}
       lengthHint={lengthSuggestion.hint}

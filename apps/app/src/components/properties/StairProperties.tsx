@@ -1,5 +1,5 @@
+import { updateStairProperties } from '@/handlers/properties/editGeneralProperties'
 import { useTranslation } from 'react-i18next'
-import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useUIStore, type UIState } from '@/stores/uiStore'
 import CustomDropdown from '@/components/common/CustomDropdown'
 import { DebouncedNumberInput } from '@/components/forms'
@@ -20,7 +20,6 @@ interface StairPropertiesProps {
 
 export function StairProperties({ stair, floor, selectedPointIndices = [] }: StairPropertiesProps) {
   const { t } = useTranslation()
-  const updateStair = useProjectStore((s: ProjectState) => s.updateStair)
   const planView = useUIStore((s: UIState) => s.planView)
   const gridSize = usePlanGrid(floor, planView, true)
   const canvasPxPerMeter = resolvePlanCanvasPxPerMeter(
@@ -63,7 +62,7 @@ export function StairProperties({ stair, floor, selectedPointIndices = [] }: Sta
           minValue={10}
           fallbackValue={Math.round(widthCm * 10) / 10}
           onCommit={(nextWidth) =>
-            updateStair(stair.id, {
+            updateStairProperties(stair.id, {
               width: stairCentimetersToCanvasUnits(nextWidth, canvasPxPerMeter),
             })
           }
@@ -82,7 +81,7 @@ export function StairProperties({ stair, floor, selectedPointIndices = [] }: Sta
           minValue={4}
           fallbackValue={Math.round(stepDepthCm * 10) / 10}
           onCommit={(nextStepDepth) =>
-            updateStair(stair.id, {
+            updateStairProperties(stair.id, {
               stepDepth: stairCentimetersToCanvasUnits(nextStepDepth, canvasPxPerMeter),
             })
           }
@@ -104,7 +103,7 @@ export function StairProperties({ stair, floor, selectedPointIndices = [] }: Sta
             maxValue={360}
             fallbackValue={360}
             onCommit={(nextSweep) =>
-              updateStair(stair.id, {
+              updateStairProperties(stair.id, {
                 spiralSweepDegrees: Math.max(90, Math.min(360, Math.round(nextSweep))),
               })
             }
@@ -119,7 +118,7 @@ export function StairProperties({ stair, floor, selectedPointIndices = [] }: Sta
         </label>
         <CustomDropdown
           value={stair.cornerStyle}
-          onChange={(nextValue) => updateStair(stair.id, { cornerStyle: nextValue as Stair['cornerStyle'] })}
+          onChange={(nextValue) => updateStairProperties(stair.id, { cornerStyle: nextValue as Stair['cornerStyle'] })}
           options={[
             { value: 'round', label: t('stairs.cornerStyleRound', 'Round') },
             { value: 'sharp', label: t('stairs.cornerStyleSharp', 'Sharp') },
@@ -135,7 +134,7 @@ export function StairProperties({ stair, floor, selectedPointIndices = [] }: Sta
         </label>
         <CustomDropdown
           value={stair.cornerMode}
-          onChange={(nextValue) => updateStair(stair.id, { cornerMode: nextValue as StairCornerMode })}
+          onChange={(nextValue) => updateStairProperties(stair.id, { cornerMode: nextValue as StairCornerMode })}
           options={[
             { value: 'turn', label: t('stairs.pointBehaviorTurn', 'Turning steps') },
             { value: 'platform', label: t('stairs.pointBehaviorPlatform', 'Platform') },
@@ -154,7 +153,7 @@ export function StairProperties({ stair, floor, selectedPointIndices = [] }: Sta
       <StairUpArrowDirectionPicker
         stair={stair}
         spiralStair={spiralStair}
-        onChange={(patch) => updateStair(stair.id, patch)}
+        onChange={(patch) => updateStairProperties(stair.id, patch)}
       />
       {!spiralStair && overrideKeys.length > 0 && (
         <div className="space-y-2 rounded border border-amber-300 bg-amber-50/60 p-3 dark:border-amber-500/50 dark:bg-amber-400/10">
@@ -180,7 +179,7 @@ export function StairProperties({ stair, floor, selectedPointIndices = [] }: Sta
               for (const overrideKey of overrideKeys) {
                 next[overrideKey] = nextValue as StairCornerMode
               }
-              updateStair(stair.id, { cornerModeOverrides: next })
+              updateStairProperties(stair.id, { cornerModeOverrides: next })
             }}
             options={[
               ...(hasMixedPointModes
@@ -198,7 +197,7 @@ export function StairProperties({ stair, floor, selectedPointIndices = [] }: Sta
               for (const overrideKey of overrideKeys) {
                 delete next[overrideKey]
               }
-              updateStair(stair.id, {
+              updateStairProperties(stair.id, {
                 cornerModeOverrides: Object.keys(next).length > 0 ? next : undefined,
               })
             }}

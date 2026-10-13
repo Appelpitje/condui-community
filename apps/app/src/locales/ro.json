@@ -23,6 +23,8 @@
   },
   "connectivity": {
     "offlineBanner": "You are offline. Local projects remain saved on this device.",
+    "databaseOfflineBanner": "Serviciile cloud sunt temporar indisponibile. Puteți continua să lucrați; modificările sunt salvate pe acest dispozitiv și sincronizate la restabilirea conexiunii.",
+    "databaseOfflineIndicatorTitle": "Cloud temporar indisponibil",
     "offlineReloadNotReady": "Evitați reîncărcarea până când ați deschis cel puțin o dată aplicația online în această filă de browser.",
     "offlineReloadDevHint": "Reîncărcarea offline funcționează numai cu o versiune de producție (npm run build && vite previzualizare), nu cu serverul de dezvoltare.",
     "dismissOfflineBanner": "Închideți notificarea offline",
@@ -152,6 +154,48 @@
     "pan": "Tigăi",
     "zoom": "Zoom"
   },
+  "commandPalette": {
+    "placeholder": "Caută comenzi",
+    "empty": "Nicio comandă găsită",
+    "moveToCircuit": "Mută în circuit",
+    "reorderBranch": "Reordonează ramura",
+    "moveOnBus": "Mută pe bară",
+    "moveBusLeft": "Mută la stânga pe bară",
+    "moveBusRight": "Mută la dreapta pe bară",
+    "moveModules": "Mută modulele tabloului",
+    "resizeModule": "Redimensionează modulul",
+    "connectTo": "Conectează la…",
+    "rewire": "Recablează modulele",
+    "resizePanel": "Redimensionează tabloul",
+    "autoArrange": "Aranjează modulele tabloului",
+    "renameFloor": "Redenumește etajul",
+    "addCircuit": "Adaugă circuit",
+    "apply": "Aplică",
+    "unavailable": "Această modificare nu poate fi aplicată. Verifică valorile sau redeschide acțiunea.",
+    "fields": {
+      "circuit": "Circuit",
+      "position": "Poziție",
+      "row": "Rând",
+      "column": "Coloană",
+      "width": "Lățime (module)",
+      "target": "Conectează la",
+      "bus": "Bară",
+      "rows": "Rânduri",
+      "columns": "Coloane",
+      "name": "Nume",
+      "panel": "Tablou",
+      "kind": "Tip de circuit",
+      "direction": "Partea de alimentare",
+      "left": "Stânga",
+      "right": "Dreapta"
+    },
+    "kinds": {
+      "lighting": "Iluminat",
+      "sockets": "Prize",
+      "fixed_appliance": "Aparat fix",
+      "other": "Altele"
+    }
+  },
   "shortcuts": {
     "title": "Taste rapide",
     "intro": "Toate comenzile rapide de la tastatură utilizate în editor.",
@@ -179,6 +223,7 @@
       "ctrlCmdL": "Ctrl/Cmd+L",
       "ctrlCmdP": "Ctrl/Cmd+P",
       "ctrlCmdD": "Ctrl/Cmd + D",
+      "ctrlCmdK": "Ctrl/Cmd + K",
       "tab": "Tab",
       "esc": "Esc",
       "space": "Spațiu",
@@ -222,6 +267,9 @@
       "arrowKeys": "Tastele săgeată"
     },
     "entries": {
+      "openCommandPalette": {
+        "description": "Paleta de comenzi"
+      },
       "undo": {
         "description": "Anulare"
       },
@@ -1021,6 +1069,7 @@
       "overCapacity": "{{used}} din {{capacity}} canale de ieșire utilizate"
     },
     "solarPanel": {
+      "count": "Număr de panouri",
       "groupTitle": "Marca și modelul",
       "wattage": "Putere (Wp)",
       "voltage": "Tensiune (V)"
@@ -1166,6 +1215,7 @@
     "showHiddenDescription": "Selectați unul sau mai multe dispozitive de afișat.",
     "supplyPanel": "Netboard",
     "virtualEnclosure": "Cutie de alimentare",
+    "moduleEnclosure": "Carcasă",
     "hideSupplyPanel": "Ascundeți placa plasă",
     "rewireTool": "Instrument de resetare",
     "rewireModeOn": "Mod de resetare Dezactivat",
@@ -1201,6 +1251,7 @@
     "syncWithPanelView": "Sincronizare cu afișajul plăcii de distribuție"
   },
   "canvas": {
+    "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Afișați grila",
     "snap": "Aliniere",
     "projectedSnap": "Alinierea proiecției",

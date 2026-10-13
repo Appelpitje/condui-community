@@ -6,8 +6,6 @@ import { logger } from '@/lib/logger'
  * Each symbol type has its own small handler that knows what to create.
  */
 
-import { useUIStore } from '@/stores/uiStore'
-import { useProjectStore } from '@/stores/projectStore'
 import {
   getNextTerminalStripLabel,
   getTerminalStripCreationProps,
@@ -15,22 +13,18 @@ import {
   getTerminalStripTrunkCreationProps,
 } from '@/lib/terminalStrip/labels'
 import { getNextJunctionIdentity, isSharedJunctionSymbol } from '@/lib/junctionIdentity'
-import { trackGoogleAnalyticsEvent } from '@/lib/analytics/googleAnalytics'
-import {
-  trackSymbolPlace,
-  type EditorCanvasAnalytics,
-  type SymbolPlacementMethod,
+import type {
+  EditorCanvasAnalytics,
+  SymbolPlaceAnalyticsOptions as SymbolPlaceEvent,
+  SymbolPlacementMethod,
 } from '@/lib/analytics/editorEventAnalytics'
 import { ensureElectricalLayerOnFloor } from '@/lib/plan/floorLayers'
-import {
-  buildAutoSitplanPlacement,
-  getViewportCenterPlanSpaceIfApplicable,
-} from '@/lib/plan/autoSitplanPlacement'
+import { buildAutoSitplanPlacement } from '@/lib/plan/autoSitplanPlacement'
+import type { SitplanPlacementTarget } from '@/lib/eendraad/duplicateSitplanHelpers'
 import {
   resolveCircuitSitplanTargetFloorId,
   resolveSitplanTargetFloorId,
 } from '@/lib/plan/sitplanTargetFloor'
-import { ensureEarthingSitplanPlacement } from '@/lib/plan/ensureEarthingSitplanPlacement'
 import { collectAllGroundTrunkDevices } from '@/lib/eendraad/panelGround'
 import { canSymbolAppearOnSituationPlan } from '@/lib/plan/situationPlanSymbolEligibility'
 import { isModularSocketLibraryId } from '@/lib/socket/modularSocket'
@@ -107,7 +101,7 @@ import {
   resolveLayoutBranchIndex,
   resolveSmartSwitchExpansion,
   shouldApplySmartSwitchExpansion,
-} from '@/handlers/eendraad/smartSwitchDrop'
+} from '@/lib/eendraad/smartSwitchDrop'
 import {
   computeEndpointInsertAfter,
   shouldDefaultRelayToImpulse,
@@ -165,6 +159,8 @@ export interface DropBehavior {
 }
 
 export interface DropBehaviorCallbacks {
+  /** Optional deterministic id source for command-driven drops. */
+  newId?: () => string
   addPanel: (panel: Panel, parentPanelId?: string) => void
   addProtection: (panelId: string, protection: ProtectionDevice) => void
   addCircuit: (panelId: string, circuit: Circuit, protectionId?: string) => void
@@ -196,12 +192,18 @@ export interface DropBehaviorCallbacks {
   addSupplyTrunkDevice: (
     device: TrunkDevice,
     insertIndex?: number,
-    target?: { panelId?: string; feedScope?: DropTarget['supplyFeedScope']; diagramId?: string; supplyPanelInput?: boolean; busSectionId?: string }
+    target?: {
+      panelId?: string
+      feedScope?: DropTarget['supplyFeedScope']
+      diagramId?: string
+      supplyPanelInput?: boolean
+      busSectionId?: string
+    }
   ) => void
   updateSupplyTrunkDevice?: (deviceId: string, updates: Partial<TrunkDevice>) => void
   addGroundTrunkDevice: (device: TrunkDevice, insertIndex?: number, panelId?: string) => void
   ensureJunctionPanelPlacementForLabel: (label: string, floorId?: string) => void
-  ensureSecondaryPanelEarthingStem?: (panelId: string) => void
+  ensureSecondaryPanelEarthingStem: (panelId: string) => void
   updateCircuit: (circuitId: string, updates: Partial<Circuit>) => void
   updateProtection: (protectionId: string, updates: Partial<ProtectionDevice>) => void
   updateInstallation: (
@@ -227,6 +229,28 @@ export interface DropBehaviorCallbacks {
   }) => void
   /** Called when a drop is rejected (e.g. domain mismatch for conversion components) */
   onDropRejected?: (message: string) => void
+  /** Active floor and visible plan centre for automatic situation-plan placements. */
+  getSitplanTarget: () => SitplanPlacementTarget
+  /** Puts the earthing symbol on the floor when the installation has earthing. */
+  ensureEarthingSitplanPlacement: (floorId: string, pos?: Point) => void
+  /** Analytics hooks; called after the drop has executed. */
+  onSymbolPlaced?: (event: SymbolPlaceEvent) => void
+  onNotePlaced?: () => void
+}
+
+/** Editor-side parts of the callbacks: plan target, live follow-ups and analytics hooks. */
+export type DropBehaviorEditorHooks = Pick<
+  DropBehaviorCallbacks,
+  | 'getSitplanTarget'
+  | 'ensureEarthingSitplanPlacement'
+  | 'ensureSecondaryPanelEarthingStem'
+  | 'onSymbolPlaced'
+  | 'onNotePlaced'
+>
+
+/** The visible plan centre, when the plan shows the floor that receives the placement. */
+function viewportCenterOn(target: SitplanPlacementTarget, floorId: string): Point | null {
+  return target.viewportCenter && target.activeFloorId === floorId ? target.viewportCenter : null
 }
 
 function getOrderedTrunkDevices(circuit: Circuit): TrunkDevice[] {
@@ -299,7 +323,10 @@ function getSupplyDevicesForDropTarget(
 
 function getCircuitTrunkPositionForDrop(target: DropTarget, circuit: Circuit): number {
   if (target.insertAfterCircuitContent) {
-    return Math.max(getCircuitBranches(circuit).length, ...(circuit.trunkDevices ?? []).map((device) => device.trunkPosition ?? 0))
+    return Math.max(
+      getCircuitBranches(circuit).length,
+      ...(circuit.trunkDevices ?? []).map((device) => device.trunkPosition ?? 0)
+    )
   }
   // Per-segment drop target on vertical trunk wire takes priority.
   if (typeof target.circuitTrunkSegmentIndex === 'number') {
@@ -423,9 +450,14 @@ function getWireDomainAtDropTarget(
 
     // Only devices below this branch tap feed its endpoints.
     const branchIndex = getCircuitBranches(circuit).findIndex((branch) =>
-      branch.some((endpoint) => endpoint.id === target.endpointId || target.branchEndpoints?.includes(endpoint.id)))
-    const trunkDevices = (circuit.trunkDevices ?? []).filter((device) =>
-      branchIndex < 0 || (device.trunkPosition ?? 0) <= branchIndex)
+      branch.some(
+        (endpoint) =>
+          endpoint.id === target.endpointId || target.branchEndpoints?.includes(endpoint.id)
+      )
+    )
+    const trunkDevices = (circuit.trunkDevices ?? []).filter(
+      (device) => branchIndex < 0 || (device.trunkPosition ?? 0) <= branchIndex
+    )
     const sorted = [...trunkDevices].sort((a, b) => (a.trunkPosition ?? 0) - (b.trunkPosition ?? 0))
     let domain: typeof DEFAULT_ELECTRICAL_DOMAIN = AC
     for (const td of sorted) {
@@ -557,7 +589,11 @@ function addCircuitDcPassiveDevice(
       : {}),
   }
   if (protectionType === 'ROTATING_SWITCH') {
-    const placement = buildVisibleTrunkSitplanPlacement(project, circuit.id)
+    const placement = buildVisibleTrunkSitplanPlacement(
+      project,
+      callbacks.getSitplanTarget(),
+      circuit.id
+    )
     if (placement) device.placements = [placement]
   }
   if (target.converterDcConnection) callbacks.addTrunkDevice(circuit.id, device)
@@ -932,7 +968,11 @@ function addCircuitTrunkSwitchAtDrop(
     generateId(),
     getCircuitTrunkSwitchPositionForDrop(target, getCircuitTrunkPositionForDrop(target, circuit))
   )
-  const placement = buildVisibleTrunkSitplanPlacement(project, circuitId)
+  const placement = buildVisibleTrunkSitplanPlacement(
+    project,
+    callbacks.getSitplanTarget(),
+    circuitId
+  )
   if (placement) device.placements = [placement]
   addCircuitTrunkDeviceAtDrop(target, circuit, device, callbacks)
   callbacks.setSelection({ type: 'trunkDevice', ids: [device.id] })
@@ -1167,7 +1207,11 @@ const protectionBehavior: DropBehavior = {
         trunkPosition: getCircuitTrunkPositionForDrop(target, circuit),
         ...getDefaultTrunkDeviceProtectionProps(protectionType, getVoltagePolesConfig(project)),
       }
-      const placement = buildVisibleTrunkSitplanPlacement(project, target.circuitId)
+      const placement = buildVisibleTrunkSitplanPlacement(
+        project,
+        callbacks.getSitplanTarget(),
+        target.circuitId
+      )
       if (placement) trunkDevice.placements = [placement]
       addCircuitTrunkDeviceAtDrop(target, circuit, trunkDevice, callbacks)
       callbacks.setSelection({ type: 'trunkDevice', ids: [deviceId] })
@@ -1676,7 +1720,7 @@ const endpointBehavior: DropBehavior = {
 
     initializeBranchesIfNeeded(circuit)
 
-    const endpointId = generateId()
+    const endpointId = callbacks.newId?.() ?? generateId()
     const endpointType = getEndpointTypeFromSymbol(symbol)
     if (!endpointType) return
     const symbolKey = getSymbolKeyFromSymbol(symbol)
@@ -1784,9 +1828,10 @@ const endpointBehavior: DropBehavior = {
     }
 
     if (!isDomoticaOutputDrop) {
-      const chainRef = isDomoticaChildReplace || target.domoticaChildDropIntent === 'insertBefore'
-        ? domoticaChildRefForEndpoint(circuit, target.endpointId)
-        : domoticaChildRefForBranchInsert(circuit, insertAfterEndpointId, target.branchEndpoints)
+      const chainRef =
+        isDomoticaChildReplace || target.domoticaChildDropIntent === 'insertBefore'
+          ? domoticaChildRefForEndpoint(circuit, target.endpointId)
+          : domoticaChildRefForBranchInsert(circuit, insertAfterEndpointId, target.branchEndpoints)
       if (chainRef) {
         endpoint.domoticaChildProps = chainRef
         const parent = circuit.endpoints.find((e: Endpoint) => e.id === chainRef.parentEndpointId)
@@ -1807,7 +1852,9 @@ const endpointBehavior: DropBehavior = {
       : initializeBranchesIfNeeded(circuit)
 
     const downstreamIds = target.branchEndpoints?.slice(
-      typeof insertAfterEndpointId === 'string' ? target.branchEndpoints.indexOf(insertAfterEndpointId) + 1 : 0
+      typeof insertAfterEndpointId === 'string'
+        ? target.branchEndpoints.indexOf(insertAfterEndpointId) + 1
+        : 0
     )
     if (!createNewBranch && downstreamIds?.length) hideInlineConverterMetadataByDefault(endpoint)
 
@@ -1816,9 +1863,10 @@ const endpointBehavior: DropBehavior = {
 
     if (target.domoticaChildDropIntent === 'insertBefore') {
       const afterAdd = callbacks.getCircuitById(circuitId)
-      if (afterAdd) callbacks.updateCircuit(circuitId, {
-        endpoints: updateDomoticaChainHeadAfterInsert(afterAdd, endpointId, target.endpointId),
-      })
+      if (afterAdd)
+        callbacks.updateCircuit(circuitId, {
+          endpoints: updateDomoticaChainHeadAfterInsert(afterAdd, endpointId, target.endpointId),
+        })
     }
 
     if (isDomoticaChildReplace && target.endpointId && target.endpointId !== endpointId) {
@@ -1898,7 +1946,7 @@ const endpointBehavior: DropBehavior = {
 
       const nextBranches = [...branchesSansNewEndpoint]
       nextBranches.splice(clamp(insertionIndex, 0, nextBranches.length), 0, {
-        id: generateId(),
+        id: callbacks.newId?.() ?? generateId(),
         label: '',
         endpointIds: [endpointId],
         ...(dcBusId ? { dcBusId } : {}),
@@ -1970,7 +2018,11 @@ const endpointBehavior: DropBehavior = {
           callbacks.updateCircuit(circuitId, {
             branches: [
               ...branches,
-              { id: generateId(), label: endpoint.label, endpointIds: [endpointId] },
+              {
+                id: callbacks.newId?.() ?? generateId(),
+                label: endpoint.label,
+                endpointIds: [endpointId],
+              },
             ],
           })
         } else {
@@ -1988,7 +2040,7 @@ const endpointBehavior: DropBehavior = {
           callbacks.updateCircuit(circuitId, {
             branches: [
               ...branchesSansNewEndpoint,
-              { id: generateId(), label: '', endpointIds: [endpointId] },
+              { id: callbacks.newId?.() ?? generateId(), label: '', endpointIds: [endpointId] },
             ],
           })
         }
@@ -1999,7 +2051,7 @@ const endpointBehavior: DropBehavior = {
       const circuitAfterAdd = callbacks.getCircuitById(circuitId)
       if (circuitAfterAdd) {
         const branch = circuitAfterAdd.branches?.[0] ?? {
-          id: generateId(),
+          id: callbacks.newId?.() ?? generateId(),
           label: '',
           endpointIds: [],
         }
@@ -2035,7 +2087,7 @@ const endpointBehavior: DropBehavior = {
     const currentProject = project
     const activeFloorId = resolveCircuitSitplanTargetFloorId(
       currentProject,
-      useUIStore.getState().activeFloorId,
+      callbacks.getSitplanTarget().activeFloorId,
       circuitId
     )
 
@@ -2045,19 +2097,12 @@ const endpointBehavior: DropBehavior = {
       )
       if (!floorEntity) return
       if ('layers' in floorEntity) ensureElectricalLayerOnFloor(floorEntity)
-      const uiSnap = useUIStore.getState()
       const preferredPlanPos =
-        getViewportCenterPlanSpaceIfApplicable(
-          uiSnap.viewportLayout,
-          uiSnap.planCanvasViewportPx,
-          uiSnap.activeFloorId,
-          activeFloorId,
-          uiSnap.planView
-        ) ?? undefined
+        viewportCenterOn(callbacks.getSitplanTarget(), activeFloorId) ?? undefined
       const placement = buildAutoSitplanPlacement(currentProject, {
         circuitId,
         floorId: activeFloorId,
-        placementId: generateId(),
+        placementId: callbacks.newId?.() ?? generateId(),
         ...(preferredPlanPos ? { preferredPlanPos } : {}),
       })
       if (placement) {
@@ -2183,27 +2228,19 @@ const relayBehavior: DropBehavior = {
 
 function buildVisibleTrunkSitplanPlacement(
   project: DropBehaviorProject,
+  sitplanTarget: SitplanPlacementTarget,
   circuitId: string,
   preferredPlanPosOverride?: Point
 ): Placement | null {
   const activeFloorId = resolveCircuitSitplanTargetFloorId(
     project,
-    useUIStore.getState().activeFloorId,
+    sitplanTarget.activeFloorId,
     circuitId
   )
   if (!activeFloorId) return null
 
-  const uiSnap = useUIStore.getState()
   const preferredPlanPos =
-    preferredPlanPosOverride ??
-    getViewportCenterPlanSpaceIfApplicable(
-      uiSnap.viewportLayout,
-      uiSnap.planCanvasViewportPx,
-      uiSnap.activeFloorId,
-      activeFloorId,
-      uiSnap.planView
-    ) ??
-    undefined
+    preferredPlanPosOverride ?? viewportCenterOn(sitplanTarget, activeFloorId) ?? undefined
   return buildAutoSitplanPlacement(project, {
     circuitId,
     floorId: activeFloorId,
@@ -2460,7 +2497,11 @@ const energyConversionBehavior: DropBehavior = {
         label: '',
         trunkPosition,
       }
-      const placement = buildVisibleTrunkSitplanPlacement(project, target.circuitId)
+      const placement = buildVisibleTrunkSitplanPlacement(
+        project,
+        callbacks.getSitplanTarget(),
+        target.circuitId
+      )
       if (placement) trunkDevice.placements = [placement]
       addCircuitTrunkDeviceAtDrop(target, circuit, trunkDevice, callbacks)
       callbacks.setSelection({ type: 'trunkDevice', ids: [deviceId] })
@@ -2595,6 +2636,7 @@ const dcEndpointBehavior: DropBehavior = {
       const endpointPlacement = addedEndpoint?.placements[0]
       const inverterPlacement = buildVisibleTrunkSitplanPlacement(
         project,
+        callbacks.getSitplanTarget(),
         circuitId,
         endpointPlacement
           ? { x: endpointPlacement.pos.x - 80, y: endpointPlacement.pos.y }
@@ -2937,9 +2979,7 @@ const groundBehavior: DropBehavior = {
     if (!panel) return
 
     if (panel.isMain === false) {
-      const ensureStem =
-        callbacks.ensureSecondaryPanelEarthingStem ??
-        useProjectStore.getState().ensureSecondaryPanelEarthingStem
+      const ensureStem = callbacks.ensureSecondaryPanelEarthingStem
       ensureStem(panel.id)
     } else if (projectInstallation(project)) {
       callbacks.updateInstallation({ hasGround: true })
@@ -2947,18 +2987,14 @@ const groundBehavior: DropBehavior = {
       return
     }
 
-    const activeFloorId = resolveSitplanTargetFloorId(project, useUIStore.getState().activeFloorId)
+    const activeFloorId = resolveSitplanTargetFloorId(
+      project,
+      callbacks.getSitplanTarget().activeFloorId
+    )
     if (activeFloorId) {
-      const uiSnap = useUIStore.getState()
       const preferredPlanPos =
-        getViewportCenterPlanSpaceIfApplicable(
-          uiSnap.viewportLayout,
-          uiSnap.planCanvasViewportPx,
-          uiSnap.activeFloorId,
-          activeFloorId,
-          uiSnap.planView
-        ) ?? undefined
-      ensureEarthingSitplanPlacement(activeFloorId, preferredPlanPos)
+        viewportCenterOn(callbacks.getSitplanTarget(), activeFloorId) ?? undefined
+      callbacks.ensureEarthingSitplanPlacement(activeFloorId, preferredPlanPos)
     }
   },
 }
@@ -2968,33 +3004,27 @@ const groundBehavior: DropBehavior = {
  */
 const earthingSeparatorBehavior: DropBehavior = {
   validTargets: ['groundWire', 'mainBus'],
-  execute: (target, project, symbol, _t, callbacks) => {
+  execute: (target, project, symbol, t, callbacks) => {
     const panel = findPanelForTarget(project, target)
     if (!panel) return
 
     if (panel.isMain === false && target.type === 'mainBus') {
-      const ensureStem =
-        callbacks.ensureSecondaryPanelEarthingStem ??
-        useProjectStore.getState().ensureSecondaryPanelEarthingStem
+      const ensureStem = callbacks.ensureSecondaryPanelEarthingStem
       ensureStem(panel.id)
-      const activeFloorId = resolveSitplanTargetFloorId(project, useUIStore.getState().activeFloorId)
+      const activeFloorId = resolveSitplanTargetFloorId(
+        project,
+        callbacks.getSitplanTarget().activeFloorId
+      )
       if (activeFloorId) {
-        const uiSnap = useUIStore.getState()
         const preferredPlanPos =
-          getViewportCenterPlanSpaceIfApplicable(
-            uiSnap.viewportLayout,
-            uiSnap.planCanvasViewportPx,
-            uiSnap.activeFloorId,
-            activeFloorId,
-            uiSnap.planView
-          ) ?? undefined
-        ensureEarthingSitplanPlacement(activeFloorId, preferredPlanPos)
+          viewportCenterOn(callbacks.getSitplanTarget(), activeFloorId) ?? undefined
+        callbacks.ensureEarthingSitplanPlacement(activeFloorId, preferredPlanPos)
       }
       return
     }
 
     if (target.type === 'groundWire') {
-      addGroundTrunkDevice(symbol, target, project, callbacks)
+      addGroundTrunkDevice(symbol, target, project, t, callbacks)
     }
   },
 }
@@ -3038,7 +3068,7 @@ const junctionBoxBehavior: DropBehavior = {
     }
     if (target.type === 'groundWire') {
       if (!panel?.isMain) return
-      addGroundTrunkDevice(symbol, target, project, callbacks)
+      addGroundTrunkDevice(symbol, target, project, t, callbacks)
       return
     }
     // On endpoint or protection (branch): add as in-between device on branch, like energy meter
@@ -3070,19 +3100,12 @@ const junctionBoxBehavior: DropBehavior = {
       }
       const activeFloorId = resolveCircuitSitplanTargetFloorId(
         project,
-        useUIStore.getState().activeFloorId,
+        callbacks.getSitplanTarget().activeFloorId,
         target.circuitId
       )
       if (activeFloorId) {
-        const uiSnap = useUIStore.getState()
         const preferredPlanPos =
-          getViewportCenterPlanSpaceIfApplicable(
-            uiSnap.viewportLayout,
-            uiSnap.planCanvasViewportPx,
-            uiSnap.activeFloorId,
-            activeFloorId,
-            uiSnap.planView
-          ) ?? undefined
+          viewportCenterOn(callbacks.getSitplanTarget(), activeFloorId) ?? undefined
         const placement = buildAutoSitplanPlacement(project, {
           circuitId: target.circuitId,
           floorId: activeFloorId,
@@ -3136,7 +3159,7 @@ const junctionPanelBehavior: DropBehavior = {
     }
     if (target.type === 'groundWire') {
       if (!panel?.isMain) return
-      addGroundTrunkDevice(symbol, target, project, callbacks)
+      addGroundTrunkDevice(symbol, target, project, t, callbacks)
       return
     }
     // On endpoint or protection (branch): add as in-between device on branch, like energy meter
@@ -3178,6 +3201,7 @@ function addGroundTrunkDevice(
   symbol: SymbolMetadata,
   target: DropTarget,
   project: DropBehaviorProject,
+  t: TFunction,
   callbacks: DropBehaviorCallbacks
 ): void {
   const deviceId = generateId()
@@ -3194,7 +3218,11 @@ function addGroundTrunkDevice(
         : { label: '', junctionIdentity: getNextJunctionIdentity(project, symbol.id) }),
       trunkPosition: insertIndex,
     }
-    callbacks.addGroundTrunkDevice(trunkDevice, insertIndex, panelIdForGroundDevice(project, target))
+    callbacks.addGroundTrunkDevice(
+      trunkDevice,
+      insertIndex,
+      panelIdForGroundDevice(project, target)
+    )
     return
   }
   if (symbol.id === 'junction_panel') {
@@ -3207,7 +3235,11 @@ function addGroundTrunkDevice(
       label,
       trunkPosition: insertIndex,
     }
-    callbacks.addGroundTrunkDevice(trunkDevice, insertIndex, panelIdForGroundDevice(project, target))
+    callbacks.addGroundTrunkDevice(
+      trunkDevice,
+      insertIndex,
+      panelIdForGroundDevice(project, target)
+    )
     return
   }
 
@@ -3218,7 +3250,7 @@ function addGroundTrunkDevice(
         id: offset === 0 ? deviceId : generateId(),
         type: 'earthing_separator',
         symbol: 'earthing_separator',
-        label: 'Aardingsonderbreker',
+        label: t('symbols.names.earthing_separator', { defaultValue: 'PE' }),
         trunkPosition: insertIndex + offset,
         earthingSeparatorPairId: pairId,
       },
@@ -3406,17 +3438,13 @@ function addSupplyTrunkDevice(
     deviceType === 'generation' ||
     deviceType === 'energy_meter'
   if (needsPhysicalPlanPlacement) {
-    const activeFloorId = resolveSitplanTargetFloorId(project, useUIStore.getState().activeFloorId)
+    const activeFloorId = resolveSitplanTargetFloorId(
+      project,
+      callbacks.getSitplanTarget().activeFloorId
+    )
     if (activeFloorId) {
-      const uiSnap = useUIStore.getState()
       const preferredPlanPos =
-        getViewportCenterPlanSpaceIfApplicable(
-          uiSnap.viewportLayout,
-          uiSnap.planCanvasViewportPx,
-          uiSnap.activeFloorId,
-          activeFloorId,
-          uiSnap.planView
-        ) ?? undefined
+        viewportCenterOn(callbacks.getSitplanTarget(), activeFloorId) ?? undefined
       const placement = buildAutoSitplanPlacement(project, {
         circuitId: panelSupplyCircuit?.id ?? `panel-supply:${target.panelId ?? 'main'}`,
         floorId: activeFloorId,
@@ -3479,7 +3507,7 @@ const noteBehavior: DropBehavior = {
   validTargets: [null],
   execute: (_target, _project, _symbol, _t, callbacks) => {
     const pos = callbacks.dropCanvasPosition ?? { x: 0, y: 0 }
-    const noteId = `note-${Date.now()}`
+    const noteId = `note-${generateId()}`
     callbacks.addEendraadNote({
       id: noteId,
       text: 'New note',
@@ -3488,10 +3516,7 @@ const noteBehavior: DropBehavior = {
       panelId: undefined,
     })
     callbacks.setSelection({ type: 'note', ids: [noteId] })
-    trackGoogleAnalyticsEvent('note_place', {
-      canvas: 'eendraad',
-      source: 'symbol_drop',
-    })
+    callbacks.onNotePlaced?.()
   },
 }
 
@@ -3784,7 +3809,7 @@ export function executeDropBehavior(
   ) {
     addEndpointToCircuitConverterDcConnection(target, project, symbol, t, callbacks)
     if (analytics) {
-      trackSymbolPlace({
+      callbacks.onSymbolPlaced?.({
         ...analytics,
         symbol,
         targetType: target.type ?? 'empty',
@@ -3815,7 +3840,7 @@ export function executeDropBehavior(
 
   behavior.execute(target, project, symbol, t, callbacks)
   if (analytics) {
-    trackSymbolPlace({
+    callbacks.onSymbolPlaced?.({
       ...analytics,
       symbol,
       targetType: target.type ?? 'empty',
@@ -3845,7 +3870,10 @@ function findPanelForTarget(project: DropBehaviorProject, target: DropTarget): P
   return panels.find((p) => p.isMain) || panels[0] || null
 }
 
-function panelIdForGroundDevice(project: DropBehaviorProject, target: DropTarget): string | undefined {
+function panelIdForGroundDevice(
+  project: DropBehaviorProject,
+  target: DropTarget
+): string | undefined {
   const panel = findPanelForTarget(project, target)
   return panel?.isMain === false ? panel.id : undefined
 }

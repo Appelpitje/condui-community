@@ -1,3 +1,5 @@
+import { deleteProjectEntities, resolveSelectionDeleteRefs } from '@/handlers/commands/deleteEntities'
+import { editProperties } from '@/handlers/properties/editProperties'
 import { useCallback, useEffect } from 'react'
 import type { TFunction } from 'i18next'
 import type { ContextMenuItem } from '@/components/common/ContextMenu'
@@ -8,10 +10,9 @@ import { useUIStore } from '@/stores/uiStore'
 import { collectPanelHiddenModuleEntries, getGlobalPanelHiddenDialogTargets } from '@/lib/panel/panelHiddenModules'
 import { linkedSubPanelDisplayNamesForProtectionIds } from '@/lib/panel/linkedSubPanelDeleteWarning'
 import { createLinkedProtectionDeleteDialog } from '@/lib/panel/linkedProtectionDeleteDialog'
-import { confirmDeleteSupplyTrunkDevice } from '@/lib/supplyAssembly/deleteSupplyTrunkDevice'
 import { isEendraadDeleteKey } from '@/lib/eendraad/deleteKeyboardKey'
 import { isKeyboardTypingTarget } from '@/lib/ui/keyboardTypingTarget'
-import { panelGridModuleRefKey } from '@/components/canvas/panel/panelGridLayout'
+import { panelGridModuleRefKey } from '@/lib/panel/panelGridLayout'
 import { openPanelHiddenModulesDialog } from '@/components/canvas/panel/openPanelHiddenModulesDialog'
 import { getSharedSupplyFrameDevices, SHARED_SUPPLY_FRAME_ID } from '@/lib/panel/sharedSupplyFrame'
 import { isModularSocket } from '@/lib/socket/modularSocket'
@@ -218,6 +219,14 @@ export function usePanelContextMenu({
           }
         }
 
+        for (const id of selection.ids) {
+          const item = contextModules.find((candidate) => candidate.ref.kind === 'domotica' ? candidate.ref.endpointId === id : candidate.ref.id === id)
+          if (!item) continue
+          const key = panelGridModuleRefKey(item.ref)
+          moduleKeys.add(key)
+          if (item.ref.kind !== 'domotica' || !isModularSocket(useProjectStore.getState().getEndpointById(item.ref.endpointId))) hideableKeys.add(key)
+        }
+
         if (moduleKeys.size > 0) {
           // Bottom section: Hide in this view + Delete (multi)
           items.push({ label: '', onClick: () => {}, separator: true })
@@ -226,7 +235,7 @@ export function usePanelContextMenu({
               label: t('contextMenu.hideInThisView', 'Hide in this view'),
               icon: getContextMenuIcon('hideInThisView'),
               onClick: () => {
-                hideableKeys.forEach((key) => hideModuleFromPanel(contextPanelId, key))
+                editProperties({ actions: [...hideableKeys].map((moduleRefKey) => ({ kind: 'panelModuleVisibility', panelId: contextPanelId, moduleRefKey, visible: false })) })
               },
             })
           }
@@ -236,38 +245,9 @@ export function usePanelContextMenu({
               icon: getContextMenuIcon('delete'),
               onClick: () => {
                 const store = useProjectStore.getState()
-                const {
-                  deleteProtections,
-                  deleteEndpoints,
-                  deleteTrunkDevice,
-                  deleteGroundTrunkDevice,
-                  getTrunkDeviceById: getTrunkById,
-                } = store
-
-                const protectionIds = selection.type === 'protection' ? selection.ids : []
-                const endpointIds = selection.type === 'endpoint' ? selection.ids : []
-                const trunkIds = selection.type === 'trunkDevice' ? selection.ids : []
-
+                const protectionIds = selection.ids.filter((id) => store.getProtectionById(id))
                 const runBulkDelete = (preserveLinkedPanels = false) => {
-                  if (protectionIds.length > 0) {
-                    deleteProtections(protectionIds, { preserveLinkedPanels })
-                  }
-                  if (endpointIds.length > 0) deleteEndpoints(endpointIds)
-
-                  for (const id of trunkIds) {
-                    const res = getTrunkById(id)
-                    if (!res) continue
-                    const { isSupplyDevice, isGroundDevice, circuit } = res
-                    if (isSupplyDevice) {
-                      confirmDeleteSupplyTrunkDevice(id)
-                    } else if (isGroundDevice) {
-                      deleteGroundTrunkDevice(id)
-                    } else if (circuit) {
-                      deleteTrunkDevice(circuit.id, id)
-                    }
-                  }
-
-                  clearSelection()
+                  deleteProjectEntities(resolveSelectionDeleteRefs(selection), { preserveLinkedPanels, onDeleted: clearSelection })
                 }
 
                 const linkedPanelNames = linkedSubPanelDisplayNamesForProtectionIds(
@@ -384,17 +364,9 @@ export function usePanelContextMenu({
               icon: getContextMenuIcon('delete'),
               onClick: () => {
                 const store = useProjectStore.getState()
-                const {
-                  deleteProtection,
-                  deleteEndpoints,
-                  deleteTrunkDevice,
-                  deleteGroundTrunkDevice,
-                } = store
-
                 if (ref.kind === 'protection') {
                   const runDeleteProtection = (preserveLinkedPanels = false) => {
-                    deleteProtection(ref.id, { preserveLinkedPanels })
-                    clearSelection()
+                    deleteProjectEntities([{ kind: 'protection', id: ref.id }], { preserveLinkedPanels, onDeleted: clearSelection })
                   }
                   const linkedNames = linkedSubPanelDisplayNamesForProtectionIds(
                     store.currentProject,
@@ -414,21 +386,9 @@ export function usePanelContextMenu({
                     runDeleteProtection()
                   }
                 } else if (ref.kind === 'domotica') {
-                  deleteEndpoints([ref.endpointId])
-                  clearSelection()
+                  deleteProjectEntities([{ kind: 'endpoint', id: ref.endpointId }], { onDeleted: clearSelection })
                 } else if (ref.kind === 'trunkDevice') {
-                  const info = getTrunkDeviceById(ref.id)
-                  if (info) {
-                    const { isSupplyDevice, isGroundDevice, circuit } = info
-                    if (isSupplyDevice) {
-                      confirmDeleteSupplyTrunkDevice(ref.id)
-                    } else if (isGroundDevice) {
-                      deleteGroundTrunkDevice(ref.id)
-                    } else if (circuit) {
-                      deleteTrunkDevice(circuit.id, ref.id)
-                    }
-                  }
-                  clearSelection()
+                  deleteProjectEntities([{ kind: 'trunkDevice', id: ref.id }], { onDeleted: clearSelection })
                 }
               },
               variant: 'danger',

@@ -5,6 +5,7 @@
  * Keeps dropdown behaviour and option lists in one place.
  */
 import { Eye, EyeOff } from 'lucide-react'
+import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import type { TFunction } from 'i18next'
 import type {
   CurveType,
@@ -25,11 +26,11 @@ import {
 } from '@/constants/poleConfig'
 import type { ProtectionLabelKey } from '@/lib/protectionLabels'
 import {
-  BE_STANDARD_BREAKER_RATINGS_A,
+  getProtectionRatingOptions,
   DEFAULT_RCBO_SENSITIVITY_MA,
   DEFAULT_RESIDUAL_CURRENT_TYPE,
   breakingCapacityPatchFromSelectValue,
-  MCB_RCBO_BREAKING_CAPACITY_OPTIONS,
+  getBreakerBreakingCapacityOptions,
   protectionBreakingCapacityKaOptions,
   resolveBreakingCapacitySelectValue,
 } from '@/lib/protectionDefaults'
@@ -121,6 +122,7 @@ export function ProtectionDeviceElectricalFields({
   isProtectionLabelVisible,
   toggleProtectionLabel,
 }: ProtectionDeviceElectricalFieldsProps) {
+  const installationProfile = useInstallationProfile()
   const isRCD = protectionType === 'RCD'
   const isRCBO = protectionType === 'RCBO'
   const isMCB = protectionType === 'MCB'
@@ -138,11 +140,7 @@ export function ProtectionDeviceElectricalFields({
         ? POLE_CONFIG_OPTIONS_MCB
         : POLE_CONFIG_OPTIONS
 
-  const ratingOptions = isRCD
-    ? [25, 40, 63, 80, 100, 125]
-    : isRCBO || isMCB
-      ? [...BE_STANDARD_BREAKER_RATINGS_A]
-      : null
+  const ratingOptions = getProtectionRatingOptions(protectionType, installationProfile)
 
   const sensitivityOptions = isRCD
     ? [10, 30, 100, 300, 500]
@@ -384,7 +382,7 @@ export function ProtectionDeviceElectricalFields({
                     value: String(kA),
                     label: `${kA} kA`,
                   }))
-                : MCB_RCBO_BREAKING_CAPACITY_OPTIONS.map(({ value, label }) => ({
+                : getBreakerBreakingCapacityOptions(installationProfile).map(({ value, label }) => ({
                     value,
                     label,
                   }))

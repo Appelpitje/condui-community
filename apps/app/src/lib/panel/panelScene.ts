@@ -18,6 +18,11 @@ import {
   resolveSupplyDeviceMounting,
 } from '@/lib/panel/auxiliarySupplyEnclosures'
 import type { AuxiliaryElectricalEnclosure } from '@/types/supplyAssembly'
+import {
+  getCircuitModuleRefsInEnclosure,
+  resolveCircuitModuleEnclosureInProject,
+} from '@/lib/panel/circuitModuleMounting'
+import { listRemountableCircuitModules } from '@/lib/panel/circuitModuleMountingRules'
 import { assemblyOwnsPanelInput, buildSupplyElectricalTopology, type SupplyPhysicalTarget } from '@/lib/supplyAssembly/electricalTopology'
 import { selectProjectSupplyAssemblies } from '@/lib/projectV2/electrical'
 import { getPanelBusSections } from '@/lib/panel/panelBusSections'
@@ -27,6 +32,7 @@ import {
   CELL_H,
   CELL_W,
   ROW_GAP,
+  ROW_STRIDE,
   TERMINAL_STRIP_RAIL_H,
   getPanelGridPlacements,
   getTerminalStripBottomExtent,
@@ -36,13 +42,14 @@ import {
   getSupplyPanelPlacements,
   panelGridModuleRefKey,
   type ModulePlacement,
-} from '@/components/canvas/panel/panelGridLayout'
+} from '@/lib/panel/panelGridLayout'
 import {
   collectJunctionPanelOccurrences,
   getJunctionPanelGridView,
   getJunctionPanelIdentity,
   getJunctionPanelTerminal,
 } from '@/lib/junctionPanel/grid'
+import { getJunctionPanelModulesInProject } from '@/lib/panel/panelGridModules'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import {
   findConverterBackupPanelFeed,
@@ -59,6 +66,21 @@ export type PanelScenePanelOption = {
   id: string
   panel: Panel
   isRoot: boolean
+}
+
+/** Horizontal gap between boards, and between a board and the enclosures beside it. */
+export const PANEL_SCENE_SIBLING_GAP = 48
+
+/** The grid a surface lays its modules on, whatever kind of frame it is. */
+export function getPanelSceneSurfaceGrid(surface: {
+  panel?: Panel | null
+  enclosure?: AuxiliaryElectricalEnclosure
+  junctionPanelGridView?: Panel['gridView']
+}): { gridView?: Panel['gridView'] } | null {
+  if (surface.panel) return surface.panel
+  if (surface.enclosure) return { gridView: surface.enclosure.gridView }
+  if (surface.junctionPanelGridView) return { gridView: surface.junctionPanelGridView }
+  return null
 }
 
 export type PanelSceneSurfaceKind = 'shared_supply' | 'auxiliary' | 'junction_panel' | 'panel'
@@ -341,7 +363,7 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
   )
   const rootGap = hasConverterBackupRoot ? 120 : 56
   const levelGap = 72
-  const siblingGap = 48
+  const siblingGap = PANEL_SCENE_SIBLING_GAP
 
   const installation = getProjectElectricalInstallation(currentProject)
   const rootPanels = getProjectElectricalPanels(currentProject)
@@ -478,10 +500,14 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
       getAllCircuits(panel).flatMap((circuit) => (circuit.trunkDevices ?? [])
         .filter((device) => isTerminalStripDevice(device) && device.panelMounting?.kind === 'auxiliary' && device.panelMounting.enclosureId === enclosure.id)
         .map((device): PanelGridModuleRef => ({ kind: 'trunkDevice', id: device.id, scope: 'circuit', circuitId: circuit.id }))))
+    const enclosureHiddenKeys = new Set(enclosure.gridView.hiddenModuleKeys ?? [])
+    const circuitModuleRefs = getCircuitModuleRefsInEnclosure(currentProject, enclosure.id).filter(
+      (ref) => !enclosureHiddenKeys.has(panelGridModuleRefKey(ref))
+    )
     const placements = getPanelGridPlacements(
       layoutPanel,
       currentProject,
-      [...auxiliaryRefs, ...terminalRefs].map((ref) => ({
+      [...auxiliaryRefs, ...terminalRefs, ...circuitModuleRefs].map((ref) => ({
         ref,
         slot: slotByKey.get(panelGridModuleRefKey(ref)),
       }))
@@ -524,6 +550,8 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
     panel: Panel | null
     surface: Omit<PanelSceneSurface, 'x' | 'y'>
     children: TreeNode[]
+    /** Module enclosures hanging beside this board, left to right. */
+    sides: PanelSceneSurface[]
     subtreeWidth: number
     x: number
     y: number
@@ -551,7 +579,24 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
       feedFromTop: hierarchyFeedFromTop,
     }
     const cols = Math.max(1, gridView.columns)
-    const rows = Math.max(1, gridView.rows)
+    // Modules behind this junction panel on their circuit hang in it, below the terminals
+    // unless those sit on a rail.
+    const junctionModules = getJunctionPanelModulesInProject(
+      currentProject,
+      identity,
+      gridView.slots
+    )
+    const moduleRowOffset =
+      junctionModules.length > 0 && !gridView.terminalStripTopRail && !gridView.terminalStripBottomRail
+        ? 1
+        : 0
+    const modulePlacements = getPanelGridPlacements(
+      { ...firstRootOption.panel, gridView: { ...gridView, rows: 50, feedFromTop: true } },
+      currentProject,
+      junctionModules
+    )
+    const moduleRows = modulePlacements.reduce((max, placement) => Math.max(max, placement.row + 1), 0)
+    const rows = Math.max(1, gridView.rows, moduleRows + moduleRowOffset)
     const layoutPanel = { ...firstRootOption.panel, gridView }
     const contentWidth = cols * CELL_W
     const mainContentHeight = rows * CELL_H + Math.max(0, rows - 1) * ROW_GAP
@@ -591,6 +636,13 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
         terminalStripRail: preferredRail,
       }
     })
+    placements.push(
+      ...modulePlacements.map((placement) => ({
+        ...placement,
+        x: placement.x + M,
+        y: placement.y + M + moduleRowOffset * ROW_STRIDE,
+      }))
+    )
     return {
       id: `junction-panel:${identity}`,
       panel: null,
@@ -634,6 +686,21 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
     if (includeDescendants) for (const child of panel.subPanels ?? []) indexTreeOrder(child)
   }
   for (const option of rootOptions) indexTreeOrder(option.panel)
+  // An enclosure holding relays, meters or domotica modules sits beside the board it belongs
+  // to; supply enclosures keep their band above the boards.
+  const sideEnclosuresByOwner = new Map<string, PanelSceneSurface[]>()
+  const bandAuxiliarySurfaces: PanelSceneSurface[] = []
+  for (const surface of auxiliarySurfaces) {
+    const ownerPanelId = surface.enclosure?.ownerPanelId
+    if (surface.enclosure?.kind === 'other' && ownerPanelId && treeOrder.has(ownerPanelId)) {
+      sideEnclosuresByOwner.set(ownerPanelId, [
+        ...(sideEnclosuresByOwner.get(ownerPanelId) ?? []),
+        surface,
+      ])
+    } else {
+      bandAuxiliarySurfaces.push(surface)
+    }
+  }
   const rootPanelIds = new Set(rootOptions.map((option) => option.panel.id))
   const junctionSurfaceByIdentity = new Map(
     junctionPanelSurfaces.map((surface) => [surface.label, surface] as const)
@@ -670,19 +737,25 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
   }
   if (includeDescendants) for (const option of rootOptions) collectFedPanels(option.panel)
 
-  const getSubtreeWidth = (surface: { width: number }, children: TreeNode[]) => {
+  const getBlockWidth = (surface: { width: number }, sides: PanelSceneSurface[]) =>
+    sides.reduce((width, side) => width + siblingGap + side.width, surface.width)
+  const getSubtreeWidth = (
+    surface: { width: number },
+    children: TreeNode[],
+    sides: PanelSceneSurface[] = []
+  ) => {
     const childrenWidth =
       children.length > 0
         ? children.reduce((sum, child) => sum + child.subtreeWidth, 0) +
           siblingGap * Math.max(0, children.length - 1)
         : 0
-    return Math.max(surface.width, childrenWidth)
+    return Math.max(getBlockWidth(surface, sides), childrenWidth)
   }
 
   const measureJunctionNode = (identity: string): TreeNode => {
     const surface = junctionSurfaceByIdentity.get(identity)!
     const children = (panelsFedByJunction.get(identity) ?? []).map((panel) => measureNode(panel))
-    return { panel: null, surface, children, subtreeWidth: getSubtreeWidth(surface, children), x: 0, y: 0 }
+    return { panel: null, surface, children, sides: [], subtreeWidth: getSubtreeWidth(surface, children), x: 0, y: 0 }
   }
 
   function measureNode(panel: Panel): PanelTreeNode {
@@ -694,38 +767,54 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
       ...(junctionIdentitiesByOwner.get(panel.id) ?? []).map(measureJunctionNode),
     ]
     const surface = buildSurfaceForPanel(panel)
-    return { panel, surface, children, subtreeWidth: getSubtreeWidth(surface, children), x: 0, y: 0 }
+    const sides = sideEnclosuresByOwner.get(panel.id) ?? []
+    return {
+      panel,
+      surface,
+      children,
+      sides,
+      subtreeWidth: getSubtreeWidth(surface, children, sides),
+      x: 0,
+      y: 0,
+    }
   }
 
   const layoutNode = (node: TreeNode, x: number, y: number): void => {
-    node.x = x + (node.subtreeWidth - node.surface.width) / 2
+    node.x = x + (node.subtreeWidth - getBlockWidth(node.surface, node.sides)) / 2
     node.y = y
+    let sideX = node.x + node.surface.width + siblingGap
+    for (const side of node.sides) {
+      side.x = sideX
+      side.y = y
+      sideX += side.width + siblingGap
+    }
     if (node.children.length === 0) return
     const childrenWidth =
       node.children.reduce((sum, child) => sum + child.subtreeWidth, 0) +
       siblingGap * Math.max(0, node.children.length - 1)
     let cursorX = x + (node.subtreeWidth - childrenWidth) / 2
-    const childY = y + node.surface.height + levelGap
+    const childY =
+      y + Math.max(node.surface.height, ...node.sides.map((side) => side.height)) + levelGap
     for (const child of node.children) {
       layoutNode(child, cursorX, childY)
       cursorX += child.subtreeWidth + siblingGap
     }
   }
 
-  const auxiliaryBandHeight = auxiliarySurfaces.reduce(
+  const auxiliaryBandHeight = bandAuxiliarySurfaces.reduce(
     (height, surface) => Math.max(height, surface.height),
     0
   )
   const minimumPreferredX =
-    auxiliarySurfaces.length > 0
+    bandAuxiliarySurfaces.length > 0
       ? Math.min(
-          ...auxiliarySurfaces.map(
+          ...bandAuxiliarySurfaces.map(
             (surface) => surface.enclosure?.panelViewPosition?.x ?? surface.x
           )
         )
       : 0
   let auxiliaryCursorX = 0
-  for (const surface of auxiliarySurfaces) {
+  for (const surface of bandAuxiliarySurfaces) {
     const preferredX = (surface.enclosure?.panelViewPosition?.x ?? surface.x) - minimumPreferredX
     surface.x = Math.max(preferredX, auxiliaryCursorX)
     auxiliaryCursorX = surface.x + surface.width + auxiliaryGap
@@ -749,7 +838,7 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
   const totalSceneWidth = Math.max(sharedWidth, rootsWidth, auxiliaryWidth, junctionWidth)
   const sharedX = (totalSceneWidth - sharedWidth) / 2
   const auxiliaryOffsetX = (totalSceneWidth - auxiliaryWidth) / 2
-  for (const surface of auxiliarySurfaces) surface.x += auxiliaryOffsetX
+  for (const surface of bandAuxiliarySurfaces) surface.x += auxiliaryOffsetX
   let rootCursorX = (totalSceneWidth - rootsWidth) / 2
   const rootY =
     sharedBandHeight + (auxiliaryBandHeight > 0 ? auxiliaryBandHeight + rootGap : 0)
@@ -758,7 +847,11 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
     rootCursorX += node.subtreeWidth + rootGap
   }
   const deepestRootBottom = (node: TreeNode): number =>
-    Math.max(node.y + node.surface.height, ...node.children.map(deepestRootBottom))
+    Math.max(
+      node.y + node.surface.height,
+      ...node.sides.map((side) => side.y + side.height),
+      ...node.children.map(deepestRootBottom)
+    )
   const rootBottom = Math.max(...rootNodes.map(deepestRootBottom))
   const junctionOffsetX = (totalSceneWidth - junctionWidth) / 2
   for (const surface of unownedJunctionSurfaces) {
@@ -797,7 +890,7 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
       converterBackupFeed: null,
       converterBackupSourceFeed: null,
     },
-    ...auxiliarySurfaces,
+    ...bandAuxiliarySurfaces,
     ...unownedJunctionSurfaces,
   ]
   const connectors: PanelSceneConnector[] = []
@@ -826,6 +919,7 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
         ),
       })
     }
+    surfaces.push(...node.sides)
     for (const child of node.children) collect(child, node)
   }
   for (const node of rootNodes) collect(node, null)
@@ -902,6 +996,27 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
     for (let index = 0; index < collapsedTransitionChain.length - 1; index++) {
       addSurfaceTransition(collapsedTransitionChain[index], collapsedTransitionChain[index + 1])
     }
+  }
+
+  // Relays, meters and domotica modules hung outside their circuit's panel stay linked to it.
+  const surfaceForEnclosure = (
+    enclosure: { kind: 'panel'; panelId: string } | { kind: 'auxiliary'; enclosureId: string }
+  ) =>
+    enclosure.kind === 'auxiliary'
+      ? surfaces.find(
+          (surface) => surface.kind === 'auxiliary' && surface.id === enclosure.enclosureId
+        )
+      : surfaces.find(
+          (surface) => surface.kind === 'panel' && surface.panel?.id === enclosure.panelId
+        )
+  for (const occurrence of listRemountableCircuitModules(
+    getProjectElectricalPanels(currentProject)
+  )) {
+    if (!occurrence.entity.panelMounting) continue
+    addSurfaceTransition(
+      surfaceForEnclosure({ kind: 'panel', panelId: occurrence.ownerPanel.id }),
+      surfaceForEnclosure(resolveCircuitModuleEnclosureInProject(currentProject, occurrence))
+    )
   }
 
   const maxBottom = Math.max(...surfaces.map((surface) => surface.y + surface.height))

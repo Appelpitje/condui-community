@@ -232,6 +232,7 @@
   --je-pe-yellow: #e3c62b;
   --je-marker: #eef1f5;
   --je-jumper: #ef4444;
+  --je-refused: #dc2626;
 }
 .dark .junction-editor {
   --je-chrome: #1f2937;
@@ -255,6 +256,15 @@
   background-color: var(--je-canvas);
   background-image: radial-gradient(var(--je-dot) 1px, transparent 1px);
   background-size: 16px 16px;
+}
+/* The page itself never pinch-zooms over the editor; its canvas zooms instead. */
+.junction-editor {
+  touch-action: pan-x pan-y;
+}
+body.junction-dragging,
+body.junction-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
 }
 .junction-editor .je-pe {
   background: repeating-linear-gradient(45deg, var(--je-pe-green) 0 4px, var(--je-pe-yellow) 4px 8px);

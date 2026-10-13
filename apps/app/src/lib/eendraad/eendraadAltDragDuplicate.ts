@@ -14,8 +14,8 @@ import {
 import { findDomoticaOutputDropTarget } from '@/lib/layout/findDropTarget'
 import type { DropTarget } from '@/lib/layout/findDropTarget'
 import type { LayoutTree } from '@/lib/layout/layoutTree'
-import { executeDropBehavior } from '@/handlers/eendraad/dropBehaviors'
-import type { DropBehaviorProject } from '@/handlers/eendraad/dropBehaviors'
+import { executeDropBehavior } from '@/lib/eendraad/dropBehaviors'
+import type { DropBehaviorEditorHooks, DropBehaviorProject } from '@/lib/eendraad/dropBehaviors'
 import { getSymbolById } from '@/lib/symbols'
 import type {
   Circuit,
@@ -77,6 +77,8 @@ export interface EendraadAltDragDuplicateDeps {
   getFloorById: (floorId: string) => { id: string; layers?: string[] } | null
   getProtectionById: (protectionId: string) => ProtectionDevice | null
   syncEndpointMultiplierCount: (endpointId: string, count: number) => boolean
+  /** Editor plan target, live follow-ups and analytics for the drop engine. */
+  dropHooks: DropBehaviorEditorHooks
 }
 
 /** Copy a circuit trunk symbol to a wire slot, keeping its physical junction identity. */
@@ -383,6 +385,7 @@ export function runEendraadEndpointAltDragDuplicate(
     deps.project,
     deps.t,
     {
+      ...deps.dropHooks,
       addPanel: store.addPanel,
       addProtection: store.addProtection,
       addCircuit: deps.addCircuit,

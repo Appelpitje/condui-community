@@ -5,8 +5,8 @@ import {
   selectProjectSupplyAssemblies,
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
-import { getCircuitIdFromModuleRef } from '@/components/canvas/panel/panelRelationEdges'
-import { panelGridModuleRefKey } from '@/components/canvas/panel/panelGridLayout'
+import { panelGridModuleRefKey } from '@/lib/panel/panelGridLayout'
+import { getCircuitIdFromModuleRef } from '@/lib/panel/panelModuleCircuit'
 import {
   buildSupplyElectricalTopology,
   getSupplyNodePhysicalDeviceId,

@@ -24,8 +24,8 @@ import {
   type PanelLabelCellSide,
   type PanelLabelValues,
 } from '@/lib/panel/panelLabelContent'
-import { CELL_W, panelGridModuleRefKey, ROW_GAP, type ModulePlacement } from './panelGridLayout'
-import { getModuleDisplayInfo, type ModuleDisplayInfo } from './getModuleDisplayInfo'
+import { CELL_W, panelGridModuleRefKey, ROW_GAP, type ModulePlacement } from '@/lib/panel/panelGridLayout'
+import { getModuleDisplayInfo, type ModuleDisplayInfo } from '@/lib/panel/getModuleDisplayInfo'
 import type { PanelSceneSurface } from '@/lib/panel/panelScene'
 
 export type PanelLabelEntityUpdates = {

@@ -1,3 +1,4 @@
+/* eslint react-refresh/only-export-components: off -- The label helper is part of this banner's tested API. */
 import { getLocalizedSymbolName } from '@/lib/symbolNames'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'

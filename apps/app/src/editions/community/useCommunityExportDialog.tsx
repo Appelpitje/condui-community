@@ -15,6 +15,7 @@ import { resolveSupplyDeviceMounting } from '@/lib/panel/auxiliarySupplyEnclosur
 import { getProjectElectricalInstallation, getProjectElectricalPanels, selectProjectSupplyAssemblies } from '@/lib/projectV2/electrical'
 import { queryOneWireSegments } from '@/lib/projectV2/annotations'
 import { buildTimestampedExportFilename } from '@/lib/export/exportFilename'
+import { reportPdfExportFailure, withCrashId } from '@/lib/export/reportPdfExportFailure'
 
 export function useExportDialog() {
   const { t } = useTranslation()
@@ -60,6 +61,24 @@ export function useExportDialog() {
         onPageChange: setCurrentPage,
       }
       const result = await exportToPDF(options, context, callbacks)
+      const errorMessages = result.diagnostics
+        .filter((diagnostic) => diagnostic.level === 'error')
+        .map((diagnostic) => diagnostic.message)
+        .join('\n')
+      if (errorMessages) {
+        const crashId = reportPdfExportFailure({ options, diagnostics: result.diagnostics })
+        useDialogStore.getState().openDialog({
+          type: 'info',
+          title: t('export.error.title', 'Export Completed with Errors'),
+          message: withCrashId(
+            t('export.error.details', 'Export completed but some pages failed:\n{{errors}}', {
+              errors: errorMessages,
+            }),
+            crashId
+          ),
+          variant: 'warning',
+        })
+      }
       const url = URL.createObjectURL(result.blob)
       const anchor = document.createElement('a')
       anchor.href = url
@@ -70,10 +89,14 @@ export function useExportDialog() {
       URL.revokeObjectURL(url)
     } catch (error) {
       logger.error('Export failed:', error)
+      const crashId = reportPdfExportFailure({ options, error })
       useDialogStore.getState().openDialog({
         type: 'info',
         title: t('export.error.title', 'Export Failed'),
-        message: t('export.error.message', 'Failed to export PDF. Please try again.'),
+        message: withCrashId(
+          t('export.error.message', 'Failed to export PDF. Please try again.'),
+          crashId
+        ),
         variant: 'error',
       })
     } finally {

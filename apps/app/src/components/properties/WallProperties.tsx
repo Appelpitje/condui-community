@@ -1,6 +1,6 @@
+import { updateWallProperties, deleteWallByCommand } from '@/handlers/properties/editGeneralProperties'
 import { useTranslation } from 'react-i18next'
 import { DebouncedNumberInput } from '@/components/forms'
-import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { getThemeColor } from '@/lib/theme/colors'
 import type { Wall } from '@/types/schema'
@@ -19,8 +19,6 @@ export function WallProperties({
   onDrawingThicknessCommit,
 }: WallPropertiesProps) {
   const { t } = useTranslation()
-  const updateWall = useProjectStore((state) => state.updateWall)
-  const deleteWall = useProjectStore((state) => state.deleteWall)
   const theme = useSettingsStore((state) => state.theme)
   const setTheme = useSettingsStore((state) => state.setTheme)
 
@@ -38,7 +36,7 @@ export function WallProperties({
 
   const handleThicknessCommit = (value: number) => {
     if (wall) {
-      updateWall(wall.id, { thickness: value })
+      updateWallProperties(wall.id, { thickness: value })
     } else {
       onDrawingThicknessCommit?.(value)
     }
@@ -47,7 +45,7 @@ export function WallProperties({
   const handleDelete = () => {
     if (!wall) return
     if (confirm(t('wallProperties.confirmDelete') || 'Delete this wall?')) {
-      deleteWall(wall.id)
+      deleteWallByCommand(wall.id)
     }
   }
 
