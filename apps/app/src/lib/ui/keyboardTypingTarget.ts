@@ -1,7 +1,8 @@
 export function isKeyboardTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return true
-  if (target instanceof HTMLSelectElement) return true
-  if (target.isContentEditable) return true
-  return false
+  // Popup elements belong to another DOM realm and fail the main window's instanceof checks.
+  const element = target as HTMLElement | null
+  if (!element || element.nodeType !== 1) return false
+  return (
+    ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName) || element.isContentEditable === true
+  )
 }

@@ -42,7 +42,6 @@ import type { OrphanReason } from '@/types/schema'
 import type { Issue, Offender } from './core/types'
 import { findCircuitInProject, resolveFrameContentItems } from '@/lib/eendraad/frameContent'
 import { endpointSupportsMultiplier } from '@/utils/endpointMultipliers'
-import { isActualEndpoint } from '@/utils/symbolMapping'
 import { symbolRequiresSituationPlanPlacement } from '@/lib/plan/situationPlanSymbolEligibility'
 import { isModularSocket } from '@/lib/socket/modularSocket'
 import { resolvePanelForDistributionEndpoint } from '@/lib/plan/panelDistributionEndpoint'
@@ -162,23 +161,6 @@ function validationCircuitCode(code: string | undefined | null): string {
 
 function validationProtectionLabel(label: string | undefined | null): string {
   return label?.trim() || validationUnnamedProtectionLabel()
-}
-
-function canMergeIntoMultiplierRun(ep: Circuit['endpoints'][number]): boolean {
-  if (!isActualEndpoint(ep) || !endpointSupportsMultiplier(ep)) return false
-  if (ep.domoticaChildProps) return false
-  // Solar/battery support multipliers via multiple *placements* of one endpoint, but several
-  // endpoints in sequence on a branch are valid (e.g. PV string). Do not treat them like
-  // duplicate light endpoints that should merge.
-  if (ep.symbol === 'solar_panel' || ep.symbol === 'battery') return false
-  return true
-}
-
-function compatibleMultiplierMerge(
-  a: Circuit['endpoints'][number],
-  b: Circuit['endpoints'][number]
-): boolean {
-  return a.type === b.type && a.symbol === b.symbol
 }
 
 /** Optional plan symbols are valid with zero placements and must never be reported as orphans. */
@@ -519,19 +501,6 @@ export interface OrphanReport {
     feederProtectionId?: string
     feederCircuitId?: string
   }>
-  /**
-   * Same branch lists several multiplier-capable terminals (e.g. two lights, not DC string endpoints) as separate endpoints.
-   * Sitplan expects one endpoint with multiple placements. Plan properties need endpointId on the placement row.
-   */
-  branchMultiplierEndpointsSplit: Array<{
-    circuitId: string
-    circuitCode: string
-    branchId: string
-    branchLabel: string
-    keepEndpointId: string
-    keepEndpointLabel: string
-    absorbEndpointIds: string[]
-  }>
   /** Same panel-grid module ref is stored multiple times in main/supply slots. */
   panelGridDuplicateModule: Array<{
     reason: 'duplicateRef' | 'duplicateVisibleLabel'
@@ -602,7 +571,6 @@ export function detectPanelOrphans(project: OrphanDetectionProject, panelId: str
     endpointMissingPlanPlacement: [],
     panelDistributionLabelDrift: [],
     panelMissingOneWireSymbol: [],
-    branchMultiplierEndpointsSplit: [],
     panelGridDuplicateModule: [],
     supplyTrunkMisplacedInMainGrid: [],
     supplyTrunkVisualPlacementMissing: [],
@@ -948,44 +916,8 @@ export function detectPanelOrphans(project: OrphanDetectionProject, panelId: str
       }
     }
 
-    if (circuit.branches) {
-      for (const branch of circuit.branches) {
-        const ids = branch.endpointIds
-        let idx = 0
-        while (idx < ids.length) {
-          const ep0 = endpointById.get(ids[idx]!)
-          if (!ep0 || !canMergeIntoMultiplierRun(ep0)) {
-            idx++
-            continue
-          }
-          const run0 = idx
-          idx++
-          while (idx < ids.length) {
-            const epN = endpointById.get(ids[idx]!)
-            if (!epN || !canMergeIntoMultiplierRun(epN)) break
-            const epFirst = endpointById.get(ids[run0]!)!
-            if (!compatibleMultiplierMerge(epFirst, epN)) break
-            idx++
-          }
-          const runLen = idx - run0
-          if (runLen >= 2) {
-            const runIds = ids.slice(run0, run0 + runLen)
-            const keepId = runIds[0]!
-            const keepEp = endpointById.get(keepId)!
-            report.branchMultiplierEndpointsSplit.push({
-              circuitId: circuit.id,
-              circuitCode: validationCircuitCode(circuit.code),
-              branchId: branch.id,
-              branchLabel: branch.label || branch.id,
-              keepEndpointId: keepId,
-              keepEndpointLabel: keepEp.label || keepId,
-              absorbEndpointIds: runIds.slice(1),
-            })
-          }
-        }
-      }
-    }
-
+    // Separate multiplier-capable endpoints on one branch are valid (including scan imports).
+    // Combining them into one multiplied symbol is an optional representation choice.
     for (const ep of circuit.endpoints) {
       pushPlacementIntegrity(circuit, ep)
       if (ep.symbol === 'panel_distribution') continue
@@ -1491,22 +1423,6 @@ export function getDetectedOrphans(project: OrphanDetectionProject): DetectedOrp
         focusSelection: { type: 'circuit', ids: [] },
       })
     }
-    for (const item of report.branchMultiplierEndpointsSplit) {
-      out.push({
-        id: `branch-mult-${item.circuitId}-${item.branchId}-${item.keepEndpointId}`,
-        kind: 'endpoint',
-        reason: 'branchMultiplierEndpointsSplit',
-        summary: `Circuit ${item.circuitCode}: ${item.absorbEndpointIds.length + 1} separate "${item.keepEndpointLabel}" symbols on one branch — merge into one endpoint (×${item.absorbEndpointIds.length + 1} placements)`,
-        panelId,
-        focusSelection: { type: 'endpoint', ids: [item.keepEndpointId] },
-        resolutionPayload: {
-          kind: 'mergeMultiplierEndpointsOnBranch',
-          circuitId: item.circuitId,
-          keepEndpointId: item.keepEndpointId,
-          absorbEndpointIds: item.absorbEndpointIds,
-        },
-      })
-    }
     for (const item of report.panelGridDuplicateModule) {
       const offenderRef = item.remove[0]?.moduleRef ?? item.keep.moduleRef
       const focusSelection =
@@ -1641,7 +1557,6 @@ export function logOrphanReport(project: OrphanDetectionProject): void {
       report.endpointMissingPlanPlacement.length +
       report.panelDistributionLabelDrift.length +
       report.panelMissingOneWireSymbol.length +
-      report.branchMultiplierEndpointsSplit.length +
       report.panelGridDuplicateModule.length +
       report.supplyTrunkMisplacedInMainGrid.length +
       report.supplyTrunkVisualPlacementMissing.length +
@@ -1904,15 +1819,6 @@ export function logOrphanReport(project: OrphanDetectionProject): void {
           feederProtectionId: item.feederProtectionId,
           feederCircuitId: item.feederCircuitId,
         }
-      )
-    }
-
-    for (const item of report.branchMultiplierEndpointsSplit) {
-      const msg = `${ORPHAN_LOG_PREFIX} Branch multiplier split: circuit "${item.circuitCode}" branch "${item.branchLabel}" lists separate endpoints (${[item.keepEndpointId, ...item.absorbEndpointIds].join(', ')}) that should be one multiplier endpoint (keep ${item.keepEndpointId}, absorb ${item.absorbEndpointIds.join(', ')}).`
-      logger.error(msg)
-      logger.error(
-        `${ORPHAN_LOG_PREFIX} Likely cause: duplicate/plan flow created a second light (or other multiplier symbol) as a new endpoint on the same branch instead of a second placement. Use Repair in the Orphan Inspector to merge placements into the first endpoint.`,
-        { type: 'branchMultiplierEndpointsSplit', ...item, panelId }
       )
     }
 
@@ -2377,31 +2283,6 @@ export function orphanReportToIssues(
       details: undefined,
       citations: [],
       tags: ['orphan', 'eendraad', 'consistency'],
-    })
-  }
-
-  for (const item of report.branchMultiplierEndpointsSplit) {
-    issues.push({
-      id: `${ruleId}:board:${panelId}:branch-mult:${item.circuitId}-${item.branchId}-${item.keepEndpointId}`,
-      ruleId,
-      severity: 'error',
-      jurisdiction,
-      rulesetVersion,
-      scope: { type: 'board', id: panelId },
-      offenders: [
-        { kind: 'circuit', id: item.circuitId, viewHint: 'both' },
-        { kind: 'endpoint', id: item.keepEndpointId, viewHint: 'both' },
-      ],
-      message: i18next.t('validation.orphanDetection.branchMultiplierEndpointsSplit', {
-        circuitCode: item.circuitCode,
-        branchLabel: item.branchLabel,
-        keepEndpointLabel: item.keepEndpointLabel,
-        absorbCount: String(item.absorbEndpointIds.length),
-        defaultValue: `Circuit {{circuitCode}}: branch "{{branchLabel}}" has {{absorbCount}} extra multiplier symbol(s) as separate endpoints; merge via Orphan Inspector (keep "{{keepEndpointLabel}}").`,
-      }),
-      details: undefined,
-      citations: [],
-      tags: ['orphan', 'eendraad', 'sitplan', 'consistency'],
     })
   }
 

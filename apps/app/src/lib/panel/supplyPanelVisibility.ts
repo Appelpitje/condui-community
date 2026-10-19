@@ -1,4 +1,4 @@
-import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { getAllSupplyTrunkDevices, queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { resolveSupplyDeviceMounting } from '@/lib/panel/auxiliarySupplyEnclosures'
 import { findPanelById } from '@/lib/panel/panelTree'
 import {
@@ -8,6 +8,7 @@ import {
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
 import type { Panel, TrunkDevice } from '@/types/schema'
+import { isSupplyTransformer } from '@/lib/electrical/supplyTransformer'
 
 export function isInverterPanelDevice(device: TrunkDevice | undefined): boolean {
   return device?.symbol === 'inverter'
@@ -56,7 +57,7 @@ export function isSupplyDeviceVisibleInPanel(
 ): boolean {
   const device =
     knownDevice ?? getAllSupplyTrunkDevices(project).find((candidate) => candidate.id === deviceId)
-  if (!device) return false
+  if (!device || isSupplyTransformer(device)) return false
   const grid = getSupplyDeviceVisibilitySurface(project, deviceId)?.gridView
   const key = `trunkDevice:${deviceId}:supply`
   if (grid?.hiddenModuleKeys?.includes(key)) return false
@@ -70,6 +71,8 @@ export function setSupplyDevicePanelVisibility(
   deviceId: string,
   visible: boolean,
 ): boolean {
+  if (queryAllSupplyTrunkDevices(project).some((device) => device.id === deviceId && isSupplyTransformer(device)))
+    return false
   const surface = getSupplyDeviceVisibilitySurface(project, deviceId)
   if (!surface) return false
   surface.gridView ??= { rows: 8, columns: 12, feedFromTop: false, slots: [] }

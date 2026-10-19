@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next'
 import HiddenItemsDialog, { type HiddenItem } from '@/components/common/HiddenItemsDialog'
-import { getSymbolById } from '@/lib/symbols'
+import { getSymbolById, getSymbolIconPath } from '@/lib/symbols'
 import { useDialogStore } from '@/stores/dialogStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -43,7 +43,7 @@ export function openPanelHiddenModulesDialog(
         label: item.label,
         subtitle: subtitle || undefined,
         icon: symbol ? (
-          <img src={symbol.svgPath} alt="" className="h-7 w-7 object-contain dark:invert" />
+          <img src={getSymbolIconPath(symbol)} alt="" className="h-7 w-7 object-contain dark:invert" />
         ) : undefined,
         onSelect: () => useUIStore.getState().setSelection(selection),
         onHoverChange: (hovered) => {

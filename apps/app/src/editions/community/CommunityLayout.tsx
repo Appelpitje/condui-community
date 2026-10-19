@@ -475,7 +475,7 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
             {project.project.name}
           </h2>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1.5 py-1 shadow-sm sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 dark:border-gray-700 dark:bg-gray-800">
+        <div className="relative z-[60] flex shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1.5 py-1 shadow-sm sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 dark:border-gray-700 dark:bg-gray-800">
           <span className="hidden pl-1 text-xs font-medium leading-none text-gray-600 sm:inline dark:text-gray-300">
             {t('actions.undo', 'Undo')}
           </span>
@@ -519,6 +519,7 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
       <div className="relative flex-1 overflow-hidden">
         <main className="absolute inset-0 bg-slate-50 dark:bg-slate-950">
           <ViewLayout
+            popupPanelOptions={leftDockOptions}
             leftInsetPx={effectiveLeftDockWidth}
             rightInsetPx={effectiveRightPanelWidth}
             resizePreviewActive={leftDockResizePreviewWidth != null}

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-46.7 -52.7 93.5 93.5" role="img" aria-label="Rookmelder">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M-36.7 -12.0V0.0A36.7 21.2 0 0 0 36.7 0.0V-12.0Z" fill="#283548"/>
+  <ellipse cx="0.0" cy="-12.0" rx="36.7" ry="21.2" fill="#334155"/>
+  <path d="M34.5 4.3v-6M28.1 10.6v-6M18.4 15.4v-6M6.4 17.9v-6M-6.4 17.9v-6M-18.4 15.4v-6M-28.1 10.6v-6M-34.5 4.3v-6" stroke-width="1.5"/>
+  <ellipse cx="0.0" cy="-12.0" rx="20.2" ry="11.7" fill="none" stroke-width="1"/>
+  <circle cx="11.0" cy="-12.0" r="2.2" fill="#ef4444" stroke-width="0.8"/>
+</g>
+</svg>

@@ -12,7 +12,12 @@ function cloneJson<T>(value: T): T {
  * are remapped. Electrical/situation-plan placements are intentionally not part
  * of a Floor, so they are not copied by this operation.
  */
-export function duplicateFloorPlan(source: Floor, id: string, name: string): Floor {
+export function duplicateFloorPlan(
+  source: Floor,
+  id: string,
+  name: string,
+  newId: () => string = generateId
+): Floor {
   const clone = cloneJson(source)
   const { hiddenSitplanPlacementIds: _hiddenSitplanPlacementIds, ...floorWithoutPlacements } = clone
   const floorPlan = clone.floorPlan
@@ -27,10 +32,10 @@ export function duplicateFloorPlan(source: Floor, id: string, name: string): Flo
 
   const wallIdMap = new Map<string, string>()
   for (const wall of floorPlan.walls) {
-    wallIdMap.set(wall.id, generateId())
+    wallIdMap.set(wall.id, newId())
   }
   const walls = floorPlan.walls.map((wall) => {
-    const nextId = wallIdMap.get(wall.id) ?? generateId()
+    const nextId = wallIdMap.get(wall.id) ?? newId()
     return {
       ...wall,
       id: nextId,
@@ -51,24 +56,24 @@ export function duplicateFloorPlan(source: Floor, id: string, name: string): Flo
       walls,
       doors: floorPlan.doors.map((door) => ({
         ...door,
-        id: generateId(),
+        id: newId(),
         floorId: id,
         wallId: wallIdMap.get(door.wallId) ?? door.wallId,
       })),
       windows: floorPlan.windows.map((window) => ({
         ...window,
-        id: generateId(),
+        id: newId(),
         floorId: id,
         wallId: wallIdMap.get(window.wallId) ?? window.wallId,
       })),
       stairs: floorPlan.stairs?.map((stair) => ({
         ...stair,
-        id: generateId(),
+        id: newId(),
         floorId: id,
       })),
       graphicElements: floorPlan.graphicElements?.map((graphic) => ({
         ...graphic,
-        id: generateId(),
+        id: newId(),
         floorId: id,
       })),
     },

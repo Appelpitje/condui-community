@@ -25,12 +25,20 @@ export function pinExactLockfileVersions(ranges, packages) {
   return Object.fromEntries(
     Object.entries(ranges)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([name]) => [name, lockedVersionForPackage(packages, name)]),
+      .map(([name, range]) => {
+        const version = lockedVersionForPackage(packages, name)
+        const alias = String(range).match(/^npm:((?:@[^/]+\/)?[^@]+)@/)
+        return [name, alias ? `npm:${alias[1]}@${version}` : version]
+      }),
   )
 }
 
 export function isExactVersion(version) {
-  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(String(version))
+  return exactVersionNumber(version) !== null
+}
+
+function exactVersionNumber(version) {
+  return String(version).match(/^(?:npm:(?:@[^/]+\/)?[^@]+@)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/)?.[1] ?? null
 }
 
 export function assertExactDependencyVersions(dependencies, label) {
@@ -47,6 +55,14 @@ export function communityNpmOverrides(packages, pinnedDirect) {
   const overrides = { ...pinnedDirect }
   for (const name of ['react', 'react-dom']) {
     overrides[name] = lockedVersionForPackage(packages, name)
+  }
+  // Preserve the private install's security fixes in the standalone snapshot.
+  // In particular, the SVG compatibility runtime otherwise reinstalls canvas 2's
+  // obsolete binary downloader and vulnerable tar dependency.
+  for (const name of ['canvas', 'postcss-selector-parser']) {
+    if (lockPathCandidates(name).some((lockPath) => packages[lockPath])) {
+      overrides[name] = lockedVersionForPackage(packages, name)
+    }
   }
   return Object.fromEntries(Object.entries(overrides).sort(([left], [right]) => left.localeCompare(right)))
 }
@@ -148,7 +164,7 @@ export function assertInstalledDirectDependencyPeers(
       failures.push(`${error instanceof Error ? error.message : error}`)
       continue
     }
-    if (isExactVersion(declaredVersion) && pkg.version !== declaredVersion) {
+    if (isExactVersion(declaredVersion) && pkg.version !== exactVersionNumber(declaredVersion)) {
       failures.push(`${name}: installed ${pkg.version} !== declared ${declaredVersion}`)
     }
     for (const [peerName, installedPeer] of Object.entries(peerPackages)) {

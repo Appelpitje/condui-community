@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-42.3 -50.0 85.5 85.5" role="img" aria-label="Hoorn">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-5.2,3.0 20.8,18.0 20.8,-22.0 -5.2,-37.0" fill="#f1f5f9"/>
+  <polygon points="26.0,15.0 20.8,18.0 20.8,-22.0 26.0,-25.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-40.0 26.0,-25.0 20.8,-22.0 -5.2,-37.0" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -5.20 3.00)"><circle cx="15" cy="-20" r="6" fill="#cbd5e1"/>
+<polygon points="19.2,-15.8 4.3,13.3 -18.3,-9.3 10.8,-24.2" fill="#f1f5f9"/>
+<circle cx="-7" cy="2" r="16" fill="#ffffff"/>
+<circle cx="-7" cy="2" r="8.8" fill="#1e293b"/></g>
+</g>
+</svg>

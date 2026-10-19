@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import { registerSW } from 'virtual:pwa-register'
 import { notifyAppServiceWorkerUpdateAvailable } from '@/lib/pwa/appUpdateEvents'
 import { setAppServiceWorkerRegistration } from '@/lib/pwa/serviceWorkerUpdateReload'
@@ -15,6 +16,7 @@ export function isPwaOfflineShellReady(): boolean {
 }
 
 export function registerAppServiceWorker(): void {
+  if (Capacitor.isNativePlatform()) return
   if (!import.meta.env.PROD) {
     cleanupDevServiceWorker()
     return

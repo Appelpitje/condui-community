@@ -9,6 +9,28 @@ export interface PreviewPanelTranslation {
   y: number
 }
 
+/** Pin a routine branch/device ghost to its committed protection stem. */
+export function getPreviewCircuitTranslation(
+  currentPanel: LayoutNode | undefined,
+  previewPanel: LayoutNode,
+  circuitId: string | undefined
+): PreviewPanelTranslation {
+  if (!currentPanel || !circuitId) return { x: 0, y: 0 }
+  const find = (node: LayoutNode): LayoutNode | undefined => {
+    if ((node.type === 'mcb' || node.type === 'rcd') && node.circuitIdForWires === circuitId) return node
+    for (const child of node.children) {
+      const match = find(child)
+      if (match) return match
+    }
+    return undefined
+  }
+  const current = find(currentPanel)
+  const preview = find(previewPanel)
+  return current && preview
+    ? { x: current.bounds.x - preview.bounds.x, y: current.bounds.y - preview.bounds.y }
+    : { x: 0, y: 0 }
+}
+
 /**
  * Keep a detached supply preview on the same visual anchor as the committed frame.
  *
@@ -113,6 +135,108 @@ export function getChangedPreviewWireSegments(
         isSamePreviewWireSegment(previewSegment, currentSegment)
       )
   )
+}
+
+/** Return the portions of a line which are not already drawn in the committed scene. */
+function subtractDrawnWire(
+  segment: WireSegment,
+  currentSegments: WireSegment[],
+  translation: PreviewPanelTranslation
+): WireSegment[] {
+  const dx = segment.endPoint.x - segment.startPoint.x
+  const dy = segment.endPoint.y - segment.startPoint.y
+  const length = Math.hypot(dx, dy)
+  if (length <= GEOMETRY_EPSILON) return []
+  const ux = dx / length
+  const uy = dy / length
+  let remaining: Array<[number, number]> = [[0, length]]
+  for (const current of currentSegments) {
+    if (
+      current.panelId !== segment.panelId ||
+      (current.diagramId ?? current.panelId) !== (segment.diagramId ?? segment.panelId)
+    ) continue
+    // The enclosing preview group translates detached supply frames back onto
+    // their committed handoff. Compare ink in that same coordinate space.
+    const points = [current.startPoint, current.endPoint].map((point) => ({
+      x: point.x - translation.x, y: point.y - translation.y,
+    }))
+    if (points.some((point) => Math.abs(
+      (point.x - segment.startPoint.x) * uy - (point.y - segment.startPoint.y) * ux
+    ) > GEOMETRY_EPSILON)) continue
+    const projections = points.map((point) =>
+      (point.x - segment.startPoint.x) * ux + (point.y - segment.startPoint.y) * uy
+    )
+    const from = Math.min(...projections)
+    const to = Math.max(...projections)
+    remaining = remaining.flatMap(([start, end]): Array<[number, number]> => {
+      if (to <= start || from >= end) return [[start, end]]
+      const pieces: Array<[number, number]> = []
+      if (from - start > GEOMETRY_EPSILON) pieces.push([start, from])
+      if (end - to > GEOMETRY_EPSILON) pieces.push([to, end])
+      return pieces
+    })
+    if (!remaining.length) break
+  }
+  return remaining.map(([start, end], index) => ({
+    ...segment,
+    id: `${segment.id}-addition-${index}`,
+    startPoint: { x: segment.startPoint.x + ux * start, y: segment.startPoint.y + uy * start },
+    endPoint: { x: segment.startPoint.x + ux * end, y: segment.startPoint.y + uy * end },
+  }))
+}
+
+/**
+ * An ordinary drop previews its new/moved symbols and their connections, not the
+ * reflow of existing branches. Keep only the added ink, including any extension
+ * of the shared circuit stem needed to reach a new branch. Bus protection previews
+ * deliberately keep their separate dynamic layout treatment.
+ */
+export function getAddedPreviewWireSegments(
+  previewSegments: WireSegment[],
+  currentSegments: WireSegment[],
+  previewElementIds: ReadonlySet<string>,
+  options: {
+    translation?: PreviewPanelTranslation
+    includeGroundStem?: boolean
+    previewProtectionIds?: ReadonlySet<string>
+  } = {}
+): WireSegment[] {
+  const connectsPreviewElement = (segment: WireSegment) => {
+    // Wrapping existing content in a new protection changes the source ID on
+    // every branch. Those branches are existing content, not the placed item.
+    if (segment.type === 'branch' && segment.fromElementId &&
+      options.previewProtectionIds?.has(segment.fromElementId) &&
+      segment.toElementId && !previewElementIds.has(segment.toElementId)) return false
+    return (
+    (!!segment.fromElementId && previewElementIds.has(segment.fromElementId)) ||
+    (!!segment.toElementId && previewElementIds.has(segment.toElementId)) ||
+    [...previewElementIds].some((id) => segment.supplySectionKey?.includes(`device:${id}`))
+    )
+  }
+  const targetCircuits = new Set(
+    previewSegments.filter(connectsPreviewElement).map((segment) => segment.circuitId)
+      .filter((id): id is string => !!id)
+  )
+  return previewSegments
+    .filter((segment) => connectsPreviewElement(segment) || (
+      !options.previewProtectionIds?.size && segment.type === 'vertical' && !segment.toElementId &&
+      !!segment.circuitId && targetCircuits.has(segment.circuitId)
+    ) || (options.includeGroundStem && segment.fromElementType === 'ground'))
+    .map((segment) => {
+      if (!segment.fromElementId || !options.previewProtectionIds?.has(segment.fromElementId) ||
+        (segment.toElementId && previewElementIds.has(segment.toElementId))) return segment
+      // Existing downstream content may move in the simulated layout. Show a
+      // short output stub, not a feeder ending at its invisible reflowed position.
+      const dx = segment.endPoint.x - segment.startPoint.x
+      const dy = segment.endPoint.y - segment.startPoint.y
+      const length = Math.hypot(dx, dy)
+      if (length <= 40) return segment
+      return { ...segment, endPoint: {
+        x: segment.startPoint.x + dx / length * 40,
+        y: segment.startPoint.y + dy / length * 40,
+      } }
+    })
+    .flatMap((segment) => subtractDrawnWire(segment, currentSegments, options.translation ?? { x: 0, y: 0 }))
 }
 
 /**

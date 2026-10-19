@@ -59,7 +59,8 @@ export function editWireRunAtAnchor(
   project: ProjectV2,
   anchor: string,
   defaultCable: CableSpec,
-  changes: WireRunChanges
+  changes: WireRunChanges,
+  newId: () => string = generateId
 ): void {
   if (!anchor) return
   const relationships = buildElectricalStructureSnapshot(project).relationships
@@ -88,7 +89,7 @@ export function editWireRunAtAnchor(
   const railCable = establishedRail?.cable ?? (group ? buses.cableByGroup.get(group) : undefined)
   if (!run) {
     run = {
-      id: generateId(),
+      id: newId(),
       members: !joinsRail && liveEdge?.properties?.wireBusGroup && !changes.medium
         ? [
             ...new Set(
@@ -121,7 +122,7 @@ export function editWireRunAtAnchor(
   // choice authors that connection independently, even after a shared rail edit.
   if (changes.medium === 'cable' && liveEdge.properties?.wireBusGroup && run.members.length > 1) {
     const sharedRun = run
-    run = { ...sharedRun, id: generateId(), members: [anchor],
+    run = { ...sharedRun, id: newId(), members: [anchor],
       conductors: copyConductorsForFork(sharedRun.conductors),
       segmentLengths: sharedRun.segmentLengths?.[anchor] === undefined ? undefined
         : { [anchor]: sharedRun.segmentLengths[anchor]! },

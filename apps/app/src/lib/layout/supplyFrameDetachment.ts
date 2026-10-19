@@ -7,6 +7,7 @@ import {
 } from '@/lib/projectV2/electrical'
 import type { Installation, Panel } from '@/types/schema'
 import type { OffGridSupplyAssembly } from '@/types/supplyAssembly'
+import { isSupplyTransformer } from '@/lib/electrical/supplyTransformer'
 
 export function panelHasMainBusProtection(panel: Panel): boolean {
   return panel.protections.some((protection) => {
@@ -104,6 +105,10 @@ export function isPanelSupplyFrameDetached(
   const installation = getProjectElectricalInstallation(project)
   const panel = rootPanels.find((candidate) => candidate.id === panelId)
   if (!installation || !panel || panel.isMain !== true) return false
+
+  // An MV source remains outside the board even before its first circuit exists.
+  if (getPanelFeedProjection(installation, rootPanels, panel)?.devices.some(isSupplyTransformer))
+    return true
 
   const hasComplexSupply =
     panelHasComplexSupplyTopology(panel, installation, rootPanels) ||

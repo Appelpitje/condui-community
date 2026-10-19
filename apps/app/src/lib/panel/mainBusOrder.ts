@@ -1,6 +1,41 @@
 import type { Panel } from '@/types/schema'
+import { isDraft } from 'immer'
 
 const nestedCircuitIdsByPanel = new WeakMap<Panel, ReadonlySet<string>>()
+const immutableMainBusPanels = new WeakSet<Panel>()
+
+/** Only the panel fields read by bus ordering and phase-slot calculation. */
+export function isImmutableMainBusPanel(panel: Panel): boolean {
+  if (isDraft(panel) || !Object.isFrozen(panel)) return false
+  if (immutableMainBusPanels.has(panel)) return true
+  const circuitsAreImmutable = (circuits: Panel['circuits'] | undefined) =>
+    !circuits ||
+    (Object.isFrozen(circuits) &&
+      circuits.every(
+        (circuit) =>
+          !isDraft(circuit) &&
+          Object.isFrozen(circuit) &&
+          (!circuit.subCircuitIds || Object.isFrozen(circuit.subCircuitIds))
+      ))
+  if (!circuitsAreImmutable(panel.circuits)) return false
+  if (
+    panel.protections &&
+    (!Object.isFrozen(panel.protections) ||
+      !panel.protections.every(
+        (protection) =>
+          !isDraft(protection) &&
+          Object.isFrozen(protection) &&
+          circuitsAreImmutable(protection.circuits)
+      ))
+  ) return false
+  if (
+    panel.busSections &&
+    (!Object.isFrozen(panel.busSections) ||
+      !panel.busSections.every((section) => !isDraft(section) && Object.isFrozen(section)))
+  ) return false
+  immutableMainBusPanels.add(panel)
+  return true
+}
 
 function collectNestedCircuitIds(panel: Panel): ReadonlySet<string> {
   const cached = nestedCircuitIdsByPanel.get(panel)
@@ -18,7 +53,7 @@ function collectNestedCircuitIds(panel: Panel): ReadonlySet<string> {
 
   // Plain fixtures and Immer drafts can still be mutated in place. Cache only
   // finalized project panels, whose identity changes with an electrical edit.
-  if (Object.isFrozen(panel)) nestedCircuitIdsByPanel.set(panel, nestedIds)
+  if (isImmutableMainBusPanel(panel)) nestedCircuitIdsByPanel.set(panel, nestedIds)
   return nestedIds
 }
 
@@ -33,15 +68,18 @@ export function getMainBusOrder(
 ): Array<{ type: 'circuit' | 'protection'; id: string }> {
   const items: Array<{ type: 'circuit' | 'protection'; id: string; index: number }> = []
   const seenProtectionIds = new Set<string>()
+  // Mutable command drafts cannot share a retained set, but each individual
+  // ordering pass can still collect the nested IDs once rather than per item.
+  const nestedCircuitIds = collectNestedCircuitIds(panel)
   panel.circuits.forEach((circuit, index) => {
-    if (circuit.code !== 'PANEL' && !isCircuitNestedUnderPanelBus(panel, circuit.id)) {
+    if (circuit.code !== 'PANEL' && !nestedCircuitIds.has(circuit.id)) {
       items.push({ type: 'circuit', id: circuit.id, index })
     }
   })
   panel.protections?.forEach((protection, index) => {
     if (
       !(protection.circuits ?? []).some(
-        (circuit) => !isCircuitNestedUnderPanelBus(panel, circuit.id)
+        (circuit) => !nestedCircuitIds.has(circuit.id)
       )
     ) {
       return

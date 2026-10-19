@@ -177,16 +177,17 @@ export function isExtraElectricalPropertyEdit(edit: {
 }
 
 export const extraElectricalActionSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('projectSupplyConnection'),
+    connection: z.enum(['direct', 'transformer']),
+  }).strict(),
   z
     .object({
       kind: z.literal('busbarPhaseOrder'),
       panelId: z.string().min(1),
       ownerId: z.string().min(1).optional(),
       busSectionId: z.string().min(1).optional(),
-      order: z
-        .array(z.enum(['L1', 'L2', 'L3']))
-        .length(3)
-        .refine((order) => new Set(order).size === 3, 'Each phase must appear once'),
+      order: z.array(z.enum(['L1', 'L2', 'L3'])).length(3),
     })
     .strict(),
   z
@@ -248,6 +249,21 @@ export const extraElectricalActionSchema = z.discriminatedUnion('kind', [
     .strict(),
   z
     .object({
+      kind: z.literal('panelBusFeedBoundary'),
+      panelId: z.string().min(1),
+      feed: z.enum(['grid', 'backup']),
+      mainBusInsertIndex: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('changeoverGridSource'),
+      panelId: z.string().min(1),
+      source: z.enum(['grid', 'converter-input']),
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal('auxiliaryPlanVisibility'),
       enclosureId: z.string().min(1),
       visible: z.boolean(),
@@ -271,12 +287,15 @@ export const extraElectricalActionSchema = z.discriminatedUnion('kind', [
 export type ExtraElectricalAction = z.output<typeof extraElectricalActionSchema>
 export function isExtraElectricalAction(action: { kind: string }): action is ExtraElectricalAction {
   return [
+    'projectSupplyConnection',
     'supplyUnit',
     'busbarPhaseOrder',
     'supplyWire',
     'terminalStripPins',
     'junctionPanelIdentity',
     'panelFeedOrganization',
+    'panelBusFeedBoundary',
+    'changeoverGridSource',
     'auxiliaryPlanVisibility',
     'wireCableDefault',
     'resizeConverter',

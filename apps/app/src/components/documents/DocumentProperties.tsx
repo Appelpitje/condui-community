@@ -29,6 +29,11 @@ import type { Selection } from '@/types/ui'
 import { formatBytes } from '@/utils/formatBytes'
 import { ExportToggle } from './ExportToggle'
 import { FloorPlanDisplaySection } from './FloorPlanDisplaySection'
+/* @vision-scan-strip-start */
+import { isElectricalVisionScanEnabled } from '@/lib/vision/availability'
+import { canPlaceOnOneWire } from '@/lib/documents/oneWireReferences'
+import { showDocumentOnOneWire } from '@/handlers/documents/oneWireReferences'
+/* @vision-scan-strip-end */
 import { CableScheduleProperties } from '@/components/cableRouting/CableScheduleProperties'
 import { ControlAddressTableProperties } from '@/components/controlLink/ControlAddressTable'
 import { useProjectDocuments } from './useProjectDocuments'
@@ -187,7 +192,7 @@ function StoredDocumentProperties({ documentId }: { documentId: string }) {
   const saveToTeamLibrary = useSaveToTeamLibrary(teamLibrary)
 
   if (!document) return null
-  const isUpload = document.origin === 'upload'
+  const isUpload = document.origin === 'upload' && !document.roomScan
   const isEditable = document.origin !== 'projectAsset'
   const canReduce = canReduceProjectDocumentSize(document)
   const reducing = reducingId === document.id
@@ -227,9 +232,32 @@ function StoredDocumentProperties({ documentId }: { documentId: string }) {
 
       {document.sourceKind === 'floorPlan' && <FloorPlanDisplaySection documentId={document.id} />}
 
-      <div className="border-t border-gray-200 pt-4 dark:border-gray-700">
-        <DocumentLinksSection document={document} />
-      </div>
+      {/* @vision-scan-strip-start */}
+      {isElectricalVisionScanEnabled() && canPlaceOnOneWire(document) && (
+          <label className="flex items-center gap-2 border-t border-gray-200 pt-4 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300">
+            <input
+              type="checkbox"
+              data-testid="document-show-on-one-wire"
+              checked={Boolean(document.oneWire)}
+              disabled={!isEditable}
+              onChange={(event) =>
+                event.target.checked
+                  ? showDocumentOnOneWire(document.id)
+                  : updateProjectDocument(document.id, { oneWire: undefined })
+              }
+              className="rounded border-gray-400"
+            />
+            {t('oneWireReference.showOnOneWire', 'Show on one-wire')}
+          </label>
+        )}
+      {/* @vision-scan-strip-end */}
+
+      {/* One-wire references (scanned pages) are drawings, not device documentation. */}
+      {(!document.oneWire || document.links.length > 0) && (
+        <div className="border-t border-gray-200 pt-4 dark:border-gray-700">
+          <DocumentLinksSection document={document} />
+        </div>
+      )}
 
       {canRemoveProjectDocument(document) && (
         <div className="space-y-2 border-t border-gray-200 pt-4 dark:border-gray-700">

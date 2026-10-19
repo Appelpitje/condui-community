@@ -4,8 +4,11 @@ import type { CanvasType, Point } from '@/types/ui'
 import { ZOOM_MIN, ZOOM_MAX, zoomToDisplayPercent } from '@/constants/canvasConstants'
 import { preventCanvasToolbarMouseFocus } from '@/lib/ui/preventCanvasToolbarMouseFocus'
 import { useCanvasOverlayScale } from '@/contexts/CanvasOverlayScaleContext'
-import { useUIStore } from '@/stores/uiStore'
+import { useViewportWindowStore } from '@/components/viewport/ViewportWindowStore'
 import { FindFocusIcon, MaximizeCanvasIcon, RestoreLayoutIcon } from '@/components/icons/UiIcons'
+import { ExternalLink, X } from 'lucide-react'
+import { Capacitor } from '@capacitor/core'
+import { useViewport } from '@/components/viewport/ViewportContext'
 
 interface ViewNavigationToolbarProps {
   zoom: number
@@ -34,14 +37,15 @@ function ViewNavigationToolbar({
   minZoom = ZOOM_MIN,
 }: ViewNavigationToolbarProps) {
   const { t } = useTranslation()
+  const viewport = useViewport()
   const { scale: overlayScale } = useCanvasOverlayScale()
-  const canvasPanelIndex = useUIStore((s) =>
+  const canvasPanelIndex = useViewportWindowStore((s) =>
     canvasType && s.viewportLayout.panels.length > 1
       ? s.viewportLayout.panels.findIndex((panel) => panel.canvas === canvasType)
       : -1
   )
-  const toolbarCanvasMaximized = useUIStore((s) => s.viewportLayout.panels.length === 1)
-  const toggleViewportPanelFocus = useUIStore((s) => s.toggleViewportPanelFocus)
+  const toolbarCanvasMaximized = useViewportWindowStore((s) => s.viewportLayout.panels.length === 1)
+  const toggleViewportPanelFocus = useViewportWindowStore((s) => s.toggleViewportPanelFocus)
 
   // Detect tablet/mobile: primary pointer is coarse (finger) rather than fine (mouse)
   const isTouchDevice = useMemo(() => {
@@ -63,8 +67,8 @@ function ViewNavigationToolbar({
       onToggleMaximize()
       return
     }
-    toggleViewportPanelFocus(canvasPanelIndex >= 0 ? canvasPanelIndex : null)
-  }, [canvasPanelIndex, onToggleMaximize, toggleViewportPanelFocus])
+    toggleViewportPanelFocus(viewport?.panelIndex ?? (canvasPanelIndex >= 0 ? canvasPanelIndex : null))
+  }, [canvasPanelIndex, onToggleMaximize, toggleViewportPanelFocus, viewport])
 
   const zoomPercentage = zoomToDisplayPercent(zoom)
 
@@ -77,6 +81,15 @@ function ViewNavigationToolbar({
   const restoreLabel = t('canvas.restoreView', { defaultValue: 'Restore layout' })
   const canToggleMaximize = Boolean(onToggleMaximize || canvasType)
   const isMaximized = isMaximizedProp ?? toolbarCanvasMaximized
+  const detachButton = viewport && !isTouchDevice && !Capacitor.isNativePlatform() ? (
+    <button type="button" data-testid="detach-canvas" onPointerDown={preventCanvasToolbarMouseFocus}
+      onClick={viewport.toggleDetached}
+      className="flex h-8 w-8 items-center justify-center rounded text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+      title={t(viewport.detached ? 'common.close' : 'canvas.detachView')}
+      aria-label={t(viewport.detached ? 'common.close' : 'canvas.detachView')}>
+      {viewport.detached ? <X className="h-5 w-5" /> : <ExternalLink className="h-5 w-5" />}
+    </button>
+  ) : null
 
   if (maximizeOnly && !isTouchDevice) {
     if (!canToggleMaximize) return null
@@ -87,6 +100,7 @@ function ViewNavigationToolbar({
         className={`absolute ${positionClasses[position]} z-10 flex items-center gap-1 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-md shadow-lg px-2 py-1 border border-gray-200 dark:border-gray-700`}
         style={{ transform: `scale(${overlayScale})`, transformOrigin }}
       >
+        {detachButton}
         <button
           type="button"
           onPointerDown={preventCanvasToolbarMouseFocus}
@@ -222,6 +236,7 @@ function ViewNavigationToolbar({
           )}
         </button>
       )}
+      {detachButton}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { hasSupplyInlineLabels } from './supplyInlineDeviceLabels'
 import type { TrunkDevice } from '@/types/schema'
 import { getVisibleCertificationLabelParts } from '@/lib/certificationLabels'
+import { getVisibleConversionLabelParts } from '@/lib/conversionLabels'
 import { isSymbolLabelVisible } from '@/lib/symbolLabels'
 import { measureSymbolLabelTextWidth } from '@/lib/symbolLabelTextWidth'
 import {
@@ -8,7 +9,10 @@ import {
   type AnchoredTopLabelInput,
   type AnchoredTopLabelPlacement,
 } from './anchoredLabelCollision'
-import { isVerticalSupplyDevice } from './supplyDeviceOrientation'
+import {
+  isVerticalSupplyDevice,
+  type SupplyDeviceOrientationContext,
+} from './supplyDeviceOrientation'
 
 export type SupplyTopLabelKind = 'name' | 'metadata'
 
@@ -51,7 +55,7 @@ function getDeviceInputs(
   notesOrientation: 'horizontal' | 'vertical'
 ): AnchoredTopLabelInput[] {
   const { device, x, y } = positioned
-  if (device.supplyDcBusId || isVerticalSupplyDevice(device)) return []
+  if (device.supplyDcBusId) return []
 
   const maximumLineWidth = getMaximumLineWidth(positioned, peers)
   const shared = {
@@ -85,13 +89,22 @@ function getDeviceInputs(
     notes.length > 0 &&
     !notesAreVertical &&
     isSymbolLabelVisible(device.symbolLabelDisplay, 'trunkDeviceNotes', true)
+  const transformerParts = device.symbol === 'transformer' ? getVisibleConversionLabelParts(device) : []
   const metadataLines = [
+    ...transformerParts.map((part) => part.text),
     ...getVisibleCertificationLabelParts(device).map((part) => part.text),
     ...(showNotes ? [notes] : []),
   ]
   if (metadataLines.length > 0) {
     result.push({
       ...shared,
+      // Keep a numeric nameplate field and its unit together. Notes can still wrap.
+      maximumLineWidth: Math.max(
+        maximumLineWidth,
+        ...transformerParts
+          .filter((part) => part.key.startsWith('transformer'))
+          .map((part) => shared.measureText(part.text, 8))
+      ),
       id: `${device.id}:metadata`,
       text: metadataLines.join('\n'),
       fontSize: 8,
@@ -105,10 +118,11 @@ function getDeviceInputs(
 export function getSupplyTopLabelPlacements(
   devices: PositionedSupplyLabelDevice[],
   fontFamily = 'Figtree',
-  notesOrientation: 'horizontal' | 'vertical' = 'horizontal'
+  notesOrientation: 'horizontal' | 'vertical' = 'horizontal',
+  orientationContext?: SupplyDeviceOrientationContext
 ): SupplyTopLabelPlacement[] {
   const horizontalDevices = devices.filter(
-    ({ device }) => !device.supplyDcBusId && !isVerticalSupplyDevice(device)
+    ({ device }) => !device.supplyDcBusId && !isVerticalSupplyDevice(device, orientationContext)
   )
   return solveAnchoredTopLabelCollisions(
     horizontalDevices.flatMap((positioned) =>

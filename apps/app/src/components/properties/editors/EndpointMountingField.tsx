@@ -22,14 +22,20 @@ export function EndpointMountingField({ endpointId }: { endpointId: string }) {
   const options = [
     { value: 'panel' as const, label: t('endpoints.mounting.panel', 'Board'), title: mounting.panelName },
     { value: 'field' as const, label: t('endpoints.mounting.field', 'Field') },
+    ...(mounting.enclosureId ? [{
+      value: 'auxiliary' as const,
+      label: mounting.enclosureName || t('panelCanvas.moduleEnclosure', 'Enclosure'),
+      title: mounting.enclosureName,
+    }] : []),
   ]
 
   return (
     <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
       <label className={labelClass}>{t('endpoints.mounting.label', 'Location')}</label>
-      <div className="grid grid-cols-2 gap-1 rounded-md bg-gray-100 p-1 dark:bg-gray-800" role="radiogroup">
+      <div className={`grid ${options.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-1 rounded-md bg-gray-100 p-1 dark:bg-gray-800`} role="radiogroup">
         {options.map((option) => {
-          const active = mounting.location === option.value
+          const active = (mounting.location === 'panel' && mounting.enclosureId
+            ? 'auxiliary' : mounting.location) === option.value
           return (
             <button
               key={option.value}
@@ -38,7 +44,7 @@ export function EndpointMountingField({ endpointId }: { endpointId: string }) {
               aria-checked={active}
               title={option.title}
               onClick={() => {
-                if (active) return
+                if (active || option.value === 'auxiliary') return
                 editProperties({
                   actions: [{
                     kind: 'panelModuleVisibility',

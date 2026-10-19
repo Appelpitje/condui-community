@@ -298,6 +298,8 @@ export interface Branch {
 }
 
 export interface Circuit {
+  /** Field-survey grouping only: cable/protection values and switch links need confirmation. */
+  scanReview?: { scanId: string; roomName: string }
   id: string
   code: string
   /** Optional non-bus origin for a circuit fed by a standalone supply converter backup port. */
@@ -569,9 +571,9 @@ export interface TrunkDevice {
   junctionPanelGridView?: PanelGridConfig
   /** Physical terminal component created for this junction-panel connection occurrence. */
   junctionPanelTerminal?: JunctionPanelTerminalComponent
-  /** Unique connection pin within the terminal strip identified by `junctionIdentity`. */
+  /** Circuit group number within the terminal strip identified by `junctionIdentity`; shared by occurrences of the same circuit. */
   terminalStripPin?: number
-  /** Distinct outgoing connection pin for an in-line terminal strip. */
+  /** Outgoing circuit group number; defaults to the incoming number. */
   terminalStripOutgoingPin?: number
   /** Shared identity for the two physical symbols of one earthing separator. */
   earthingSeparatorPairId?: string
@@ -645,10 +647,22 @@ export interface TrunkDevice {
   supplyDcBusId?: string
   /** Stable outgoing branch identity within the owning supply DC bus. */
   supplyDcBusBranchId?: string
-  /** Geometry on the converter grid-input path. Missing means inline on the horizontal run. */
-  converterGridPlacement?: 'inline' | 'input-leg'
+  /**
+   * Geometry on the converter grid-input path. Missing means inline on the horizontal run.
+   * `input-leg` is on the converter's vertical grid-input leg; with a changeover fed from that
+   * leg (`changeoverGridSource: 'converter-input'`) it sits below the tap and protects both the
+   * converter and the changeover grid input. `converter-leg` sits above that tap and feeds only
+   * the converter; while the changeover is fed from the grid it behaves like `input-leg`.
+   */
+  converterGridPlacement?: 'inline' | 'input-leg' | 'converter-leg'
   /** Geometry on the modular changeover grid-input path. Missing means inline on the lower rail. */
   changeoverGridPlacement?: 'inline' | 'input-leg'
+  /**
+   * Supply changeover only. Where its grid input (port 1) is tapped: `grid` (missing) from the
+   * main grid run, `converter-input` from the backup converter's grid-input leg. The latter is
+   * effective only on a split-switchable panel whose converter grid input is connected.
+   */
+  changeoverGridSource?: 'grid' | 'converter-input'
   /**
    * Supply inverter only. False intentionally disconnects the inverter's grid AC input.
    * Missing remains backward-compatible and means connected.
@@ -921,6 +935,15 @@ export interface SynergridCertification {
 export type TransformerSafetyType = 'none' | 'safety_closed' | 'safety_open'
 
 export interface EnergyConversionDeviceProps {
+  /** Common MV source transformer; secondary voltage follows the installation voltage. */
+  transformerRole?: 'supply'
+  /** Transformer nameplate voltages in volts (line-to-line for three-phase units). */
+  transformerPrimaryVoltageV?: number
+  transformerSecondaryVoltageV?: number
+  /** Rated apparent power; never inferred from the connection breaker rating. */
+  transformerRatedPowerKva?: number
+  /** Nameplate short-circuit voltage uk in percent; missing means unknown. */
+  transformerShortCircuitVoltagePercent?: number
   /** Number of independent DC connection blocks on a circuit or supply converter (1-4). */
   dcConnectionCount?: number
   /** Shared AC phase set used by every AC port of a supply-wire converter. */
@@ -994,9 +1017,9 @@ export interface Endpoint {
   junctionIdentity?: string
   /** Stable link to the junction asset this occurrence belongs to; `junctionIdentity` is its label. */
   junctionAssetId?: string
-  /** Unique connection pin within the terminal strip identified by `junctionIdentity`. */
+  /** Circuit group number within the terminal strip identified by `junctionIdentity`; shared by occurrences of the same circuit. */
   terminalStripPin?: number
-  /** Optional outgoing pin when an endpoint representation gains a second connection. */
+  /** Optional outgoing circuit group number when an endpoint representation gains a second connection. */
   terminalStripOutgoingPin?: number
   /** Physical panel-canvas owner of an endpoint-form terminal strip; independent from circuit ownership. */
   terminalStripPanelId?: string
@@ -1343,6 +1366,8 @@ export type Rotation = 0 | 90 | 180 | 270
 export type SituationPlanRotation = number
 
 export interface Placement {
+  /** Measured mounting height above finished floor, in metres; overrides cable estimate defaults. */
+  mountingHeightM?: number
   id: string
   floorId: string
   layer: string
@@ -1408,6 +1433,21 @@ export interface PlanWireRoute {
   }
 }
 
+export type PlanSymbolColors = Partial<
+  Record<
+    | 'sockets'
+    | 'lights'
+    | 'switches'
+    | 'panels'
+    | 'fixedAppliances'
+    | 'dc'
+    | 'energyConversion'
+    | 'earthing'
+    | 'other',
+    string
+  >
+>
+
 /** Sitplan wire layer visibility and default draw style; stored on the project. */
 export interface PlanWiringVisibility {
   wiresVisible?: boolean
@@ -1420,8 +1460,10 @@ export interface PlanWiringVisibility {
   branchFeedsVisible?: boolean
   /** Cable routing: supply cables (inverter, solar panels, batteries) and earthing; default shown. */
   supplyVisible?: boolean
-  /** Cable routing: colour wires by group outside wire mode too (wire mode always does). */
+  /** Colour plan symbols and wires; absent means off. Wire mode always colours wires. */
   colorCoded?: boolean
+  /** Shared symbol/wire palette on the plan only; six-digit hex colours. */
+  symbolColors?: PlanSymbolColors
   /** Wire-tool master visibility; independent of wiresVisible and enabled on every entry. */
   wireToolWiresVisible?: boolean
   /** Wire-tool colour groups; omitted groups are visible. Independent of ordinary plan filters. */
@@ -1476,6 +1518,8 @@ export type InstallationProfile = 'household' | 'non_household'
 export interface Installation {
   /** Installation use category. Missing values are interpreted as household for backward compatibility. */
   installationProfile?: InstallationProfile
+  /** Rated connection current per phase in amperes. Missing means unspecified, not 40 A. */
+  connectionCurrentA?: number
   address: {
     street: string
     postalCode: string
@@ -1668,6 +1712,8 @@ export interface WireSegment {
   forcePhaseLabel?: boolean
   /** Optional derived canvas anchor for a mandatory phase label. */
   phaseLabelAnchor?: Point2
+  /** Derived: a supply T junction this segment branches from, painted as a dot. */
+  junctionPoint?: Point2
   installationType?: 'in-wall' | 'in-tube' | 'surface' | 'conduit'
   inTube?: boolean // Flag: wire is in tube (independent)
   inWall?: boolean // @deprecated use wireRoute === 'wall'

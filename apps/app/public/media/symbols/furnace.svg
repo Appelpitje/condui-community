@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-64.5 -84.0 144.5 144.5" role="img" aria-label="Gasketel">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-29.4,17.0 15.6,43.0 15.6,-31.0 -29.4,-57.0" fill="#f1f5f9"/>
+  <polygon points="45.0,26.0 15.6,43.0 15.6,-31.0 45.0,-48.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-74.0 45.0,-48.0 15.6,-31.0 -29.4,-57.0" fill="#ffffff"/>
+  <path d="M-19.1 21.0V37.0" stroke-width="6"/><path d="M-19.1 21.0V37.0" stroke="#94a3b8" stroke-width="3.5"/>
+  <path d="M-11.3 25.5V41.5" stroke-width="6"/><path d="M-11.3 25.5V41.5" stroke="#3b82f6" stroke-width="3.5"/>
+  <path d="M-3.5 30.0V46.0" stroke-width="6"/><path d="M-3.5 30.0V46.0" stroke="#ef4444" stroke-width="3.5"/>
+  <path d="M4.3 34.5V50.5" stroke-width="6"/><path d="M4.3 34.5V50.5" stroke="#94a3b8" stroke-width="3.5"/>
+  <path d="M-0.8 -68.5V-52.5A8.6 4.9 0 0 0 16.4 -52.5V-68.5Z" fill="#cbd5e1"/>
+  <ellipse cx="7.8" cy="-68.5" rx="8.6" ry="4.9" fill="#e2e8f0"/>
+  <g transform="matrix(0.8660 0.5 0 1 -29.44 17.00)"><path d="M0 -30H52" stroke-width="1"/>
+<rect x="10" y="-26" width="14" height="7" rx="1" fill="#1e293b"/><circle cx="34" cy="-22.5" r="3.2" fill="#ffffff" stroke-width="1"/><path d="M34 -25.7V-23.46" stroke-width="1"/><circle cx="43" cy="-22.5" r="3.2" fill="#ffffff" stroke-width="1"/><path d="M43 -25.7V-23.46" stroke-width="1"/></g>
+</g>
+</svg>

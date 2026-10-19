@@ -5,6 +5,7 @@ import {
 import { migrateEndpointLabelsAfterCircuitCodeChange } from '@/lib/eendraad/circuitEndpointLabels'
 import type { Branch, Circuit, Endpoint, TrunkDevice } from '@/types/schema'
 import { generateId } from '@/utils'
+import { clearDuplicatedControlChannel } from '@/lib/controlLink/duplicateAddress'
 
 export type CircuitCloneIdMaps = {
   endpoint: Map<string, string>
@@ -12,30 +13,33 @@ export type CircuitCloneIdMaps = {
   circuit: Map<string, string>
 }
 
-function cloneEndpointContent(source: Endpoint, newId: string): Endpoint {
+function cloneEndpointContent(source: Endpoint, id: string, preserveDependencies: boolean, newId: () => string): Endpoint {
   const clone: Endpoint = JSON.parse(JSON.stringify(source))
-  clone.id = newId
+  clone.id = id
   clone.placements =
     source.placements?.length > 0
-      ? clonePlacementsForDuplicate(source.placements, clonePlacementsOptionsForEndpoint(source))
+      ? clonePlacementsForDuplicate(source.placements, clonePlacementsOptionsForEndpoint(source), newId)
       : []
-  clone.controlledEndpointIds = undefined
-  if (clone.domoticaProps) {
-    clone.domoticaProps = {
-      ...clone.domoticaProps,
-      endpointChildEndpointIds: undefined,
-      controlChildEndpointIds: undefined,
+  if (!preserveDependencies) {
+    clone.controlledEndpointIds = undefined
+    if (clone.domoticaProps) {
+      clone.domoticaProps = {
+        ...clone.domoticaProps,
+        endpointChildEndpointIds: undefined,
+        controlChildEndpointIds: undefined,
+      }
     }
+    clone.domoticaChildProps = undefined
   }
   return clone
 }
 
-function cloneTrunkDeviceContent(source: TrunkDevice, newId: string): TrunkDevice {
+function cloneTrunkDeviceContent(source: TrunkDevice, id: string, newId: () => string): TrunkDevice {
   return {
     ...JSON.parse(JSON.stringify(source)),
-    id: newId,
+    id,
     placements: source.placements?.length
-      ? clonePlacementsForDuplicate(source.placements, { symbolType: source.symbol })
+      ? clonePlacementsForDuplicate(source.placements, { symbolType: source.symbol }, newId)
       : source.placements,
   }
 }
@@ -60,22 +64,24 @@ export function cloneCircuitContent(
   source: Circuit,
   maps: CircuitCloneIdMaps,
   newCircuitId: string,
-  newCode: string
+  newCode: string,
+  newId: () => string = generateId,
+  preserveEndpointDependencies = false
 ): Circuit {
   maps.circuit.set(source.id, newCircuitId)
 
   const endpointIdMap = maps.endpoint
   const newEndpoints: Endpoint[] = []
   for (const ep of source.endpoints) {
-    const newEpId = generateId()
+    const newEpId = newId()
     endpointIdMap.set(ep.id, newEpId)
-    newEndpoints.push(cloneEndpointContent(ep, newEpId))
+    newEndpoints.push(cloneEndpointContent(ep, newEpId, preserveEndpointDependencies, newId))
   }
 
   const newTrunkDevices: TrunkDevice[] | undefined = source.trunkDevices?.map((td) => {
-    const newTdId = generateId()
+    const newTdId = newId()
     maps.trunkDevice.set(td.id, newTdId)
-    return cloneTrunkDeviceContent(td, newTdId)
+    return cloneTrunkDeviceContent(td, newTdId, newId)
   })
   for (const endpoint of newEndpoints) {
     if (!endpoint.converterDcConnection) continue
@@ -87,9 +93,9 @@ export function cloneCircuitContent(
   const branchDeviceLists = new Map<string, TrunkDevice[]>()
   for (const branch of source.branches ?? []) {
     const clonedDevices = (branch.branchDevices ?? []).map((device) => {
-      const newDeviceId = generateId()
+      const newDeviceId = newId()
       maps.trunkDevice.set(device.id, newDeviceId)
-      return cloneTrunkDeviceContent(device, newDeviceId)
+      return cloneTrunkDeviceContent(device, newDeviceId, newId)
     })
     branchDeviceLists.set(branch.id, clonedDevices)
   }
@@ -104,7 +110,7 @@ export function cloneCircuitContent(
       const dcBusId = branch.dcBusId ? maps.trunkDevice.get(branch.dcBusId) : undefined
       const branchDevices = branchDeviceLists.get(branch.id)
       return {
-        id: generateId(),
+      id: newId(),
         label: branch.label,
         endpointIds: branch.endpointIds
           .map((eid) => endpointIdMap.get(eid))
@@ -128,6 +134,35 @@ export function cloneCircuitContent(
   remapSectionWireOverrides(clone, maps)
   relabelClonedCircuit(source, clone, newCode)
   return clone
+}
+
+export function remapClonedEndpointDependencies(endpoints: Endpoint[], maps: CircuitCloneIdMaps): void {
+  for (const endpoint of endpoints) {
+    if (endpoint.controlledEndpointIds) {
+      endpoint.controlledEndpointIds = endpoint.controlledEndpointIds
+        .map((id) => maps.endpoint.get(id))
+        .filter((id): id is string => !!id)
+    }
+    if (endpoint.domoticaProps) {
+      endpoint.domoticaProps.endpointChildEndpointIds = endpoint.domoticaProps.endpointChildEndpointIds
+        ?.map((id) => maps.endpoint.get(id))
+        .filter((id): id is string => !!id)
+      endpoint.domoticaProps.controlChildEndpointIds = endpoint.domoticaProps.controlChildEndpointIds
+        ?.map((id) => maps.endpoint.get(id))
+        .filter((id): id is string => !!id)
+    }
+    if (endpoint.domoticaChildProps) {
+      const parentId = maps.endpoint.get(endpoint.domoticaChildProps.parentEndpointId)
+      if (parentId) endpoint.domoticaChildProps.parentEndpointId = parentId
+      else delete endpoint.domoticaChildProps
+    }
+    if (endpoint.controlLink) {
+      const clonedDeviceId = maps.endpoint.get(endpoint.controlLink.deviceId)
+      if (clonedDeviceId) endpoint.controlLink.deviceId = clonedDeviceId
+      else delete endpoint.controlLink
+    }
+    clearDuplicatedControlChannel(endpoint)
+  }
 }
 
 /** Rename branch + endpoint labels from source circuit code to the new circuit code. */

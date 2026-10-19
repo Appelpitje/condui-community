@@ -1,4 +1,125 @@
 {
+  "findPanel": {
+    "title": "Găsește tabloul",
+    "placeholder": "Caută tablouri…",
+    "empty": "Nu s-au găsit tablouri",
+    "oneWire": "Schemă monofilară",
+    "panelView": "Configurația tabloului",
+    "planView": "Plan de situație",
+    "unplaced": "Neamplasat pe plan"
+  },
+  "nativeRoomScan": {
+    "title": "Scanare etaj",
+    "description": "Scanează pereții, ușile și ferestrele acestui etaj.",
+    "start": "Scanează etajul",
+    "scanning": "Se scanează…",
+    "unsupported": "Scanarea camerei nu este disponibilă pe acest dispozitiv.",
+    "failed": "Etajul nu a putut fi scanat.",
+    "cancelled": "Scanarea etajului a fost anulată.",
+    "result": "Rezultatul scanării",
+    "walls": "Pereți",
+    "doors": "Uși",
+    "windows": "Ferestre",
+    "openings": "Deschideri",
+    "scanAgain": "Scanează din nou",
+    "preview": "Previzualizarea planului",
+    "rotateLeft": "Rotește 90° la stânga",
+    "rotateRight": "Rotește 90° la dreapta",
+    "addToFloor": "Adaugă la {{floor}}",
+    "unmatched": "Deschideri neasociate",
+    "skippedWalls": "Pereți omiși",
+    "checkCenters": "Verifică axele pereților",
+    "noWalls": "Nu au fost găsiți pereți.",
+    "importFailed": "Scanarea nu a putut fi adăugată.",
+    "floorUnavailable": "Etajul selectat nu mai este disponibil.",
+    "stale": "Proiectul a fost modificat. Actualizează previzualizarea pentru a continua.",
+    "refresh": "Actualizează previzualizarea",
+    "search": "LiDAR RoomPlan cameră pereți uși ferestre",
+    "roomNameDefault": "Cameră",
+    "roomName": "Numele camerei",
+    "targetPanel": "Tablou",
+    "includePlacements": "Marchează prize, corpuri de iluminat și întrerupătoare",
+    "existingInstallation": "Amplasarea este dezactivată deoarece proiectul conține deja puncte terminale.",
+    "reviewHint": "Circuitele din scanare sunt provizorii. Verifică protecțiile, cablurile și conexiunile de comandă.",
+    "modelDocument": "Modelul etajului",
+    "placementsDocument": "Amplasări din scanare",
+    "toReview": "De verificat",
+    "zoomIn": "Mărește",
+    "zoomOut": "Micșorează",
+    "resetView": "Resetează vizualizarea",
+    "orbitHint": "Trage pentru a roti · apropie degetele pentru zoom",
+    "reviewCircuit": "Verifică circuitul",
+    "markReviewed": "Marchează ca verificat",
+    "capturedHeight": "Înălțime înregistrată",
+    "noPhoto": "Nicio fotografie de referință",
+    "elementRemoved": "Elementul asociat a fost șters. Fotografia este păstrată.",
+    "showOnPlan": "Arată pe plan",
+    "showOnOneWire": "Arată pe schema monofilară",
+    "downloadScan": "Descarcă scanarea",
+    "documentFailed": "Documentul scanării nu a putut fi deschis.",
+    "group": {
+      "sockets": "prize",
+      "lighting": "iluminat",
+      "equipment": "aparate"
+    },
+    "capture": {
+      "cancel": "Anulează",
+      "undo": "Anulează ultima",
+      "finish": "Finalizează",
+      "center": "Centru",
+      "review": "Verifică",
+      "back": "Înapoi",
+      "more": "Alte tipuri",
+      "placements": "Poziții",
+      "processing": "Se procesează…",
+      "locked": "Punct fixat",
+      "centerAim": "Țintește centrul · atinge pentru fixare",
+      "markFixtures": "Marchează elemente",
+      "tracking": "Urmărire",
+      "trackingPaused": "Urmărire incertă",
+      "offscreen": "în afara cadrului",
+      "noMarks": "Etaj scanat · niciun aparat marcat",
+      "finishRoom": "Finalizează etajul",
+      "fewerSockets": "Mai puține prize",
+      "moreSockets": "Mai multe prize",
+      "variantHint": "Glisează pentru a alege · eliberează pentru amplasare",
+      "variants": {
+        "socket": "Priză",
+        "light": "Lumină",
+        "switch": "Întrer.",
+        "twoWay": "Cap-scară",
+        "cross": "Cruce",
+        "push": "Buton",
+        "dimmer": "Variator",
+        "led": "LED",
+        "fluorescent": "Tub",
+        "spot": "Spot"
+      },
+      "surfaceNeeded": "Vizează un perete, o podea sau un tavan scanat"
+    },
+    "documentBudget": "Referințele scanării depășesc spațiul pentru documentele proiectului. Șterge sau micșorează documentele existente și încearcă din nou.",
+    "noClosedRooms": "Nu s-au detectat camere închise. Scanează limitele complete pentru a identifica camerele.",
+    "roomTypes": {
+      "bedroom": "Dormitor",
+      "bathroom": "Baie",
+      "kitchen": "Bucătărie",
+      "livingRoom": "Sufragerie",
+      "diningRoom": "Cameră de luat masa",
+      "laundry": "Spălătorie",
+      "office": "Birou"
+    },
+    "modelLayers": {
+      "object": "Mobilier",
+      "wall": "Pereți",
+      "openings": "Uși și ferestre",
+      "floor": "Podea"
+    },
+    "assignCircuit": "Atribuie unui circuit",
+    "newCircuit": "Circuit nou",
+    "assignmentFailed": "Aceste amplasări nu au putut fi atribuite.",
+    "selectPlacement": "Selectează amplasarea",
+    "clearSelection": "Golește selecția"
+  },
   "junctionIdentity": {
     "label": "Identificarea conexiunii",
     "pickExisting": "Reutilizați identificarea existentă",
@@ -9,9 +130,11 @@
     "toggleVisibility": "Afișați sau ascundeți eticheta în schemă"
   },
   "terminalStrip": {
-    "pin": "Număr terminal",
+    "pin": "Număr circuit",
     "incomingPin": "In",
-    "outgoingPin": "Dezactivat"
+    "outgoingPin": "Dezactivat",
+    "circuitConflict": "{{label}} este atribuit unor circuite diferite.",
+    "circuitConflictRemediation": "Folosiți un număr separat de grup de borne pentru fiecare circuit."
   },
   "appUpdate": {
     "banner": "Este disponibilă o nouă versiune a aplicației.",
@@ -35,6 +158,7 @@
     "importFallbackProjectName": "Proiect importat ({{idShort}})"
   },
   "common": {
+    "more": "Mai mult",
     "save": "Salvați",
     "cancel": "Anulează",
     "delete": "Ștergeți",
@@ -155,6 +279,7 @@
     "zoom": "Zoom"
   },
   "commandPalette": {
+    "addSupplyTransformer": "Adaugă transformator de alimentare",
     "placeholder": "Caută comenzi",
     "empty": "Nicio comandă găsită",
     "moveToCircuit": "Mută în circuit",
@@ -187,14 +312,98 @@
       "kind": "Tip de circuit",
       "direction": "Partea de alimentare",
       "left": "Stânga",
-      "right": "Dreapta"
+      "right": "Dreapta",
+      "x": "X",
+      "y": "Y",
+      "startX": "Început X",
+      "startY": "Început Y",
+      "endX": "Sfârșit X",
+      "endY": "Sfârșit Y",
+      "thickness": "Grosime",
+      "wall": "Perete",
+      "planWidth": "Lățime",
+      "height": "Înălțime",
+      "stepDepth": "Adâncime treaptă",
+      "asset": "Simbol",
+      "offsetX": "Deplasare X",
+      "offsetY": "Deplasare Y",
+      "rotationDeg": "Rotație (°)",
+      "opacity": "Opacitate (%)",
+      "segment": "Segment",
+      "text": "Text",
+      "title": "Titlu",
+      "fontSize": "Dimensiune text",
+      "titlePosition": "Poziția titlului",
+      "route": "Traseul conductorului",
+      "index": "Indicele punctului",
+      "placement": "Simbol pe plan",
+      "destination": "Destinație",
+      "organization": "Organizarea alimentării",
+      "connection": "Conexiune"
     },
     "kinds": {
       "lighting": "Iluminat",
       "sockets": "Prize",
       "fixed_appliance": "Aparat fix",
       "other": "Altele"
-    }
+    },
+    "removeFromOneWire": "Elimină din schema cu un fir",
+    "showOnOneWire": "Afișează pe schema cu un fir",
+    "addFloor": "Adaugă etaj",
+    "deleteFloor": "Șterge etajul",
+    "transformBackground": "Ajustează fundalul planului",
+    "addPlanWall": "Adaugă perete",
+    "addPlanDoor": "Adaugă ușă",
+    "addPlanWindow": "Adaugă fereastră",
+    "addPlanStair": "Adaugă scară",
+    "addPlanGraphic": "Adaugă simbol în plan",
+    "placeExistingOnPlan": "Plasează în plan",
+    "hideAllPanelModules": "Ascunde toate modulele tabloului",
+    "showAllPanelModules": "Arată toate modulele tabloului",
+    "showAuxiliaryEnclosures": "Arată carcasele auxiliare în plan",
+    "hideAuxiliaryEnclosures": "Ascunde carcasele auxiliare din plan",
+    "importPlanBackground": "Importă fundalul planului",
+    "calibratePlan": "Setează scara planului",
+    "removeBackground": "Elimină fundalul planului",
+    "splitWall": "Împarte peretele",
+    "planAddNote": "Adaugă notă pe plan",
+    "eendraadAddNote": "Adaugă notă pe schemă",
+    "eendraadCreateFrame": "Încadrează elementele selectate",
+    "planInsertWireWaypoint": "Adaugă punct pe conductor",
+    "planMoveWireWaypoint": "Mută punctul conductorului",
+    "planRemoveWireWaypoint": "Elimină punctul conductorului",
+    "planMoveWireRiser": "Mută trecerea prin planșeu",
+    "planDisconnectOutgoingWires": "Deconectează conductoarele de ieșire de pe plan",
+    "cableAcceptLengthEstimates": "Acceptă lungimile estimate ale cablurilor",
+    "moveSupplyDevice": "Mută dispozitivul de alimentare",
+    "moveCircuitTrunkDevice": "Mută dispozitivul circuitului",
+    "values": {
+      "inside": "În interior",
+      "outside": "În exterior",
+      "sharedSupply": "Alimentare comună",
+      "supplyWire": "Conductor de alimentare",
+      "backupWire": "Conductor de rezervă",
+      "backupOutput": "Ieșire de rezervă",
+      "changeoverGrid": "Intrare de rețea a comutatorului",
+      "converterGrid": "Intrare de rețea a convertorului",
+      "converterDc": "Partea CC a convertorului",
+      "supplyDestination": "{{panel}} · {{lane}}",
+      "destinationAtPosition": "{{destination}} · poziția {{position}}",
+      "circuitDestinationAtPosition": "{{panel}} · {{circuit}} · poziția {{position}}",
+      "defaultNote": "Notă nouă",
+      "defaultFrame": "Cadru",
+      "singleFeed": "Alimentare unică",
+      "splitBackupFeed": "Alimentare de rezervă separată",
+      "splitSwitchableFeed": "Alimentare comutabilă separată",
+      "installationSupply": "Alimentarea instalației"
+    },
+    "setPanelFeedOrganization": "Modifică alimentările tabloului",
+    "setGridFeedBoundary": "Mută limita alimentării din rețea",
+    "setBackupFeedBoundary": "Mută limita alimentării de rezervă",
+    "movePanelSupply": "Mută alimentarea tabloului",
+    "disconnectInverterGridInput": "Deconectează intrarea de rețea a invertorului",
+    "ejectSecondaryBusProtections": "Mută bara secundară într-un tablou nou",
+    "ensureSecondaryPanelEarthingStem": "Adaugă ramificația de împământare a tabloului"
   },
   "shortcuts": {
     "title": "Taste rapide",
@@ -224,6 +433,7 @@
       "ctrlCmdP": "Ctrl/Cmd+P",
       "ctrlCmdD": "Ctrl/Cmd + D",
       "ctrlCmdK": "Ctrl/Cmd + K",
+      "ctrlCmdF": "Ctrl/Cmd + F",
       "tab": "Tab",
       "esc": "Esc",
       "space": "Spațiu",
@@ -716,6 +926,12 @@
     }
   },
   "installation": {
+    "supplyConnectionLabel": "Racordare la rețea",
+    "supplyDirect": "Joasă tensiune directă",
+    "supplyTransformer": "Transformator propriu",
+    "connectionCurrent": "Curent de racordare (A)",
+    "connectionUnspecified": "Nespecificat",
+    "connectionCustom": "Personalizat",
     "defaultCable": "Cablu standard",
     "title": "Instalare",
     "profile": "Profil",
@@ -794,6 +1010,7 @@
     "type": "Tip",
     "rating": "Curent nominal",
     "curve": "Caracteristica de declanșare",
+    "specialistCurveWarning": "Neobișnuită în instalațiile casnice. Verificați protecția la scurtcircuit.",
     "sensitivity": "Curent diferențial IΔn",
     "poles": "Poli",
     "polesConfig": "Configurația polilor",
@@ -1097,6 +1314,10 @@
       "options": "Opțiuni"
     },
     "transformer": {
+      "primaryVoltage": "Tensiune primară (V)",
+      "secondaryVoltage": "Tensiune secundară (V)",
+      "ratedPower": "Putere nominală (kVA)",
+      "shortCircuitVoltage": "Tensiune de scurtcircuit uk (%)",
       "safetyType": "Transformator de siguranță",
       "safety_none": "Niciuna",
       "safety_closed_short": "Închis",
@@ -1251,6 +1472,9 @@
     "syncWithPanelView": "Sincronizare cu afișajul plăcii de distribuție"
   },
   "canvas": {
+    "detachView": "Desprinde vederea",
+    "dockView": "Readuce vederea",
+    "popupBlocked": "Permite ferestrele pop-up pentru Condui și încearcă din nou.",
     "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Afișați grila",
     "snap": "Aliniere",
@@ -1554,6 +1778,8 @@
     }
   },
   "sitplanVisibility": {
+    "colors": "Culorile planului",
+    "symbolColor": "Culoare: {{category}}",
     "title": "Vizibilitate",
     "showAll": "Afișează toate",
     "groundPlans": "Planuri de etaj",
@@ -1636,6 +1862,7 @@
     "horn": "Claxon",
     "siren": "Sirena",
     "panel_distribution": "Placă de distribuție",
+    "junction_box": "Doză de derivație",
     "relay": "Releu",
     "domotica": "Automatizare/instalare inteligentă",
     "energy_meter": "Contor de energie",
@@ -2263,6 +2490,11 @@
         "message": "Sursa de alimentare întrerupe puterea prea scăzută: {{list}}",
         "details": "Protecția conexiunii înaintea contorului necesită cel puțin 6000 A. Dispozitivele ulterioare de protecție la supracurent necesită cel puțin 3000 A."
       },
+      "circuitShortCircuitProtectionVerifiable": {
+        "message": "Circuitul {{circuitCode}}: protecția la scurtcircuit cu caracteristica {{curve}} nu este verificată",
+        "missingData": "Introduceți curentul nominal al disjunctorului, secțiunile conductoarelor și toate lungimile cablurilor pentru a verifica protecția la scurtcircuit. Datele lipsă nu confirmă o protecție adecvată.",
+        "unsupportedCurve": "Condui nu are un prag de declanșare fiabil pentru această caracteristică. Verificați protecția folosind curba producătorului și curentul minim de scurtcircuit."
+      },
       "circuitWithinMaximumProtectedLength": {
         "message": "Circuitul {{circuitCode}}: cablul de {{lengthM}} m depășește lungimea protejată de {{maxLengthM}} m",
         "details": "Un scurtcircuit la capătul circuitului trebuie să declanșeze imediat întreruptorul automat {{curve}}{{ratingA}} ({{tripCurrentA}} A). Pentru {{sectionMm2}} mm², lungimea maximă este {{maxLengthM}} m. Alegeți o secțiune mai mare, un traseu mai scurt sau o valoare nominală ori o curbă mai mică."
@@ -2292,6 +2524,10 @@
         "details": "Domeniul unui fir trebuie să se potrivească cu domeniul de intrare/ieșire așteptat al componentei conectate. Numai convertoarele (transformator, redresor, invertor, DC-DC) au permisiunea de a conecta diferite domenii."
       },
       "mainRcdCompliance": {
+        "sensitivityMissing": {
+          "message": "Sensibilitatea RCD/RCBO principal este necunoscută",
+          "details": "Introduceți curentul diferențial nominal (mA) al dispozitivului existent pentru a verifica protecția diferențială principală. Folosiți specificațiile confirmate ale dispozitivului."
+        },
         "missing": {
           "message": "Alimentării principale îi lipsește un întreruptor diferențial sau un întreruptor automat diferențial în amonte",
           "details": "AREI impune instalarea unui întreruptor diferențial principal la începutul instalației. Instalați un întreruptor diferențial principal sau un întreruptor automat diferențial pe linia de alimentare, în amonte de tabloul principal."
@@ -2323,6 +2559,12 @@
         "details": "Placa de distribuție poate fi deconectată printr-o sursă de alimentare din amonte, dar nu există un întrerupător/sezionator local în acest tablou de distribuție. Deconectarea locală îmbunătățește siguranța și întreținerea."
       },
       "circuitHasRcdProtection": {
+        "sensitivityMissing": {
+          "groupMessage": "Circuitele au protecție RCD/RCBO în amonte cu sensibilitate necunoscută",
+          "remediation": "Introduceți sensibilitatea (mA) a dispozitivului RCD/RCBO existent în amonte din specificațiile confirmate ale dispozitivului.",
+          "message": "Circuitul {{circuitCode}} are protecție RCD/RCBO în amonte cu sensibilitate necunoscută",
+          "details": "Introduceți sensibilitatea (mA) a dispozitivului RCD/RCBO existent în amonte pentru a verifica protecția de 30 mA. Folosiți specificațiile confirmate ale dispozitivului."
+        },
         "missing": {
           "message": "Circuitul {{circuitCode}} necesită protecție prin întreruptor diferențial sau întreruptor automat diferențial (30 mA), dar nu a fost găsit niciun dispozitiv în amonte",
           "details": "Iluminatul, prizele generale, mașinile de spălat, uscătoarele, mașinile de spălat vase și circuitele de încărcare EV necesită protecție diferențială de 30 mA. Adăugați în amonte un întreruptor diferențial sau un întreruptor automat diferențial ori treceți circuitul printr-un dispozitiv existent de 30 mA."
@@ -2694,6 +2936,7 @@
   },
   "plan": {
     "doorProperties": "Ușă",
+    "gatePreset": "Poartă",
     "windowProperties": "Fereastra",
     "openingWidth": "Latime",
     "cm": "cm",
@@ -2777,7 +3020,11 @@
     "backupFeed": "Sursă de alimentare de rezervă",
     "gridMarker": "Net",
     "backupMarker": "Backup",
-    "switchableBackupMarker": "Backup/Net"
+    "switchableBackupMarker": "Backup/Net",
+    "changeoverInput1": "Intrarea 1",
+    "changeoverInputGrid": "Rețea",
+    "changeoverInputConverter": "Alimentare invertor",
+    "inverterGridInputDisconnected": "Intrarea de rețea a invertorului nu este conectată"
   },
   "wallProperties": {
     "title": "Proprietăți perete",
@@ -3264,7 +3511,11 @@
     "shape": {
       "phase": "Fază",
       "neutral": "Nul",
-      "earth": "Împământare"
+      "earth": "Împământare",
+      "deck2": "Cu două etaje",
+      "deck3": "Cu trei etaje PE/N/L",
+      "install": "Instalație L/N/PE",
+      "single": "Cu un etaj"
     },
     "addJumper": "Adaugă punte",
     "removeJumper": "Elimină puntea",
@@ -3299,6 +3550,22 @@
         "unknown-connector": "Clema de legătură nu mai există",
         "pe-without-bonded-rail": "Cleme de împământare pe o șină fără împământare"
       }
-    }
+    },
+    "tool": {
+      "select": "Selectează",
+      "bridge": "Desenează o punte"
+    },
+    "bridgeThroughRail": "Pământarea este deja conectată prin șină",
+    "shapeOf": "Formă"
+  },
+  "oneWireReference": {
+    "title": "Pagină scanată",
+    "blend": "Contopește cu planșa",
+    "opacity": "Opacitate",
+    "openDocument": "Deschide documentul",
+    "remove": "Elimină din schema cu un fir",
+    "showOnOneWire": "Afișează pe schema cu un fir",
+    "pageName": "Pagina schemei cu un fir {{page}}",
+    "documentPage": "{{name}} · pagina {{page}}"
   }
 }

@@ -4,6 +4,7 @@ import {
 } from '@/lib/eendraad/duplicateSitplanHelpers'
 import type { Circuit, DomoticaChildEndpointProps, Endpoint } from '@/types/schema'
 import { generateId } from '@/utils'
+import { clearDuplicatedControlChannel } from '@/lib/controlLink/duplicateAddress'
 
 export type DomoticaEndpointGroupClone = {
   parent: Endpoint
@@ -11,11 +12,11 @@ export type DomoticaEndpointGroupClone = {
   childIdMap: Map<string, string>
 }
 
-function cloneEndpoint(source: Endpoint, id: string): Endpoint {
+function cloneEndpoint(source: Endpoint, id: string, newId: () => string): Endpoint {
   const clone: Endpoint = JSON.parse(JSON.stringify(source))
   clone.id = id
   clone.placements = source.placements?.length
-    ? clonePlacementsForDuplicate(source.placements, clonePlacementsOptionsForEndpoint(source))
+    ? clonePlacementsForDuplicate(source.placements, clonePlacementsOptionsForEndpoint(source), newId)
     : []
   return clone
 }
@@ -79,7 +80,8 @@ function slotRefsForParent(parent: Endpoint): Map<string, DomoticaChildEndpointP
  */
 export function cloneDomoticaEndpointGroup(
   sourceParent: Endpoint,
-  sourceCircuit: Circuit
+  sourceCircuit: Circuit,
+  newId: () => string = generateId,
 ): DomoticaEndpointGroupClone {
   const slotRefs = slotRefsForParent(sourceParent)
   const childIds = new Set(slotRefs.keys())
@@ -95,11 +97,11 @@ export function cloneDomoticaEndpointGroup(
     .map((id) => childrenById.get(id))
     .filter((endpoint): endpoint is Endpoint => !!endpoint)
 
-  const parentId = generateId()
+  const parentId = newId()
   const childIdMap = new Map<string, string>()
-  for (const child of sourceChildrenInOrder) childIdMap.set(child.id, generateId())
+  for (const child of sourceChildrenInOrder) childIdMap.set(child.id, newId())
 
-  const parent = cloneEndpoint(sourceParent, parentId)
+  const parent = cloneEndpoint(sourceParent, parentId, newId)
   // Domotica parents are diagram modules, not sitplan symbols.
   parent.placements = []
   if (parent.domoticaProps) {
@@ -118,7 +120,7 @@ export function cloneDomoticaEndpointGroup(
   parent.controlledEndpointIds = remapEndpointIds(sourceParent.controlledEndpointIds, childIdMap)
 
   const children = sourceChildrenInOrder.map((sourceChild) => {
-    const child = cloneEndpoint(sourceChild, childIdMap.get(sourceChild.id)!)
+    const child = cloneEndpoint(sourceChild, childIdMap.get(sourceChild.id)!, newId)
     const sourceRef = sourceChild.domoticaChildProps ?? slotRefs.get(sourceChild.id)
     if (sourceRef) {
       child.domoticaChildProps = {
@@ -129,6 +131,16 @@ export function cloneDomoticaEndpointGroup(
     child.controlledEndpointIds = remapEndpointIds(sourceChild.controlledEndpointIds, childIdMap)
     return child
   })
+
+  const endpointIdMap = new Map([[sourceParent.id, parentId], ...childIdMap])
+  for (const endpoint of [parent, ...children]) {
+    if (endpoint.controlLink) {
+      const clonedDeviceId = endpointIdMap.get(endpoint.controlLink.deviceId)
+      if (clonedDeviceId) endpoint.controlLink.deviceId = clonedDeviceId
+      else delete endpoint.controlLink
+    }
+    clearDuplicatedControlChannel(endpoint)
+  }
 
   return { parent, children, childIdMap }
 }

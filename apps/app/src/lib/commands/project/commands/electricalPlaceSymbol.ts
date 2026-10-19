@@ -17,10 +17,17 @@ import {
   DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS,
 } from '@/lib/wires/circuitWireDefaults'
 import { collectCircuits } from '@/lib/panel/panelTree'
+import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
+import { canSymbolAppearOnSituationPlan } from '@/lib/plan/situationPlanSymbolEligibility'
 import type { ProjectV2 } from '@/types/projectV2'
 import { CommandError, defineProjectCommand, type EntityKind, type EntityRef } from '../types'
 import { checkElectricalDropTarget, electricalDropTargetSchema } from '../electricalDropTarget'
 import { applyPanelDropPlacement, panelDropPlacementSchema } from '../panelDropPlacement'
+import { collectTopologyRefs, diffTopologyRefs } from '../topologyRefs'
+import {
+  resolveElectricalSemanticTarget,
+  electricalSemanticDestinationSchema,
+} from '../electricalSemanticTarget'
 
 const point = z.object({ x: z.number().finite(), y: z.number().finite() })
 
@@ -34,28 +41,61 @@ const SELECTION_KINDS = new Set<string>(['endpoint', 'note', 'panel', 'protectio
 export const electricalPlaceSymbol = defineProjectCommand({
   id: 'electrical.placeSymbol',
   version: 1,
-  input: z.object({
-    symbolId: z.string().min(1),
-    target: electricalDropTargetSchema,
-    panelGrid: panelDropPlacementSchema.optional(),
-    dropCanvasPosition: point.optional(),
-    sitplan: z
-      .object({
-        activeFloorId: z.string().min(1).nullable(),
-        viewportCenter: point.nullable(),
-        activePanelId: z.string().min(1).nullable(),
-      })
-      .optional(),
-  }),
+  input: z
+    .object({
+      symbolId: z.string().min(1),
+      target: electricalDropTargetSchema.optional(),
+      destination: electricalSemanticDestinationSchema.optional(),
+      panelGrid: panelDropPlacementSchema.optional(),
+      dropCanvasPosition: point.optional(),
+      planPlacement: z.strictObject({
+        floorId: z.string().min(1),
+        layer: z.string().min(1).default('electrical'),
+        pos: point.strict(),
+        rotationDeg: z.number().finite().default(0),
+        scale: z.number().finite().positive().default(1),
+      }).optional(),
+      sitplan: z
+        .object({
+          activeFloorId: z.string().min(1).nullable(),
+          viewportCenter: point.nullable(),
+          activePanelId: z.string().min(1).nullable(),
+        })
+        .optional(),
+    })
+    .superRefine((input, context) => {
+      if (input.planPlacement && input.sitplan)
+        context.addIssue({ code: 'custom', message: 'Provide exact planPlacement or automatic sitplan context, not both.', path: ['sitplan'] })
+      if (Boolean(input.target) === Boolean(input.destination))
+        context.addIssue({
+          code: 'custom',
+          message: 'Provide exactly one legacy target or semantic destination.',
+          path: ['destination'],
+        })
+    }),
   check(project, input) {
     if (!getSymbolById(input.symbolId)) {
       return { ok: false, code: 'unknown_symbol', message: 'Unknown symbol' }
     }
-    const targetCheck = checkElectricalDropTarget(
-      project,
-      input.target,
-      input.sitplan?.activeFloorId
-    )
+    if (input.planPlacement) {
+      if (!canSymbolAppearOnSituationPlan(input.symbolId))
+        return { ok: false, code: 'unsupported_plan_symbol', message: 'This symbol cannot be placed on the plan' }
+      const floor = selectProjectBuildingFloors(project).find((entry) => entry.id === input.planPlacement!.floorId)
+      if (!floor) return { ok: false, code: 'floor_not_found', message: 'Floor not found' }
+      // Native V2 floors expose the electrical plan layer implicitly, rather than storing
+      // the compatibility view's `layers` array.
+      const layers = 'layers' in floor && floor.layers?.length ? floor.layers : ['electrical']
+      if (!layers.includes(input.planPlacement.layer))
+        return { ok: false, code: 'layer_not_found', message: 'Plan layer not found' }
+    }
+    const resolved = input.destination
+      ? resolveElectricalSemanticTarget(project, input.destination)
+      : input.target
+        ? { ok: true as const, target: input.target }
+        : { ok: false as const, code: 'target_required', message: 'A placement destination is required.' }
+    if (!resolved.ok) return resolved
+    const target = resolved.target
+    const targetCheck = checkElectricalDropTarget(project, target, input.planPlacement?.floorId ?? input.sitplan?.activeFloorId)
     if (!targetCheck.ok) return targetCheck
     if (
       input.sitplan?.activePanelId &&
@@ -65,20 +105,20 @@ export const electricalPlaceSymbol = defineProjectCommand({
     }
     if (input.panelGrid) {
       const panel =
-        input.target.panelId &&
-        findPanelById(getEditableProjectElectricalPanels(project), input.target.panelId)
+        target.panelId &&
+        findPanelById(getEditableProjectElectricalPanels(project), target.panelId)
       const protection = (PROTECTION_SYMBOL_IDS as readonly string[]).includes(input.symbolId)
       const valid =
         input.panelGrid.scope === 'supply'
           ? panel &&
             panel.isMain &&
-            input.target.type === 'supplyWire' &&
+            target.type === 'supplyWire' &&
             (protection || input.symbolId === 'energy_meter')
           : panel &&
-            ((protection && input.target.type === 'mainBus') ||
-              (input.target.type === 'circuit' &&
+            ((protection && target.type === 'mainBus') ||
+              (target.type === 'circuit' &&
                 (input.symbolId === 'energy_meter' || isModularSocketLibraryId(input.symbolId))) ||
-              (input.target.type === 'mainBus' &&
+              (target.type === 'mainBus' &&
                 isModularSocketLibraryId(input.symbolId) &&
                 input.panelGrid.ensureCircuitForProtectionId != null))
       if (!valid)
@@ -119,12 +159,20 @@ export const electricalPlaceSymbol = defineProjectCommand({
   },
   apply(draft, input, env) {
     const project = draft as ProjectV2
-    let target = input.target
+    const before = collectTopologyRefs(project)
+    const resolved = input.destination
+      ? resolveElectricalSemanticTarget(project, input.destination)
+      : input.target
+        ? { ok: true as const, target: input.target }
+        : { ok: false as const, code: 'target_required', message: 'A placement destination is required.' }
+    if (!resolved.ok)
+      throw new CommandError('check_failed', resolved.message, { reason: resolved.code })
+    let target = resolved.target
     const additionalCreated: EntityRef[] = []
     if (input.panelGrid?.ensureCircuitForProtectionId) {
       const panel = findPanelById(
         getEditableProjectElectricalPanels(project),
-        input.target.panelId!
+        target.panelId!
       )!
       const protection = panel.protections.find(
         (protection) => protection.id === input.panelGrid!.ensureCircuitForProtectionId
@@ -157,8 +205,11 @@ export const electricalPlaceSymbol = defineProjectCommand({
         symbolId: input.symbolId,
         target,
         dropCanvasPosition: input.dropCanvasPosition,
+        ...(input.planPlacement ? { planPlacement: { ...input.planPlacement, id: env.newId(), rotationMode: 'explicit' as const } } : {}),
       },
-      input.sitplan ?? { activeFloorId: null, viewportCenter: null, activePanelId: null },
+      input.planPlacement
+        ? { activeFloorId: input.planPlacement.floorId, viewportCenter: input.planPlacement.pos, activePanelId: target.panelId ?? null }
+        : input.sitplan ?? { activeFloorId: null, viewportCenter: null, activePanelId: null },
       env.language
     )
     if (outcome.status === 'rejected') {
@@ -182,9 +233,19 @@ export const electricalPlaceSymbol = defineProjectCommand({
       })),
     ]
     const { selection } = outcome
-    const changed = input.panelGrid
-      ? applyPanelDropPlacement(draft as ProjectV2, input.target.panelId!, input.panelGrid, created)
+    const gridChanged = input.panelGrid
+      ? applyPanelDropPlacement(draft as ProjectV2, target.panelId!, input.panelGrid, created)
       : []
+    // Callbacks report the requested symbol; shared follow-ups can also create board
+    // occurrences, circuits and plan placements. Return those IDs for immediate reuse.
+    const diff = diffTopologyRefs(before, collectTopologyRefs(project))
+    for (const ref of diff.created) {
+      if (!created.some((entry) => entry.kind === ref.kind && entry.id === ref.id))
+        created.push(ref)
+    }
+    const changed = [...new Map([...gridChanged, ...diff.changed].map((ref) => [
+      `${ref.kind}:${ref.id}`, ref,
+    ])).values()]
     const relatedCircuitIds = new Set<string>()
     if (target.circuitId) relatedCircuitIds.add(target.circuitId)
     const createdEndpointIds = new Set(
@@ -199,7 +260,7 @@ export const electricalPlaceSymbol = defineProjectCommand({
     return {
       created,
       changed,
-      removed: [],
+      removed: diff.removed,
       related: [...relatedCircuitIds].map((id) => ({ kind: 'circuit' as const, id })),
       select:
         selection && selection.type && SELECTION_KINDS.has(selection.type)

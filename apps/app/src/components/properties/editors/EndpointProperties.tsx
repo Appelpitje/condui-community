@@ -1,6 +1,7 @@
 import { JunctionEditorOpenButton } from '@/components/junctionEditor/junctionEditorHostedFeatures'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { TransformerNameplateFields } from '../shared/TransformerNameplateFields'
 import { Eye, EyeOff } from 'lucide-react'
 import { DebouncedTextInput, DebouncedTextarea } from '@/components/forms'
 import CustomDropdown, { type CustomDropdownOption } from '@/components/common/CustomDropdown'
@@ -490,7 +491,7 @@ export function EndpointProperties({
         )}
         {endpoint.symbol === 'terminal_strip' && (
           <div className="mt-3">
-            <label className={labelClass}>{t('terminalStrip.pin', 'Pin')}</label>
+            <label className={labelClass}>{t('terminalStrip.pin', 'Circuit number')}</label>
             <DebouncedTextInput
               type="number"
               min={1}
@@ -614,6 +615,12 @@ export function EndpointProperties({
             {/* Transformer-specific overlays */}
             {symbol === 'transformer' && (
               <div className="space-y-2">
+                <TransformerNameplateFields
+                  value={endpoint.energyConversionProps ?? {}}
+                  onChange={(patch) => onUpdate(endpointId, {
+                    energyConversionProps: { ...endpoint.energyConversionProps, ...patch },
+                  })}
+                />
                 <div>
                   <label className={labelClass}>{t('endpoints.transformer.safetyType')}</label>
                   <div className="flex gap-2">

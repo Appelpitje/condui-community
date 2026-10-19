@@ -1,3 +1,6 @@
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
+import { useViewportUIStore as useCanvasUIStore, useViewportUIApi } from '@/components/viewport/ViewportUIStore'
+import { isNodeDraggableForTouch } from '@/lib/canvas/touchDragOwnership'
 import { logger } from '@/lib/logger'
 import ArmedSymbolCanvasBanner from '@/components/library/ArmedSymbolCanvasBanner'
 import {
@@ -18,7 +21,6 @@ import type { CanvasDropMeta, CanvasSize, Point, Selection } from '@/types/ui'
 import { ZOOM_MIN, ZOOM_MAX, ZOOM_100 } from '@/constants/canvasConstants'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useThemeColors } from '@/lib/theme/hooks'
-import { useUIStore } from '@/stores/uiStore'
 
 import type { CanvasType } from '@/types/ui'
 import { selectMultiple } from '@/utils/selection'
@@ -38,6 +40,7 @@ import {
   type PreviewElement,
 } from '@/contexts/SelectionPreviewContext'
 import { useViewportResizePreviewActive } from '@/components/layout/ViewportResizePreviewContext'
+import { useInitialCanvasSize } from '@/components/layout/MeasuredCanvasViewport'
 import { resolveKonvaElementId } from './baseCanvasElementId'
 import { clamp } from '@/lib/geometry'
 import { mirrorLayerCameraTransform } from '@/lib/canvas/layerCameraTransform'
@@ -56,6 +59,7 @@ import {
   resolveWheelAction,
 } from './wheelGesture'
 import { useWheelBehaviorHintStore } from '@/stores/wheelBehaviorHintStore'
+import { PROJECT_DOCUMENT_DRAG_TYPE } from '@/lib/documents/projectDocuments'
 
 type KonvaSceneContextWithNativeCanvas = {
   _context?: CanvasRenderingContext2D
@@ -134,73 +138,6 @@ function previewSelectionSignature(elements: Array<{ id: string; type: string }>
     .join('|')
 }
 
-/** True if this node (or a parent) is a selected symbol — don't steal single-finger touch for canvas pan.
- * - endpoint-*: selected when endpoint or placement in selection
- * - panel-*: selected when panel in selection (panel_distribution wrapper)
- * - placement-*: selected plan placement on touch
- * - protection-/trunkDevice-/note-/frame-/ground-/supply-*: selected one-wire draggable items
- * - panelModule-* (eendraad): always draggable on touch
- */
-function isNodeDraggableForTouch(
-  node: Konva.Node,
-  stage: Konva.Stage,
-  selection: { type: Selection['type']; ids: string[] } | null
-): boolean {
-  if (node === stage || !selection) return false
-  let n: Konva.Node | null = node
-  let depth = 0
-  while (n && n !== stage && depth < 10) {
-    const name = n.name()
-    if (typeof n.draggable === 'function' && n.draggable()) return true
-    // Measurement labels own their single-finger drag gesture. Treat them like
-    // draggable canvas content so the camera pan recognizer does not steal it.
-    if (name?.startsWith('planDimension-')) return true
-    if (name?.startsWith('panelModule-')) return true
-    if (name?.startsWith('protection-')) {
-      const id = name.slice('protection-'.length)
-      if (selection.type === 'protection' && selection.ids.includes(id)) return true
-    }
-    if (name?.startsWith('trunkDevice-')) {
-      const id = name.slice('trunkDevice-'.length)
-      if (selection.type === 'trunkDevice' && selection.ids.includes(id)) return true
-    }
-    if (name?.startsWith('note-')) {
-      const id = name.slice('note-'.length)
-      if (selection.type === 'note' && selection.ids.includes(id)) return true
-    }
-    if (name?.startsWith('frame-')) {
-      const id = name.slice('frame-'.length)
-      if (selection.type === 'frame' && selection.ids.includes(id)) return true
-    }
-    if (name?.startsWith('ground-')) {
-      const id = name.slice('ground-'.length)
-      if (selection.type === 'ground' && selection.ids.includes(id)) return true
-    }
-    if (name === 'supply-supply') {
-      if (selection.type === 'supply' && selection.ids.includes('supply')) return true
-    }
-    if (name?.startsWith('placement-')) {
-      const id = name.slice('placement-'.length)
-      if (selection.type === 'placement' && selection.ids.includes(id)) return true
-    }
-    if (name?.startsWith('endpoint-')) {
-      const id = name.slice('endpoint-'.length)
-      if (
-        (selection.type === 'endpoint' || selection.type === 'placement') &&
-        selection.ids.includes(id)
-      )
-        return true
-      // Continue to parent: panel_distribution has panel-* wrapper, panel selection uses panel ids
-    }
-    if (name?.startsWith('panel-')) {
-      const id = name.slice('panel-'.length)
-      if (selection.type === 'panel' && selection.ids.includes(id)) return true
-    }
-    n = n.getParent()
-    depth++
-  }
-  return false
-}
 
 function isCommentNode(node: Konva.Node, stage: Konva.Stage): boolean {
   let current: Konva.Node | null = node
@@ -225,6 +162,8 @@ interface BaseCanvasProps {
   /** Run immediately before fit-to-view when there is a selection (e.g. plan canvas switches floor). */
   onPrepareFitToView?: () => void
   onDrop?: (position: Point, symbolData: unknown, meta?: CanvasDropMeta) => void
+  /** A project document dragged out of the Documents canvas. */
+  onDocumentDrop?: (position: Point, documentId: string) => void
   /** Receives files dropped directly on this canvas. Only canvases that opt in accept file drops. */
   onFilesDrop?: (files: File[]) => void
   children?: React.ReactNode
@@ -274,6 +213,8 @@ interface BaseCanvasProps {
   ) => void
   // Allow single-finger touch panning (disable for tool-heavy touch modes like floor-plan drawing)
   enableSingleFingerPan?: boolean
+  /** Overview artwork keeps tap selection, but ordinary drags navigate even over content. */
+  prioritizeNavigation?: boolean
   // Enable long-press context menu behavior on touch devices
   enableLongPressContextMenu?: boolean
   /**
@@ -343,6 +284,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     onViewTransformCommit,
     onPrepareFitToView,
     onDrop,
+    onDocumentDrop,
     onFilesDrop,
     children,
     backgroundColor: _backgroundColor = '#ffffff',
@@ -355,6 +297,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     onDragOver,
     onMultiFingerSwipe,
     enableSingleFingerPan = true,
+    prioritizeNavigation = false,
     enableLongPressContextMenu = true,
     longPressDuplicateDrag,
     longPressDragSelectFromContent = false,
@@ -372,6 +315,17 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
   }: BaseCanvasProps,
   ref: ForwardedRef<BaseCanvasHandle>
 ) {
+  const window = useCanvasWindow()
+  const viewportUI = useViewportUIApi()
+  const boundWindowRef = useRef(window)
+  useEffect(() => {
+    if (boundWindowRef.current === window) return
+    boundWindowRef.current = window
+    const stage = stageRef.current
+    // Konva binds native drag listeners to its container's document. Rebind after
+    // adopting the existing DOM into a popup, keeping the same stage and artwork.
+    if (stage) stage.setContainer(stage.container())
+  }, [window])
   // Defensive: Safari iPad can pass undefined/NaN for pan or zoom (timing, touch, or persisted state).
   const pan = useMemo(() => panProp ?? { x: 0, y: 0 }, [panProp])
   const fin = useCallback(
@@ -397,8 +351,8 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
   const appDialogOpen = useDialogStore(selectIsAppDialogOpen)
   const setSelection = useCommitSelection()
   const clearSelection = useCommitClearSelection()
-  const libraryDragSymbol = useUIStore((state) => state.libraryDragSymbol)
-  const armedLibrarySymbol = useUIStore((state) => state.armedLibrarySymbol)
+  const libraryDragSymbol = useCanvasUIStore((state) => state.libraryDragSymbol)
+  const armedLibrarySymbol = useCanvasUIStore((state) => state.armedLibrarySymbol)
   const armedPlacementActive = !!armedLibrarySymbol && !!onDrop
   const containerRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<Konva.Stage>(null)
@@ -409,10 +363,18 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     if (!contentLayer) return
     const overlayLayer = overlayLayerRef.current
     mirrorLayerCameraTransform(contentLayer, overlayLayer)
-    contentLayer.batchDraw()
-    overlayLayer?.batchDraw()
-  }, [])
-  const [size, setSize] = useState<CanvasSize>({ width: 800, height: 600 })
+    // Konva's shared batch queue uses the opener's animation frame, which can stop
+    // while that window is minimized. Detached gestures already run on their own frame.
+    if (window !== globalThis.window) {
+      contentLayer.draw()
+      overlayLayer?.draw()
+    } else {
+      contentLayer.batchDraw()
+      overlayLayer?.batchDraw()
+    }
+  }, [window])
+  const initialViewportSize = useInitialCanvasSize()
+  const [size, setSize] = useState<CanvasSize>(() => initialViewportSize ?? { width: 800, height: 600 })
   const deferredViewportSizeRef = useRef<CanvasSize | null>(null)
   const scheduledViewportSizeRef = useRef<CanvasSize | null>(null)
   const scheduledViewportRafRef = useRef<number | null>(null)
@@ -575,7 +537,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       window.removeEventListener('keydown', handleModifiers)
       window.removeEventListener('keyup', handleModifiers)
     }
-  }, [updateCanvasCursor])
+  }, [updateCanvasCursor, window])
 
   
 
@@ -787,7 +749,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     longPressTouchWatchCleanupRef.current = () => {
       window.removeEventListener('touchmove', onWatchMove, true)
     }
-  }, [maybeCancelLongPressForMovement, stopLongPressTouchWatch])
+  }, [maybeCancelLongPressForMovement, stopLongPressTouchWatch, window])
 
   const suppressSyntheticMouseAfterTouch = useCallback((durationMs = 500) => {
     suppressSyntheticMouseUntilRef.current = Math.max(
@@ -923,7 +885,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     cancelLongPress()
     cancelPendingTouchSelectionClear()
     if (selectionDragRafRef.current != null) {
-      cancelAnimationFrame(selectionDragRafRef.current)
+      window.cancelAnimationFrame(selectionDragRafRef.current)
       selectionDragRafRef.current = null
     }
     touchPanWindowCleanupRef.current?.()
@@ -945,7 +907,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     setTouchHasMoved(false)
     setDragOccurred(false)
     setTouchFingerPanForUI(false)
-  }, [cancelLongPress, cancelPendingTouchSelectionClear, clearPreviewSelection])
+  }, [cancelLongPress, cancelPendingTouchSelectionClear, clearPreviewSelection, window])
 
   const setCameraGestureHitTestingDisabled = useCallback((disabled: boolean) => {
     const stage = stageRef.current
@@ -985,7 +947,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
 
   const scheduleSelectionDragFrame = useCallback(() => {
     if (selectionDragRafRef.current != null) return
-    selectionDragRafRef.current = requestAnimationFrame(() => {
+    selectionDragRafRef.current = window.requestAnimationFrame(() => {
       selectionDragRafRef.current = null
       if (!rectSelectActiveRef.current) return
       const live = selectionRectLiveRef.current
@@ -1040,7 +1002,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         }
       }
     })
-  }, [fin, setPreviewSelectedElements, setSelectionPreviewActive])
+  }, [fin, setPreviewSelectedElements, setSelectionPreviewActive, window])
 
   const onGetContextMenuItemsRef = useRef(onGetContextMenuItems)
   onGetContextMenuItemsRef.current = onGetContextMenuItems
@@ -1205,7 +1167,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       })
       return true
     },
-    [clearPreviewSelection, clientToStageAndCanvas, onFindElementsInRectangle]
+    [clearPreviewSelection, clientToStageAndCanvas, onFindElementsInRectangle, window]
   )
 
   const activateLongPressReady = useCallback(
@@ -1332,6 +1294,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       isLongPressFingerAtOrigin,
       startLongPressDragSelection,
       stopLongPressTouchWatch,
+      window,
     ]
   )
   const scheduleViewChange = useCallback(
@@ -1345,7 +1308,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         pendingViewRef.current.zoom = next.zoom
       }
       if (viewRafRef.current != null) return
-      viewRafRef.current = requestAnimationFrame(() => {
+      viewRafRef.current = window.requestAnimationFrame(() => {
         viewRafRef.current = null
         const pending = pendingViewRef.current
         pendingViewRef.current = { pan: null, zoom: null }
@@ -1355,7 +1318,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         emitViewTransformPatch(patch)
       })
     },
-    [emitViewTransformPatch]
+    [emitViewTransformPatch, window]
   )
   const scheduleCameraSync = useCallback(() => {
     const layer = contentLayerRef.current
@@ -1438,7 +1401,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
 
   const schedulePostPaintCameraCommit = useCallback(() => {
     if (postPaintCameraCommitRafRef.current != null) {
-      cancelAnimationFrame(postPaintCameraCommitRafRef.current)
+      window.cancelAnimationFrame(postPaintCameraCommitRafRef.current)
       postPaintCameraCommitRafRef.current = null
     }
     if (postPaintCameraCommitTimeoutRef.current != null) {
@@ -1446,7 +1409,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       postPaintCameraCommitTimeoutRef.current = null
     }
 
-    postPaintCameraCommitRafRef.current = requestAnimationFrame(() => {
+    postPaintCameraCommitRafRef.current = window.requestAnimationFrame(() => {
       postPaintCameraCommitRafRef.current = null
       postPaintCameraCommitTimeoutRef.current = setTimeout(() => {
         postPaintCameraCommitTimeoutRef.current = null
@@ -1454,7 +1417,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         pushLiveCameraToStore(true)
       }, 0)
     })
-  }, [pushLiveCameraToStore])
+  }, [pushLiveCameraToStore, window])
 
   const flushWheelPanFrame = useCallback(() => {
     wheelRafRef.current = null
@@ -1475,8 +1438,8 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
 
   const scheduleWheelPanCoalesced = useCallback(() => {
     if (wheelRafRef.current != null) return
-    wheelRafRef.current = requestAnimationFrame(flushWheelPanFrame)
-  }, [flushWheelPanFrame])
+    wheelRafRef.current = window.requestAnimationFrame(flushWheelPanFrame)
+  }, [flushWheelPanFrame, window])
 
   const flushWheelZoomFrame = useCallback(() => {
     wheelZoomRafRef.current = null
@@ -1519,8 +1482,8 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
 
   const scheduleWheelZoomCoalesced = useCallback(() => {
     if (wheelZoomRafRef.current != null) return
-    wheelZoomRafRef.current = requestAnimationFrame(flushWheelZoomFrame)
-  }, [flushWheelZoomFrame])
+    wheelZoomRafRef.current = window.requestAnimationFrame(flushWheelZoomFrame)
+  }, [flushWheelZoomFrame, window])
 
   const scheduleWheelGestureReset = useCallback(() => {
     if (wheelGestureResetTimerRef.current != null) {
@@ -1534,15 +1497,15 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
 
   const scheduleMousePanDraw = useCallback(() => {
     if (mousePanDrawRafRef.current != null) return
-    mousePanDrawRafRef.current = requestAnimationFrame(() => {
+    mousePanDrawRafRef.current = window.requestAnimationFrame(() => {
       mousePanDrawRafRef.current = null
       syncAndDrawTransformedLayers()
     })
-  }, [syncAndDrawTransformedLayers])
+  }, [syncAndDrawTransformedLayers, window])
 
   useEffect(() => {
     return () => {
-      if (viewRafRef.current != null) cancelAnimationFrame(viewRafRef.current)
+      if (viewRafRef.current != null) window.cancelAnimationFrame(viewRafRef.current)
       viewRafRef.current = null
       pendingViewRef.current = { pan: null, zoom: null }
       if (cameraSyncTimeoutRef.current != null) {
@@ -1550,7 +1513,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         cameraSyncTimeoutRef.current = null
       }
       if (postPaintCameraCommitRafRef.current != null) {
-        cancelAnimationFrame(postPaintCameraCommitRafRef.current)
+        window.cancelAnimationFrame(postPaintCameraCommitRafRef.current)
         postPaintCameraCommitRafRef.current = null
       }
       if (postPaintCameraCommitTimeoutRef.current != null) {
@@ -1566,23 +1529,23 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       touchPanWindowCleanupRef.current?.()
       touchPanWindowCleanupRef.current = null
       if (wheelRafRef.current != null) {
-        cancelAnimationFrame(wheelRafRef.current)
+        window.cancelAnimationFrame(wheelRafRef.current)
         wheelRafRef.current = null
       }
       if (wheelZoomRafRef.current != null) {
-        cancelAnimationFrame(wheelZoomRafRef.current)
+        window.cancelAnimationFrame(wheelZoomRafRef.current)
         wheelZoomRafRef.current = null
       }
       if (mousePanDrawRafRef.current != null) {
-        cancelAnimationFrame(mousePanDrawRafRef.current)
+        window.cancelAnimationFrame(mousePanDrawRafRef.current)
         mousePanDrawRafRef.current = null
       }
       if (panUiRafRef.current != null) {
-        cancelAnimationFrame(panUiRafRef.current)
+        window.cancelAnimationFrame(panUiRafRef.current)
         panUiRafRef.current = null
       }
     }
-  }, [])
+  }, [window])
   // Clear live gesture zoom once the view store matches the Konva layer (wheel or pinch).
   useEffect(() => {
     const layer = contentLayerRef.current
@@ -1596,9 +1559,9 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       Math.abs(ly - safePan.y) < 0.5
     ) {
       wheelZoomGestureActiveRef.current = false
-      useUIStore.getState().setCanvasGestureZoom(gestureZoomCanvas, null)
+      viewportUI.getState().setCanvasGestureZoom(gestureZoomCanvas, null)
     }
-  }, [safeZoom, safePan.x, safePan.y, gestureZoomCanvas])
+  }, [safeZoom, safePan.x, safePan.y, gestureZoomCanvas, viewportUI])
 
   // Snap Konva layer to store-driven pan/zoom when not in a live gesture (avoids fighting wheel zoom / pan).
   useEffect(() => {
@@ -1653,7 +1616,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       window.clearTimeout(scheduledViewportTimeoutRef.current)
       scheduledViewportTimeoutRef.current = null
     }
-  }, [])
+  }, [window])
 
   const scheduleViewportSizeCommit = useCallback(
     (next: CanvasSize, allowPanRecenter: boolean) => {
@@ -1671,7 +1634,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         }, 0)
       })
     },
-    [commitViewportSize]
+    [commitViewportSize, window]
   )
 
   useEffect(() => {
@@ -1797,15 +1760,15 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       setDragOccurred(false)
 
       if (panUiRafRef.current != null) {
-        cancelAnimationFrame(panUiRafRef.current)
+        window.cancelAnimationFrame(panUiRafRef.current)
       }
-      panUiRafRef.current = requestAnimationFrame(() => {
+      panUiRafRef.current = window.requestAnimationFrame(() => {
         panUiRafRef.current = null
         setIsPanningForUI(true)
         onViewportPanStateChangeRef.current?.(true)
       })
     },
-    []
+    [window]
   )
 
   const beginDeferredMousePan = useCallback(
@@ -1916,6 +1879,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       leftDragPansCanvas,
       safePan,
       scheduleMousePanDraw,
+      window,
     ]
   )
 
@@ -1950,7 +1914,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       }
 
       // Left click on empty space - pan (optional) or start selection rectangle / clear selection
-      if (e.evt.button === 0 && e.target === e.target.getStage()) {
+      if (e.evt.button === 0 && (e.target === stage || prioritizeNavigation)) {
         // Touch devices fire synthetic mouse events after touchend; marquee select
         // and floor-plan drawing are handled via touch handlers instead.
         if (shouldIgnoreSyntheticMouseEvent()) return
@@ -1960,7 +1924,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
           return
         }
 
-        if (leftDragPansCanvas && !e.evt.shiftKey) {
+        if ((leftDragPansCanvas || prioritizeNavigation) && !e.evt.shiftKey) {
           beginDeferredMousePan(e.evt.clientX, e.evt.clientY, 0, {
             shiftKey: e.evt.shiftKey,
             altKey: e.evt.altKey,
@@ -1989,6 +1953,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       beginDeferredMousePan,
       clearPreviewSelection,
       leftDragPansCanvas,
+      prioritizeNavigation,
       shouldIgnoreSyntheticMouseEvent,
     ]
   )
@@ -2049,7 +2014,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         return
       }
 
-      const selection = useUIStore.getState().selection
+      const selection = viewportUI.getState().selection
 
       if (
         button === 0 &&
@@ -2076,7 +2041,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
 
       if (rectSelectActive || isSelecting) {
         if (selectionDragRafRef.current != null) {
-          cancelAnimationFrame(selectionDragRafRef.current)
+          window.cancelAnimationFrame(selectionDragRafRef.current)
           selectionDragRafRef.current = null
         }
         const stageEarly = stageRef.current
@@ -2216,7 +2181,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
                 allElementIds,
                 shiftKey,
                 altKey,
-                selectionAfter: useUIStore.getState().selection,
+                selectionAfter: viewportUI.getState().selection,
               })
             } else if (!shiftKey && !altKey) {
               // No elements found and no modifiers - clear selection
@@ -2242,7 +2207,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       if (isPanningRef.current) {
         isPanningRef.current = false
         if (panUiRafRef.current != null) {
-          cancelAnimationFrame(panUiRafRef.current)
+          window.cancelAnimationFrame(panUiRafRef.current)
           panUiRafRef.current = null
         }
         setIsPanningForUI(false)
@@ -2292,6 +2257,8 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       fin,
       pushLiveCameraToStore,
       schedulePostPaintCameraCommit,
+      viewportUI,
+      window,
     ]
   )
 
@@ -2304,6 +2271,12 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault()
       e.stopPropagation()
+      if (Array.from(e.dataTransfer.types).includes(PROJECT_DOCUMENT_DRAG_TYPE)) {
+        // Documents are dragged as a move; any other effect would refuse the drop.
+        e.dataTransfer.dropEffect = onDocumentDrop ? 'move' : 'none'
+        setIsDragOver(Boolean(onDocumentDrop))
+        return
+      }
       const isFileDrag = Array.from(e.dataTransfer.types).includes('Files')
       if (isFileDrag && !onFilesDrop) {
         e.dataTransfer.dropEffect = 'none'
@@ -2342,7 +2315,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         }
       }
     },
-    [libraryDragSymbol, onDragOver, onFilesDrop, zoom, pan]
+    [libraryDragSymbol, onDocumentDrop, onDragOver, onFilesDrop, zoom, pan]
   )
 
   const handleDragLeave = useCallback(
@@ -2368,6 +2341,18 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       // Clear drag preview when drop happens
       if (onDragOver) {
         onDragOver({ x: -Infinity, y: -Infinity }, null)
+      }
+
+      const documentId = e.dataTransfer.getData(PROJECT_DOCUMENT_DRAG_TYPE)
+      if (documentId) {
+        const rect = containerRef.current?.getBoundingClientRect()
+        if (rect && onDocumentDrop) {
+          onDocumentDrop(
+            { x: (e.clientX - rect.left - pan.x) / zoom, y: (e.clientY - rect.top - pan.y) / zoom },
+            documentId
+          )
+        }
+        return
       }
 
       const droppedFiles = Array.from(e.dataTransfer.files)
@@ -2433,7 +2418,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         logger.error('BaseCanvas: Failed to parse drop data:', error, 'Raw data:', symbolDataStr)
       }
     },
-    [libraryDragSymbol, onDrop, onDragOver, onFilesDrop, zoom, pan]
+    [libraryDragSymbol, onDocumentDrop, onDrop, onDragOver, onFilesDrop, zoom, pan]
   )
 
   // Helper function to recursively get bounds of a node and all its children
@@ -2566,7 +2551,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
   const getSelectionBounds = useCallback(() => {
     const stage = stageRef.current
     if (!stage) return null
-    const selection = useUIStore.getState().selection
+    const selection = viewportUI.getState().selection
     if (!selection.ids || selection.ids.length === 0) return null
 
     // When gridInTransformedLayer is true, the content layer is at index 0.
@@ -2616,7 +2601,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     }
 
     return { minX, minY, maxX, maxY }
-  }, [gridInTransformedLayer, getNodeBounds])
+  }, [gridInTransformedLayer, getNodeBounds, viewportUI])
 
   // Handle fit to view — returns true when content bounds were found and applied.
   const handleFitToView = useCallback((options?: { ignoreSelection?: boolean }): boolean => {
@@ -2639,7 +2624,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     }
 
     let boundsForFit: { minX: number; minY: number; maxX: number; maxY: number } | null = null
-    const selection = useUIStore.getState().selection
+    const selection = viewportUI.getState().selection
 
     if (!options?.ignoreSelection && selection.ids && selection.ids.length > 0) {
       onPrepareFitToView?.()
@@ -2749,6 +2734,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     onGetSelectionBounds,
     getSelectionBounds,
     emitViewTransformPatch,
+    viewportUI,
   ])
 
   // Expose handleFitToView and startSelectionRect to parent via ref
@@ -2794,7 +2780,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
 
     window.addEventListener('mouseup', handleGlobalMouseUp)
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
-  }, [isSelecting, handleMouseUp])
+  }, [isSelecting, handleMouseUp, window])
 
   // Helper to calculate distance between two touch points
   const getTouchDistance = useCallback((touch1: React.Touch, touch2: React.Touch) => {
@@ -2926,7 +2912,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
           longPress.current.action !== 'duplicate-drag'
         ) {
           if (selectionDragRafRef.current != null) {
-            cancelAnimationFrame(selectionDragRafRef.current)
+            window.cancelAnimationFrame(selectionDragRafRef.current)
             selectionDragRafRef.current = null
           }
           rectSelectActiveRef.current = false
@@ -2953,7 +2939,11 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
           })
           touchStartElementIdRef.current = node ? resolveKonvaElementId(node, stage) : null
           touchStartedOnContentRef.current = !!node
-          if (node && isNodeDraggableForTouch(node, stage, useUIStore.getState().selection)) {
+          if (
+            node &&
+            !prioritizeNavigation &&
+            isNodeDraggableForTouch(node, stage, viewportUI.getState().selection)
+          ) {
             touchStartedOnDraggableRef.current = true
           }
         } else {
@@ -3199,6 +3189,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       cancelLongPress,
       clearPreviewSelection,
       enableSingleFingerPan,
+      prioritizeNavigation,
       isLongPressFingerAtOrigin,
       setCameraGestureHitTestingDisabled,
       safeZoom,
@@ -3210,6 +3201,8 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       suppressSyntheticMouseAfterTouch,
       beginCssCameraTransform,
       startLongPressDragSelection,
+      window,
+      viewportUI,
     ]
   )
 
@@ -3550,14 +3543,14 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         const elementType = longPress.current.elementType
 
         // Toggle element in selection
-        const currentSel = useUIStore.getState().selection
+        const currentSel = viewportUI.getState().selection
         const isSameType = currentSel.type === elementType
         const alreadySelected = isSameType && currentSel.ids.includes(elementId)
 
         if (alreadySelected) {
           const remainingIds = currentSel.ids.filter((id) => id !== elementId)
           if (remainingIds.length === 0) {
-            useUIStore.getState().clearSelection()
+            viewportUI.getState().clearSelection()
           } else {
             setSelection({ ...currentSel, ids: remainingIds })
           }
@@ -3569,7 +3562,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
           elementId,
           elementType,
           selectionBefore: currentSel,
-          selectionAfter: useUIStore.getState().selection,
+          selectionAfter: viewportUI.getState().selection,
         })
 
         // Suppress the synthetic element tap/click that Konva emits after touchend,
@@ -3751,6 +3744,8 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       schedulePendingTouchSelectionClear,
       suppressSyntheticMouseAfterTouch,
       finishCssCameraTransform,
+      window,
+      viewportUI,
     ]
   )
 
@@ -3810,13 +3805,13 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       window.removeEventListener('touchdragmove', handleTouchDragMove)
       window.removeEventListener('touchdragend', handleTouchDragEnd)
     }
-  }, [onDrop, onDragOver, getLiveViewTransform])
+  }, [onDrop, onDragOver, getLiveViewTransform, window])
 
   // Armed library symbol: hover previews through onDragOver and each left click drops a
   // copy through onDrop, exactly like a library drag. Left/right button events on the stage
   // are swallowed in the capture phase so Konva selection, marquee and element drags never
   // start. A left press that moves becomes a pan (like the middle button); a still one places.
-  const armedLibraryCanvasId = useUIStore((state) => state.armedLibraryCanvasId)
+  const armedLibraryCanvasId = useCanvasUIStore((state) => state.armedLibraryCanvasId)
   const armedCanvasInstanceId = useId()
   const armedPlacementRef = useRef({ symbol: armedLibrarySymbol, onDrop, onDragOver })
   armedPlacementRef.current = { symbol: armedLibrarySymbol, onDrop, onDragOver }
@@ -3857,12 +3852,12 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       preview(toCanvasPoint(client.x, client.y), symbol)
     }
     const schedulePreview = () => {
-      if (previewFrame == null) previewFrame = requestAnimationFrame(renderPreview)
+      if (previewFrame == null) previewFrame = window.requestAnimationFrame(renderPreview)
     }
 
     const hidePreview = () => {
       if (previewFrame != null) {
-        cancelAnimationFrame(previewFrame)
+        window.cancelAnimationFrame(previewFrame)
         previewFrame = null
       }
       if (armedPointerClientRef.current) {
@@ -3881,7 +3876,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       armedPointerClientRef.current = { x: event.clientX, y: event.clientY }
       const stageContainer = getStageContainer()
       if (stageContainer) stageContainer.style.cursor = 'crosshair'
-      const ui = useUIStore.getState()
+      const ui = viewportUI.getState()
       if (ui.armedLibraryCanvasId !== armedCanvasInstanceId) {
         ui.setArmedLibraryCanvasId(armedCanvasInstanceId)
       }
@@ -3922,7 +3917,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       if (!symbol || !drop) return
       armedPointerClientRef.current = { x: clientX, y: clientY }
       drop(toCanvasPoint(clientX, clientY), symbol, { clientX, clientY })
-      useUIStore.getState().noteArmedPlacement()
+      viewportUI.getState().noteArmedPlacement()
       // Drops clear the canvas preview; bring the ghost back for the next placement.
       schedulePreview()
     }
@@ -3937,7 +3932,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     }
     const disarm = () => {
       pendingRightClickDisarm = false
-      useUIStore.getState().setArmedLibrarySymbol(null)
+      viewportUI.getState().setArmedLibrarySymbol(null)
     }
     const swallowButtonEvent = (event: MouseEvent) => {
       if (event.button !== 0 && event.button !== 2) return
@@ -3978,7 +3973,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     schedulePreview()
 
     return () => {
-      if (previewFrame != null) cancelAnimationFrame(previewFrame)
+      if (previewFrame != null) window.cancelAnimationFrame(previewFrame)
       container.removeEventListener('pointermove', handlePointerMove, captureOptions)
       container.removeEventListener('mousemove', handleMouseMove, captureOptions)
       container.removeEventListener('pointerleave', handlePointerLeave)
@@ -3993,7 +3988,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
       const stageContainer = getStageContainer()
       if (stageContainer) updateCanvasCursorRef.current()
     }
-  }, [armedPlacementActive, armedCanvasInstanceId, getLiveViewTransform])
+  }, [armedPlacementActive, armedCanvasInstanceId, getLiveViewTransform, window, viewportUI])
 
   // Disarming (Esc, right click, another tool) removes the ghost from this canvas.
   useEffect(() => {
@@ -4024,11 +4019,11 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         stage.listening(true)
       }
       if (selectionDragRafRef.current != null) {
-        cancelAnimationFrame(selectionDragRafRef.current)
+        window.cancelAnimationFrame(selectionDragRafRef.current)
         selectionDragRafRef.current = null
       }
     }
-  }, [stopLongPressTouchWatch, finishCssCameraTransform])
+  }, [stopLongPressTouchWatch, finishCssCameraTransform, window])
 
   // Generate grid lines
   const generateGrid = useCallback(() => {
@@ -4171,6 +4166,9 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
     gridInTransformedLayer,
     gridOpacity,
   ])
+  // Local touch/overlay state must not recreate grid Line points and dirty the
+  // whole plan layer when its camera, dimensions and appearance did not change.
+  const gridElements = useMemo(() => generateGrid(), [generateGrid])
 
   // Tap on empty space should clear selection (for touch - mouse uses handleMouseUp)
   const handleStageTap = useCallback(
@@ -4303,7 +4301,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
           const canvasY = (pointer.y - pan.y) / zoom
 
           const elementId = resolveKonvaElementId(e.target, stage)
-          const { selection } = useUIStore.getState()
+          const { selection } = viewportUI.getState()
 
           // Right-click must not change selection; pass hit id when present, else multi-select menu.
           const isMultiSelection =
@@ -4325,7 +4323,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
         }}
       >
         {/* Background layer - only for static grid (Eendraad) */}
-        {!gridInTransformedLayer && <Layer>{generateGrid()}</Layer>}
+        {!gridInTransformedLayer && <Layer>{gridElements}</Layer>}
 
         {/* Main content layer */}
         <Layer
@@ -4341,7 +4339,7 @@ const BaseCanvas = forwardRef(function BaseCanvasImpl(
           hitGraphEnabled={!disableContentHitGraph}
         >
           {/* Grid in transformed layer (Plan canvas) */}
-          {gridInTransformedLayer && generateGrid()}
+          {gridInTransformedLayer && gridElements}
           <SelectionPreviewProvider value={previewSelectionStoreRef.current}>
             {children}
           </SelectionPreviewProvider>

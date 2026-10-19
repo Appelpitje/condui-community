@@ -1,4 +1,5 @@
 import { ZOOM_MIN, ZOOM_MAX } from '@/constants/canvasConstants'
+import { getPanelCanvasZoomMinimum } from '@/lib/panel/panelCanvasZoom'
 import { getPlanZoomMinimum } from '@/lib/plan/planZoom'
 import { resolvePlanPxPerMeter } from '@/lib/plan/planScale'
 import {
@@ -7,14 +8,21 @@ import {
 } from '@/components/layout/viewportGeometry'
 import { useUIStore } from '@/stores/uiStore'
 import { useProjectStore } from '@/stores/projectStore'
-import type { CanvasType, ViewportLayout } from '@/types/ui'
+import type { CommandContext } from '@/lib/commands/ui/types'
+import type { ViewportLayout } from '@/types/ui'
 
 const ZOOM_STEP = 1.25
 
 /** Viewport panel at a client point, from layout geometry (works under overlays too). */
-export function findViewportPanelIndexAtPoint(x: number, y: number): number | null {
-  const layout = useUIStore.getState().viewportLayout
-  const contentEl = document.querySelector('[data-viewport-content]') as HTMLElement | null
+export function findViewportPanelIndexAtPoint(
+  x: number,
+  y: number,
+  ownerDocument: Document = document,
+  layout = useUIStore.getState().viewportLayout
+): number | null {
+  const hit = ownerDocument.elementFromPoint?.(x, y)?.closest('[data-viewport-panel]')
+  if (hit) return Number(hit.getAttribute('data-viewport-panel'))
+  const contentEl = ownerDocument.querySelector('[data-viewport-content]') as HTMLElement | null
   const contentRect = contentEl?.getBoundingClientRect()
   if (!contentRect) return null
 
@@ -34,8 +42,9 @@ export function findViewportPanelIndexAtPoint(x: number, y: number): number | nu
 }
 
 export function findViewportPanelIndexFromTarget(target: EventTarget | null): number | null {
-  if (!(target instanceof Element)) return null
-  const panelEl = target.closest('[data-viewport-panel]')
+  const element = target as Element | null
+  if (!element || element.nodeType !== 1) return null
+  const panelEl = element.closest('[data-viewport-panel]')
   if (!panelEl) return null
   const value = panelEl.getAttribute('data-viewport-panel')
   if (!value) return null
@@ -44,8 +53,14 @@ export function findViewportPanelIndexFromTarget(target: EventTarget | null): nu
 }
 
 /** Moves the panels to their focus-toggle positions immediately, before React re-renders. */
-function applyFastViewportLayoutPreview(layout: ViewportLayout, panelIndex: number | null) {
-  const contentEl = document.querySelector('[data-viewport-content]') as HTMLElement | null
+function applyFastViewportLayoutPreview(
+  layout: ViewportLayout,
+  panelIndex: number | null,
+  ownerWindow: Window
+) {
+  const contentEl = ownerWindow.document.querySelector(
+    '[data-viewport-content]'
+  ) as HTMLElement | null
   if (!contentEl) return
 
   const previewLayout: ViewportLayout | null = layout.focusReturnLayout
@@ -64,12 +79,17 @@ function applyFastViewportLayoutPreview(layout: ViewportLayout, panelIndex: numb
 
   const previewZones = getViewportPanelZones(previewLayout)
   const panels = Array.from(
-    contentEl.querySelectorAll<HTMLElement>('[data-viewport-panel][data-viewport-canvas]')
+    contentEl.querySelectorAll<HTMLElement>(':scope > [data-viewport-slot]')
   )
 
   for (const panelEl of panels) {
-    const canvas = panelEl.getAttribute('data-viewport-canvas') as CanvasType | null
-    const zone = canvas ? previewZones.find((candidate) => candidate.type === canvas) : null
+    const renderedIndex = Number(panelEl.getAttribute('data-viewport-slot'))
+    const sourceIndex = layout.focusedPanelIndex ?? renderedIndex
+    const zone = layout.focusReturnLayout
+      ? previewZones.find((candidate) => candidate.panelIndex === sourceIndex)
+      : renderedIndex === panelIndex
+        ? previewZones[0]
+        : null
 
     panelEl.style.transition = 'none'
     panelEl.style.willChange = 'left, top, width, height'
@@ -90,7 +110,7 @@ function applyFastViewportLayoutPreview(layout: ViewportLayout, panelIndex: numb
     panelEl.setAttribute('data-viewport-fast-preview', '1')
   }
 
-  window.setTimeout(() => {
+  ownerWindow.setTimeout(() => {
     for (const panelEl of panels) {
       panelEl.style.transition = ''
       panelEl.style.willChange = ''
@@ -99,44 +119,75 @@ function applyFastViewportLayoutPreview(layout: ViewportLayout, panelIndex: numb
   }, 250)
 }
 
-let pendingFocusToggleFrame: number | null = null
+const pendingFocusToggles = new WeakMap<Window, number>()
 
-export function cancelPendingViewportFocusToggle(): void {
-  if (pendingFocusToggleFrame == null) return
-  window.cancelAnimationFrame(pendingFocusToggleFrame)
-  pendingFocusToggleFrame = null
+export function cancelPendingViewportFocusToggle(ownerWindow: Window = window): void {
+  const pending = pendingFocusToggles.get(ownerWindow)
+  if (pending != null) ownerWindow.cancelAnimationFrame(pending)
+  pendingFocusToggles.delete(ownerWindow)
 }
 
-/** Maximizes the given panel, or restores the previous multi-panel layout. */
-export function toggleViewportPanelFocus(panelIndex: number | null): void {
-  const layout = useUIStore.getState().viewportLayout
+/** Maximizes a panel in the receiving window, or restores that window's layout. */
+export function toggleViewportPanelFocus(
+  panelIndex: number | null,
+  viewport?: CommandContext['viewport']
+): void {
+  const ui = viewport?.ui ?? useUIStore
+  const ownerWindow = viewport?.getOwnerWindow() ?? window
+  const layout = ui.getState().viewportLayout
   const index = layout.panels.length > 1 ? panelIndex : null
-  applyFastViewportLayoutPreview(layout, index)
-  cancelPendingViewportFocusToggle()
-  pendingFocusToggleFrame = window.requestAnimationFrame(() => {
-    pendingFocusToggleFrame = null
-    window.setTimeout(() => {
-      useUIStore.getState().toggleViewportPanelFocus(index)
-    }, 0)
-  })
+  applyFastViewportLayoutPreview(layout, index, ownerWindow)
+  cancelPendingViewportFocusToggle(ownerWindow)
+  pendingFocusToggles.set(
+    ownerWindow,
+    ownerWindow.requestAnimationFrame(() => {
+      pendingFocusToggles.delete(ownerWindow)
+      ui.getState().toggleViewportPanelFocus(index)
+    })
+  )
 }
 
 /** Zooms every visible canvas in or out by one step. */
-export function zoomVisibleCanvases(direction: 'in' | 'out'): void {
-  const canvases = useUIStore.getState().viewportLayout.panels.map((panel) => panel.canvas)
+export function zoomVisibleCanvases(
+  direction: 'in' | 'out',
+  viewport?: CommandContext['viewport']
+): void {
+  const windowUI = viewport?.ui ?? useUIStore
+  if (viewport) {
+    windowUI.getState().viewportLayout.panels.forEach((_, index) => {
+      const panelUI = viewport.getPanelUI(index)
+      if (panelUI)
+        zoomCanvasStore(
+          direction,
+          panelUI,
+          windowUI.getState().viewportLayout.panels[index]?.canvas
+        )
+    })
+    return
+  }
+  zoomCanvasStore(direction, windowUI)
+}
+
+function zoomCanvasStore(
+  direction: 'in' | 'out',
+  ui: typeof useUIStore | NonNullable<CommandContext['viewport']>['ui'],
+  canvas?: import('@/types/ui').CanvasType
+) {
+  const canvases = new Set(
+    canvas ? [canvas] : ui.getState().viewportLayout.panels.map((panel) => panel.canvas)
+  )
   const step = (zoom: number, min: number) =>
     direction === 'in' ? Math.min(ZOOM_MAX, zoom * ZOOM_STEP) : Math.max(min, zoom / ZOOM_STEP)
 
   for (const canvas of canvases) {
+    const panelMinZoom = getPanelCanvasZoomMinimum(useProjectStore.getState().currentProject)
     if (canvas === 'eendraad') {
-      useUIStore.setState((state) => ({
-        eendraadView: { ...state.eendraadView, zoom: step(state.eendraadView.zoom, ZOOM_MIN) },
-      }))
+      ui.getState().setEendraadView({ zoom: step(ui.getState().eendraadView.zoom, panelMinZoom) })
     }
     if (canvas === 'plan') {
       let planMinZoom = ZOOM_MIN
       if (direction === 'out') {
-        const activeFloorId = useUIStore.getState().activeFloorId
+        const activeFloorId = ui.getState().activeFloorId
         const activeFloor = activeFloorId
           ? useProjectStore.getState().getFloorById(activeFloorId)
           : null
@@ -145,14 +196,10 @@ export function zoomVisibleCanvases(direction: 'in' | 'out'): void {
           : resolvePlanPxPerMeter(activeFloor?.scale)
         planMinZoom = getPlanZoomMinimum(committedPxPerMeter)
       }
-      useUIStore.setState((state) => ({
-        planView: { ...state.planView, zoom: step(state.planView.zoom, planMinZoom) },
-      }))
+      ui.getState().setPlanView({ zoom: step(ui.getState().planView.zoom, planMinZoom) })
     }
     if (canvas === 'panel') {
-      useUIStore.setState((state) => ({
-        panelView: { ...state.panelView, zoom: step(state.panelView.zoom, ZOOM_MIN) },
-      }))
+      ui.getState().setPanelView({ zoom: step(ui.getState().panelView.zoom, panelMinZoom) })
     }
   }
 }

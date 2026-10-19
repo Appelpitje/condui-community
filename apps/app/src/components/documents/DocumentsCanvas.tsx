@@ -1,3 +1,5 @@
+import { useCanvasWindow, useViewport } from '@/components/viewport/ViewportContext'
+import { useViewportUIStore } from '@/components/viewport/ViewportUIStore'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -49,7 +51,9 @@ import {
 import { useDialog } from '@/hooks/useDialog'
 import { formatBytes } from '@/utils/formatBytes'
 import { useUIStore } from '@/stores/uiStore'
+import { useViewportWindowStore } from '@/components/viewport/ViewportWindowStore'
 import { DocumentCard } from './DocumentCard'
+import { RoomScanDocumentView, RoomScanDocumentActions } from './RoomScanDocumentView'
 import { DocumentsStorageTally } from './DocumentsStorageTally'
 import { ExportToggle } from './ExportToggle'
 import { CableSchedule, CableScheduleActions } from '@/components/cableRouting/CableSchedule'
@@ -98,15 +102,29 @@ function hasDraggedFiles(event: React.DragEvent): boolean {
  * use it; external influences tables are a hosted feature and show the access star elsewhere.
  * Unfinished feature behind `VITE_ENABLE_PROJECT_DOCUMENTS`.
  */
-export default function DocumentsCanvas() {
+export default function DocumentsCanvas({ canEditProject = true }: { canEditProject?: boolean }) {
+  const window = useCanvasWindow()
+  const viewport = useViewport()
   const { t, i18n } = useTranslation()
   const dialog = useDialog()
   const colors = useThemeColors()
   const documents = useListedProjectDocuments()
   // Non-household projects offer external influences; other than in paid projects, locked.
   const externalInfluences = useExternalInfluencesEntry()
-  const openDocumentId = useProjectDocumentsStore((s) => s.openDocumentId)
-  const openDocument = useProjectDocumentsStore((s) => s.openDocument)
+  const requestedDocumentId = useProjectDocumentsStore((s) => s.openDocumentId)
+  const [openDocumentId, setOpenDocumentId] = useState(requestedDocumentId)
+  const lastRequestedDocument = useRef(requestedDocumentId)
+  // External reveal actions target one Documents slot. Ordinary opening stays local.
+  const firstDocumentSlot = useViewportWindowStore((s) => s.viewportLayout.panels.findIndex((p) => p.canvas === 'documents'))
+  const openDocument = useCallback((id: string | null) => {
+    setOpenDocumentId(id)
+    if (!viewport) useProjectDocumentsStore.getState().openDocument(id)
+  }, [viewport])
+  useEffect(() => {
+    if (lastRequestedDocument.current === requestedDocumentId) return
+    lastRequestedDocument.current = requestedDocumentId
+    if (!viewport || (!viewport.detached && viewport.panelIndex === firstDocumentSlot)) setOpenDocumentId(requestedDocumentId)
+  }, [requestedDocumentId, firstDocumentSlot, viewport])
   const selectedDocumentId = useUIStore((s) =>
     s.selection.type === 'document' ? (s.selection.ids[0] ?? null) : null
   )
@@ -120,7 +138,7 @@ export default function DocumentsCanvas() {
   const [rejectedNotice, setRejectedNotice] = useState<string[]>([])
   const [viewZoom, setViewZoom] = useState(ZOOM_100)
   const [fitKey, setFitKey] = useState(0)
-  const fitTrigger = useUIStore((s) => s.fitToViewTrigger.documents)
+  const fitTrigger = useViewportUIStore((s) => s.fitToViewTrigger.documents)
   const [showSizes, setShowSizes] = useState(false)
   const [contextMenu, setContextMenu] = useState<
     | { kind: 'document'; document: ProjectDocument; position: { x: number; y: number } }
@@ -206,7 +224,7 @@ export default function DocumentsCanvas() {
     if (rejectedNotice.length === 0) return
     const timer = window.setTimeout(() => setRejectedNotice([]), REJECTED_NOTICE_MS)
     return () => window.clearTimeout(timer)
-  }, [rejectedNotice])
+  }, [rejectedNotice, window])
 
   const selectDocument = useCallback(
     (id: string) => setSelection({ type: 'document', ids: [id] }),
@@ -243,7 +261,7 @@ export default function DocumentsCanvas() {
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [openDocumentId])
+  }, [openDocumentId, window])
 
   const handleFiles = useCallback(
     (fileList: FileList | File[] | null) => {
@@ -341,7 +359,7 @@ export default function DocumentsCanvas() {
             {
               label: t('projectDocuments.replaceFile'),
               icon: <FileUp className="h-4 w-4" />,
-              disabled: contextMenu.document.origin !== 'upload',
+              disabled: contextMenu.document.origin !== 'upload' || !!contextMenu.document.roomScan,
               onClick: () => pickReplacement(contextMenu.document.id),
             },
             ...(canReduceProjectDocumentSize(contextMenu.document)
@@ -481,19 +499,21 @@ export default function DocumentsCanvas() {
               if (selectedDocumentId !== openedDocument.id) selectDocument(openedDocument.id)
             }}
           >
-            <div className="flex h-[72px] shrink-0 items-center gap-3 pl-[72px] pr-[60px]">
+            <div className={`flex shrink-0 items-center gap-2 pl-[72px] pr-[60px] ${openedDocument.roomScan ? 'h-14' : 'h-[72px]'}`}>
               <button
                 type="button"
                 data-testid="project-documents-back"
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-100 dark:border-gray-500 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-600 ${openedDocument.roomScan ? 'h-11 w-11' : 'border border-gray-300 bg-white px-3 py-1.5 shadow-sm dark:border-gray-500 dark:bg-gray-700'}`}
+                title={t('projectDocuments.back')} aria-label={t('projectDocuments.back')}
                 onClick={showOverview}
               >
                 <ArrowLeft className="h-4 w-4" />
-                {t('projectDocuments.back')}
+                {!openedDocument.roomScan && t('projectDocuments.back')}
               </button>
-              <span className="min-w-0 truncate text-sm text-gray-500 dark:text-gray-400">
+              <span className="min-w-0 flex-1 truncate text-sm text-gray-500 dark:text-gray-400">
                 {openedDocument.name}
               </span>
+              {openedDocument.roomScan && <RoomScanDocumentActions document={openedDocument} />}
               {openedDocument.kind === 'cableSchedule' && (
                 <div className="ml-auto flex shrink-0 items-center gap-2">
                   <ExportToggle document={openedDocument} />
@@ -514,7 +534,9 @@ export default function DocumentsCanvas() {
               )}
             </div>
             <div className="min-h-0 flex-1">
-              {openedDocument.kind === 'externalInfluences' ? (
+              {openedDocument.kind === 'roomScanModel' || openedDocument.kind === 'roomScanPlacements' ? (
+                <RoomScanDocumentView document={openedDocument} canEditProject={canEditProject} />
+              ) : openedDocument.kind === 'externalInfluences' ? (
                 <ExternalInfluencesDocumentView documentId={openedDocument.id} />
               ) : openedDocument.kind === 'cableSchedule' ? (
                 <CableSchedule />
@@ -733,6 +755,8 @@ export default function DocumentsCanvas() {
           canvasType="documents"
           maximizeOnly={
             !openedDocument ||
+            openedDocument.kind === 'roomScanModel' ||
+            openedDocument.kind === 'roomScanPlacements' ||
             openedDocument.kind === 'externalInfluences' ||
             openedDocument.kind === 'cableSchedule' ||
             openedDocument.kind === 'controlAddresses'

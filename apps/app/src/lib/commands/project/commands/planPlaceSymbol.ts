@@ -1,12 +1,17 @@
 import { z } from 'zod'
 import { findPanelById } from '@/lib/panel/panelTree'
-import { createEmptyCircuitInProject, placeSymbolOnPlanInProject } from '@/lib/plan/planSymbolDrop'
+import {
+  createEmptyCircuitInProject,
+  placePanelOnPlanInProject,
+  placeSymbolOnPlanInProject,
+} from '@/lib/plan/planSymbolDrop'
 import { getEditableProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
 import { getSymbolById } from '@/lib/symbols'
 import type { ProjectV2 } from '@/types/projectV2'
 import { getEndpointTypeFromSymbol } from '@/utils/symbolMapping'
 import { defineProjectCommand, type CommandCheck, type EntityRef } from '../types'
+import { collectTopologyRefs, diffTopologyRefs } from '../topologyRefs'
 
 const point = z.object({ x: z.number().finite(), y: z.number().finite() })
 const dropKind = z.enum(['lighting', 'sockets', 'fixed_appliance', 'other'])
@@ -29,6 +34,7 @@ export const circuitCreateEmpty = defineProjectCommand({
   }),
   check: (project, input) => checkPanel(project, input.panelId),
   apply(draft, input, env) {
+    const before = collectTopologyRefs(draft as ProjectV2)
     const circuitId = createEmptyCircuitInProject(
       draft as ProjectV2,
       input.panelId,
@@ -39,7 +45,8 @@ export const circuitCreateEmpty = defineProjectCommand({
     )
     if (!circuitId) throw new Error('The circuit could not be created')
     const ref: EntityRef = { kind: 'circuit', id: circuitId }
-    return { created: [ref], changed: [], removed: [], related: [ref] }
+    const diff = diffTopologyRefs(before, collectTopologyRefs(draft as ProjectV2))
+    return { ...diff, created: [ref, ...diff.created.filter((item) => item.kind !== ref.kind || item.id !== ref.id)], related: [ref] }
   },
 })
 
@@ -51,26 +58,37 @@ export const circuitCreateEmpty = defineProjectCommand({
 export const planPlaceSymbol = defineProjectCommand({
   id: 'plan.placeSymbol',
   version: 1,
-  input: z.object({
-    symbolId: z.string().min(1),
-    floorId: z.string().min(1),
-    floorLayer: z.string().min(1).default('electrical'),
-    pos: point,
-    panelId: z.string().min(1),
-    circuit: z.discriminatedUnion('mode', [
-      z.object({ mode: z.literal('existing'), circuitId: z.string().min(1) }),
-      z.object({
-        mode: z.literal('new'),
-        protectionLabel: z.string().optional(),
-        circuitNotes: z.string().optional(),
-      }),
-    ]),
-    /** Plan viewport centre on the active floor, for automatic placements of extra devices. */
-    viewportCenter: point.nullable().optional(),
-  }),
+  input: z.union([
+    z.strictObject({
+      symbolId: z.literal('panel_distribution'),
+      floorId: z.string().min(1),
+      floorLayer: z.string().min(1).default('electrical'),
+      pos: point,
+    }),
+    z.object({
+      symbolId: z
+        .string()
+        .min(1)
+        .refine((id) => id !== 'panel_distribution'),
+      floorId: z.string().min(1),
+      floorLayer: z.string().min(1).default('electrical'),
+      pos: point,
+      panelId: z.string().min(1),
+      circuit: z.discriminatedUnion('mode', [
+        z.object({ mode: z.literal('existing'), circuitId: z.string().min(1) }),
+        z.object({
+          mode: z.literal('new'),
+          protectionLabel: z.string().optional(),
+          circuitNotes: z.string().optional(),
+        }),
+      ]),
+      /** Plan viewport centre on the active floor, for automatic placements of extra devices. */
+      viewportCenter: point.nullable().optional(),
+    }),
+  ]),
   check(project, input) {
     const symbol = getSymbolById(input.symbolId)
-    if (!symbol || !getEndpointTypeFromSymbol(symbol)) {
+    if (!symbol || ('circuit' in input && !getEndpointTypeFromSymbol(symbol))) {
       return {
         ok: false,
         code: 'unsupported_symbol',
@@ -80,9 +98,18 @@ export const planPlaceSymbol = defineProjectCommand({
     if (!selectProjectBuildingFloors(project).some((floor) => floor.id === input.floorId)) {
       return { ok: false, code: 'floor_not_found', message: 'Floor not found' }
     }
-    return checkPanel(project, input.panelId)
+    return 'circuit' in input ? checkPanel(project, input.panelId) : { ok: true }
   },
   apply(draft, input, env) {
+    const before = collectTopologyRefs(draft as ProjectV2)
+    if (!('circuit' in input)) {
+      const outcome = placePanelOnPlanInProject(draft as ProjectV2, input, env.language)
+      if (!outcome) throw new Error('The panel could not be placed')
+      return {
+        ...diffTopologyRefs(before, collectTopologyRefs(draft as ProjectV2)),
+        select: [{ kind: 'panel' as const, id: outcome.panelId }],
+      }
+    }
     const outcome = placeSymbolOnPlanInProject(
       draft as ProjectV2,
       input,
@@ -97,15 +124,15 @@ export const planPlaceSymbol = defineProjectCommand({
     const placement: EntityRef[] = outcome.placementId
       ? [{ kind: 'placement', id: outcome.placementId }]
       : []
+    const diff = diffTopologyRefs(before, collectTopologyRefs(draft as ProjectV2))
+    const preferred: EntityRef[] = [
+      ...(outcome.endpointId ? [{ kind: 'endpoint' as const, id: outcome.endpointId }] : []),
+      ...placement,
+      ...(outcome.createdCircuit ? [circuit] : []),
+    ]
     return {
-      created: [
-        ...(outcome.endpointId ? [{ kind: 'endpoint' as const, id: outcome.endpointId }] : []),
-        ...placement,
-        ...(outcome.createdCircuit ? [circuit] : []),
-      ],
-      // Device symbols change the circuit instead of adding an endpoint.
-      changed: outcome.endpointId ? [] : [circuit],
-      removed: [],
+      ...diff,
+      created: [...preferred, ...diff.created.filter((item) => !preferred.some((ref) => ref.kind === item.kind && ref.id === item.id))],
       related: [circuit],
       select: placement,
     }

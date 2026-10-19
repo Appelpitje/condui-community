@@ -3,7 +3,7 @@ import { memo, useEffect, useState, useMemo, type FocusEvent, type KeyboardEvent
 import { useTranslation } from 'react-i18next'
 import { Search, ChevronDown, ChevronRight, Star, Clock, X } from 'lucide-react'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { useUIStore } from '@/stores/uiStore'
+import { useViewportWindowStore } from '@/components/viewport/ViewportWindowStore'
 import { symbolCategories } from '@/lib/symbols'
 import SymbolItem from './SymbolItem'
 import type { SymbolMetadata } from '@/lib/symbols'
@@ -121,7 +121,7 @@ function LibraryPanel({
   const favoriteSymbols = useLibraryStore((state) => state.favoriteSymbols)
   const getSymbolById = useLibraryStore((state) => state.getSymbolById)
   const toggleFavorite = useLibraryStore((state) => state.toggleFavorite)
-  const viewMode = useUIStore((state) => state.viewMode)
+  const viewMode = useViewportWindowStore((state) => state.viewMode)
 
   const toggleCategory = (category: string) => {
     setExpandedCategories((prev) => {

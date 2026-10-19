@@ -25,9 +25,12 @@ export type EntityKind =
   | 'stair'
   | 'note'
   | 'frame'
+  | 'wireRoute'
+  | 'wireRun'
   | 'ground'
   | 'graphicElement'
   | 'auxiliaryEnclosure'
+  | 'junctionAsset'
   | 'document'
   | 'site'
   | 'element'
@@ -51,6 +54,8 @@ export type CommandCheck<TPreview = undefined> =
   | { ok: false; code: string; message: string; details?: unknown }
 
 export interface CommandResult {
+  /** Batch-local name supplied by the caller, when present. */
+  as?: string
   created: EntityRef[]
   changed: EntityRef[]
   removed: EntityRef[]
@@ -83,6 +88,8 @@ export function defineProjectCommand<TSchema extends z.ZodType, TPreview = undef
 /** One requested command run, as a script, agent or UI adapter sends it. */
 export interface CommandInvocation {
   id: string
+  /** Later commands in this atomic batch can refer to this command's created entities. */
+  as?: string
   /** Defaults to the command's current version. */
   version?: number
   input: unknown

@@ -53,6 +53,10 @@ import {
 } from './feedStubFeeders'
 import { getDirectConverterChangeoverInsertIndex } from '@/lib/supplyAssembly/directConverterBackupUpgrade'
 import { getSupplyConverterDcConnectionIndex } from '@/lib/supplyAssembly/converterDcConnections'
+import {
+  isConverterGridLegPlacement,
+  orderConverterGridLegDevicesFromConverter,
+} from '@/lib/supplyAssembly/changeoverGridSource'
 import { getSymbolById, resolveSymbolPortsForWire } from '@/lib/symbols'
 import { getSecondaryBusSectionBoundaryX } from './mainBusSectionBoundary'
 import {
@@ -224,9 +228,11 @@ export interface HitZone {
   supplyDcBusBranchId?: string
   dropHintAnchor?: { x: number; y: number }
   /** Geometry selected on the converter grid-input path. */
-  converterGridPlacement?: 'inline' | 'input-leg'
+  converterGridPlacement?: 'inline' | 'input-leg' | 'converter-leg'
   /** Geometry selected on the modular changeover grid-input path. */
   changeoverGridPlacement?: 'inline' | 'input-leg'
+  /** Set when port-1 devices sit inline on the horizontal inverter-leg tap wire. */
+  changeoverGridSource?: 'converter-input'
   /** The single direct-converter junction where a source changeover may be inserted. */
   supplyConverterChangeoverSlot?: boolean
   /** Explicit bus rail represented by this hit zone (needed when a split bus has no items yet). */
@@ -286,6 +292,11 @@ export interface LayoutNode {
   feedStubTap?: { x: number; y: number; busSectionId: string }
   /** Direction occupied by extra converter blocks relative to connectionAnchor. */
   converterGrowthDirection?: 'left' | 'right'
+  /**
+   * Source changeover fed from the inverter grid-input leg: height of the T where its port-1
+   * riser joins that leg (mirror-invariant).
+   */
+  supplyConverterInputTapY?: number
   domainId?: string // panel.id, circuit.id, endpoint.id, protection.id
   /** Unique frame identity when one electrical panel renders in multiple frames. */
   diagramId?: string
@@ -1180,7 +1191,9 @@ function buildPanelNode(panelLayout: BottomUpPanelLayout): LayoutNode {
       const nodeBoundsY = isDomoticaSupplyDevice
         ? stdElement.position.y - domoticaHeight / 2 + DOMOTICA_BASE_HEIGHT / 2
         : nodeCenter.y
-      const isHorizontalSupplyDevice = !isVerticalSupplyDevice(supplyDevice)
+      const isHorizontalSupplyDevice = !isVerticalSupplyDevice(supplyDevice, {
+        changeoverGridSource: panelLayout.supplyChangeoverGridSource,
+      })
       const rotatesProtectionArtwork =
         isHorizontalSupplyDevice &&
         supplyDevice.type === 'protection' &&
@@ -1210,6 +1223,10 @@ function buildPanelNode(panelLayout: BottomUpPanelLayout): LayoutNode {
             ? 'left'
             : 'right'
           : undefined,
+        ...(panelLayout.supplyChangeoverBranches?.converterInputTap &&
+        panelLayout.supplyChangeoverBranches.deviceId === supplyDevice.id
+          ? { supplyConverterInputTapY: panelLayout.supplyChangeoverBranches.converterInputTap.y }
+          : {}),
         domainId: supplyDeviceData.device.id,
         domainRef: supplyDeviceData.device,
         visual: {
@@ -1290,6 +1307,9 @@ function buildPanelNode(panelLayout: BottomUpPanelLayout): LayoutNode {
             ? {
                 changeoverGridPlacement:
                   supplyDeviceData.device.changeoverGridPlacement ?? 'inline',
+                ...(panelLayout.supplyChangeoverGridSource
+                  ? { changeoverGridSource: panelLayout.supplyChangeoverGridSource }
+                  : {}),
               }
             : {}),
         },
@@ -2275,17 +2295,92 @@ function buildMainBusNode(
             candidate.device.changeoverGridPlacement === 'input-leg'
         )
         .sort((a, b) => a.y - b.y)
-      const changeoverGridInputLegWaypoints = [
-        {
-          y: changeover.y + (LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE * 7) / 24,
-          index: changeover.feedIndex,
-        },
-        ...changeoverGridInputLegDevices.map((candidate) => ({
-          y: candidate.y,
-          index: candidate.feedIndex,
-        })),
-        { y: changeoverBranches.lowerY, index: changeover.feedIndex },
-      ]
+      // With the converter-input tap the port-1 feed runs horizontally at the T's height, its
+      // devices inline (the first stored one nearest the T), and rises to port 1 at the riser
+      // when the T sits lower than the port.
+      const converterInputTap = changeoverBranches.converterInputTap
+      const portOneRiserX = converterInputTap?.riserX ?? changeoverBranches.elbowX
+      if (converterInputTap) {
+        const towardsTap = converterInputTap.x >= portOneRiserX
+        const lane = [...changeoverGridInputLegDevices].sort((a, b) =>
+          towardsTap ? a.x - b.x : b.x - a.x
+        )
+        const nearestSwitch = lane[0]
+        const waypoints = [
+          { x: portOneRiserX, device: undefined as (typeof devices)[number] | undefined },
+          ...lane.map((candidate) => ({ x: candidate.x, device: candidate })),
+          { x: converterInputTap.x, device: undefined as (typeof devices)[number] | undefined },
+        ]
+        for (let index = 0; index < waypoints.length - 1; index++) {
+          const from = waypoints[index]!
+          const to = waypoints[index + 1]!
+          const x1 = Math.min(from.x, to.x)
+          const x2 = Math.max(from.x, to.x)
+          if (x2 <= x1) continue
+          children.unshift({
+            id: `supply-changeover-converter-input-tap-slot-${panelLayout.panel.id}-${index}`,
+            type: 'wire',
+            bounds: {
+              x: x1 - pad,
+              y: converterInputTap.y - pad,
+              width: x2 - x1 + pad * 2,
+              height: pad * 2,
+            },
+            hitZone: {
+              type: 'supplyChangeoverGridWire',
+              padding: 0,
+              supplyFeedScope: 'root',
+              // A gap inserts after the device on its tap side.
+              supplyInsertIndex: to.device
+                ? to.device.feedIndex + 1
+                : (from.device?.feedIndex ?? changeover.feedIndex),
+              supplyPanelId: panelLayout.panel.id,
+              changeoverGridPlacement: 'input-leg' as const,
+              changeoverGridSource: 'converter-input' as const,
+            },
+            children: [],
+          })
+        }
+        const portY = changeover.y + (LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE * 7) / 24
+        if (converterInputTap.y > portY) {
+          children.unshift({
+            id: `supply-changeover-converter-input-riser-slot-${panelLayout.panel.id}`,
+            type: 'wire',
+            bounds: {
+              x: portOneRiserX - pad,
+              y: portY - pad,
+              width: pad * 2,
+              height: converterInputTap.y - portY + pad * 2,
+            },
+            hitZone: {
+              type: 'supplyChangeoverGridWire',
+              padding: 0,
+              supplyFeedScope: 'root',
+              // Nearest the switch: after every stored port-1 device.
+              supplyInsertIndex: nearestSwitch
+                ? Math.max(...lane.map((candidate) => candidate.feedIndex)) + 1
+                : changeover.feedIndex,
+              supplyPanelId: panelLayout.panel.id,
+              changeoverGridPlacement: 'input-leg' as const,
+              changeoverGridSource: 'converter-input' as const,
+            },
+            children: [],
+          })
+        }
+      }
+      const changeoverGridInputLegWaypoints = converterInputTap
+        ? []
+        : [
+            {
+              y: changeover.y + (LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE * 7) / 24,
+              index: changeover.feedIndex,
+            },
+            ...changeoverGridInputLegDevices.map((candidate) => ({
+              y: candidate.y,
+              index: candidate.feedIndex,
+            })),
+            { y: changeoverBranches.lowerY, index: changeover.feedIndex },
+          ]
       for (let index = 0; index < changeoverGridInputLegWaypoints.length - 1; index++) {
         const from = changeoverGridInputLegWaypoints[index]!
         const to = changeoverGridInputLegWaypoints[index + 1]!
@@ -2294,7 +2389,7 @@ function buildMainBusNode(
           id: `supply-changeover-grid-input-slot-${panelLayout.panel.id}-${index}`,
           type: 'wire',
           bounds: {
-            x: changeoverBranches.elbowX - pad,
+            x: portOneRiserX - pad,
             y: from.y - pad,
             width: pad * 2,
             height: to.y - from.y + pad * 2,
@@ -2317,7 +2412,7 @@ function buildMainBusNode(
             .filter(
               (candidate) =>
                 candidate.device.supplyPath === 'converter-grid' &&
-                candidate.device.converterGridPlacement !== 'input-leg'
+                !isConverterGridLegPlacement(candidate.device.converterGridPlacement)
             )
             .sort((a, b) => a.x - b.x)
         : []
@@ -2348,28 +2443,81 @@ function buildMainBusNode(
         previousX = gridTapX
       }
       if (backupConverter && converterGridInputConnected) {
-        const converterGridInputLegDevices = devices
-          .filter(
-            (candidate) =>
-              candidate.device.supplyPath === 'converter-grid' &&
-              candidate.device.converterGridPlacement === 'input-leg'
-          )
-          .sort((a, b) => a.y - b.y)
-        const verticalWaypoints = [
-          {
-            y: backupConverter.y + LAYOUT_CONSTANTS.SYMBOL_SIZE / 2,
-            index: backupConverter.feedIndex,
-          },
-          ...converterGridInputLegDevices.map((candidate) => ({
-            y: candidate.y,
-            index: candidate.feedIndex,
-          })),
-          { y: changeoverBranches.lowerY, index: backupConverter.feedIndex },
-        ]
+        // Drawn from the converter down: converter-only devices, then shared ones.
+        const converterGridInputLegDevices = orderConverterGridLegDevicesFromConverter(
+          devices
+            .filter(
+              (candidate) =>
+                candidate.device.supplyPath === 'converter-grid' &&
+                isConverterGridLegPlacement(candidate.device.converterGridPlacement)
+            )
+            .sort((a, b) => a.y - b.y)
+        )
+        type LegWaypoint = {
+          y: number
+          index: number
+          placement?: 'input-leg' | 'converter-leg'
+        }
+        const legDeviceWaypoint = (candidate: (typeof devices)[number]): LegWaypoint => ({
+          y: candidate.y,
+          index: candidate.feedIndex,
+          placement:
+            candidate.device.converterGridPlacement === 'converter-leg'
+              ? 'converter-leg'
+              : 'input-leg',
+        })
+        const tapDevicesAbove = converterInputTap
+          ? converterGridInputLegDevices.filter(
+              (candidate) => candidate.device.converterGridPlacement === 'converter-leg'
+            )
+          : []
+        const tapDevicesBelow = converterInputTap
+          ? converterGridInputLegDevices.filter(
+              (candidate) => candidate.device.converterGridPlacement !== 'converter-leg'
+            )
+          : []
+        // With the converter-input tap, each side of the T is its own segment: the last gap
+        // above the T appends converter-only devices, the last gap below appends shared ones.
+        const verticalWaypoints: LegWaypoint[] = converterInputTap
+          ? [
+              {
+                y: backupConverter.y + LAYOUT_CONSTANTS.SYMBOL_SIZE / 2,
+                index: backupConverter.feedIndex,
+              },
+              ...tapDevicesAbove.map(legDeviceWaypoint),
+              {
+                y: converterInputTap.y,
+                index: tapDevicesAbove.at(-1)
+                  ? tapDevicesAbove.at(-1)!.feedIndex + 1
+                  : backupConverter.feedIndex,
+                placement: 'converter-leg',
+              },
+              ...tapDevicesBelow.map(legDeviceWaypoint),
+              {
+                y: changeoverBranches.lowerY,
+                index: tapDevicesBelow.at(-1)
+                  ? tapDevicesBelow.at(-1)!.feedIndex + 1
+                  : backupConverter.feedIndex,
+                placement: 'input-leg',
+              },
+            ]
+          : [
+              {
+                y: backupConverter.y + LAYOUT_CONSTANTS.SYMBOL_SIZE / 2,
+                index: backupConverter.feedIndex,
+              },
+              ...converterGridInputLegDevices.map(legDeviceWaypoint),
+              { y: changeoverBranches.lowerY, index: backupConverter.feedIndex },
+            ]
         for (let index = 0; index < verticalWaypoints.length - 1; index++) {
           const from = verticalWaypoints[index]!
           const to = verticalWaypoints[index + 1]!
           if (to.y <= from.y) continue
+          // A gap takes the placement of the device (or tap) closing it from below; the T is
+          // the lower end of the converter-only part. Without a tap every gap is shared.
+          const placement =
+            (converterInputTap && from.y >= converterInputTap.y ? 'input-leg' : to.placement) ??
+            'input-leg'
           children.unshift({
             id: `supply-changeover-converter-grid-input-slot-${panelLayout.panel.id}-${index}`,
             type: 'wire',
@@ -2385,7 +2533,7 @@ function buildMainBusNode(
               supplyFeedScope: 'root',
               supplyInsertIndex: to.index,
               supplyPanelId: panelLayout.panel.id,
-              converterGridPlacement: 'input-leg',
+              converterGridPlacement: placement,
             },
             children: [],
           })
@@ -2513,7 +2661,7 @@ function buildMainBusNode(
       .filter(
         (candidate) =>
           candidate.device.supplyPath === 'converter-grid' &&
-          candidate.device.converterGridPlacement !== 'input-leg'
+          !isConverterGridLegPlacement(candidate.device.converterGridPlacement)
       )
       .sort((a, b) => a.x - b.x)
     if (converter) {
@@ -2618,13 +2766,15 @@ function buildMainBusNode(
       const inputLegDevices =
         changeoverBranches || !converterGridInputConnected
           ? []
-          : devices
-              .filter(
-                (candidate) =>
-                  candidate.device.supplyPath === 'converter-grid' &&
-                  candidate.device.converterGridPlacement === 'input-leg'
-              )
-              .sort((a, b) => a.y - b.y)
+          : orderConverterGridLegDevicesFromConverter(
+              devices
+                .filter(
+                  (candidate) =>
+                    candidate.device.supplyPath === 'converter-grid' &&
+                    isConverterGridLegPlacement(candidate.device.converterGridPlacement)
+                )
+                .sort((a, b) => a.y - b.y)
+            )
       const inputLegWaypoints =
         changeoverBranches || !converterGridInputConnected
           ? []

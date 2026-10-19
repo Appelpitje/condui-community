@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-115.0 -160.0 230.0 230.0" role="img" aria-label="Koelkast">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-52.0,30.0 0.0,60.0 0.0,-90.0 -52.0,-120.0" fill="#f1f5f9"/>
+  <polygon points="52.0,30.0 0.0,60.0 0.0,-90.0 52.0,-120.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-150.0 52.0,-120.0 0.0,-90.0 -52.0,-120.0" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -51.96 30.00)"><path d="M0 -52H60" stroke-width="1.5"/>
+<rect x="50" y="-140" width="3" height="40" rx="1.5" fill="#94a3b8" stroke-width="1"/>
+<rect x="50" y="-46" width="3" height="26" rx="1.5" fill="#94a3b8" stroke-width="1"/></g>
+</g>
+</svg>

@@ -378,6 +378,16 @@ export interface ExternalInfluenceRoomV2 {
   publiclyAccessible: boolean
 }
 
+/** Native scan documents are independent assets; binary/JSON payloads live in dataUrl. */
+export interface RoomScanDocumentMetadataV2 {
+  version: 1
+  kind: 'model' | 'placements'
+  scanId: string
+  floorId: string
+  roomName: string
+  relatedDocumentId?: string
+}
+
 export interface ProjectDocumentMetadataV2 {
   name?: string
   category?: string
@@ -391,11 +401,51 @@ export interface ProjectDocumentMetadataV2 {
   teamDocumentId?: string
   /** A table created in the editor; such a document has no file payload. */
   externalInfluences?: { rooms: ExternalInfluenceRoomV2[] }
+  roomScan?: RoomScanDocumentMetadataV2
   /**
    * Settings of a document every project derives live (the cable schedule, the domotica address
    * table); such an entry has no payload and only carries the export choice.
    */
   builtIn?: 'cableSchedule' | 'controlAddresses'
+  /**
+   * A scanned one-wire page shown as a reference on the one-wire canvas. Absent when the
+   * document is not shown there; removing it from the one-wire keeps the document.
+   */
+  oneWire?: OneWireReferenceV2
+}
+
+/** Where one page of a reference document sits on the one-wire canvas. */
+export interface OneWireReferencePlacementV2 {
+  /** Top-left corner in one-wire canvas units. */
+  x: number
+  y: number
+  /** Displayed width in canvas units; the page keeps its aspect ratio. */
+  width: number
+}
+
+/** Placement and display of a reference document (image or PDF) on the one-wire canvas. */
+export interface OneWireReferenceV2 {
+  /**
+   * Placement per 1-based page number (`"1"` for an image). Pages without one are placed
+   * automatically: next to the document's placed pages, otherwise above the diagram.
+   */
+  placements?: Record<string, OneWireReferencePlacementV2>
+  /** Pages taken off the one-wire; every other page is shown. */
+  hiddenPages?: number[]
+  /** @deprecated Early placement of an image; read as page 1 when `placements` lacks it. */
+  x?: number
+  y?: number
+  width?: number
+  /**
+   * Enhancement strengths from 0 to 2, the same values the Vision Service's page enhancement
+   * takes (levels stretch and high-pass); 1 when absent. Both 0 draws the page as stored.
+   */
+  levels?: number
+  highPass?: number
+  /** 10 to 100 percent (default 35). */
+  opacity?: number
+  /** Drop the paper and adapt the ink to the canvas theme (default false). */
+  blend?: boolean
 }
 
 export interface AssetModelV2 {

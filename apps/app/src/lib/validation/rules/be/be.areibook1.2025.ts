@@ -269,6 +269,22 @@ export const beAreiBook1_2025: RulePack = {
       tags: ['circuit', 'cable', 'cable-length', 'short-circuit'],
     },
     {
+      id: 'be.areibook1.2025.short-circuit-verification',
+      title: 'Specialist breaker short-circuit verification',
+      severity: 'warning',
+      appliesTo: ['circuit'],
+      checks: [{ name: 'circuitShortCircuitProtectionVerifiable' }],
+      message: 'validation.primitives.circuitShortCircuitProtectionVerifiable.message',
+      citations: [
+        {
+          code: 'AREI',
+          title: 'Algemeen Reglement op de Elektrische Installaties',
+          section: '§ 5.3.5.5(h)',
+        },
+      ],
+      tags: ['circuit', 'protection', 'short-circuit'],
+    },
+    {
       id: 'be.areibook1.2025.main-rcd',
       title: 'Main RCD on supply trunk',
       severity: 'warning',

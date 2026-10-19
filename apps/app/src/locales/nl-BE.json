@@ -1,4 +1,125 @@
 {
+  "findPanel": {
+    "title": "Bord zoeken",
+    "placeholder": "Borden zoeken…",
+    "empty": "Geen borden gevonden",
+    "oneWire": "Eendraadschema",
+    "panelView": "Kastindeling",
+    "planView": "Situatieplan",
+    "unplaced": "Niet op een plan geplaatst"
+  },
+  "nativeRoomScan": {
+    "title": "Verdiepingsscan",
+    "description": "Scan muren, deuren en ramen op deze verdieping.",
+    "start": "Verdieping scannen",
+    "scanning": "Scannen…",
+    "unsupported": "Ruimtescans zijn niet beschikbaar op dit toestel.",
+    "failed": "Deze verdieping kon niet worden gescand.",
+    "cancelled": "Verdiepingsscan geannuleerd.",
+    "result": "Scanresultaat",
+    "walls": "Muren",
+    "doors": "Deuren",
+    "windows": "Ramen",
+    "openings": "Openingen",
+    "scanAgain": "Opnieuw scannen",
+    "preview": "Voorbeeld van plattegrond",
+    "rotateLeft": "90° links draaien",
+    "rotateRight": "90° rechts draaien",
+    "addToFloor": "Toevoegen aan {{floor}}",
+    "unmatched": "Niet gekoppelde openingen",
+    "skippedWalls": "Overgeslagen muren",
+    "checkCenters": "Controleer muurmiddellijnen",
+    "noWalls": "Geen muren gevonden.",
+    "importFailed": "De scan kon niet worden toegevoegd.",
+    "floorUnavailable": "De gekozen verdieping is niet meer beschikbaar.",
+    "stale": "Het project is gewijzigd. Vernieuw het voorbeeld om verder te gaan.",
+    "refresh": "Voorbeeld vernieuwen",
+    "search": "LiDAR RoomPlan ruimte muren deuren ramen",
+    "roomNameDefault": "Ruimte",
+    "roomName": "Ruimtenaam",
+    "targetPanel": "Bord",
+    "includePlacements": "Stopcontacten, lichten en schakelaars markeren",
+    "existingInstallation": "Plaatsing staat uit omdat dit project al eindpunten bevat.",
+    "reviewHint": "Scankringen zijn voorlopig. Controleer beveiligingen, kabels en schakelverbindingen.",
+    "modelDocument": "Verdiepingsmodel",
+    "placementsDocument": "Scanplaatsingen",
+    "toReview": "Te controleren",
+    "zoomIn": "Inzoomen",
+    "zoomOut": "Uitzoomen",
+    "resetView": "Weergave herstellen",
+    "orbitHint": "Sleep om te draaien · knijp om te zoomen",
+    "reviewCircuit": "Kring controleren",
+    "markReviewed": "Als gecontroleerd markeren",
+    "capturedHeight": "Gescande hoogte",
+    "noPhoto": "Geen referentiefoto",
+    "elementRemoved": "Het gekoppelde element is verwijderd. De foto blijft bewaard.",
+    "showOnPlan": "Toon op plan",
+    "showOnOneWire": "Toon op eendraad",
+    "downloadScan": "Scan downloaden",
+    "documentFailed": "Dit scandocument kon niet worden geopend.",
+    "group": {
+      "sockets": "stopcontacten",
+      "lighting": "verlichting",
+      "equipment": "toestellen"
+    },
+    "capture": {
+      "cancel": "Annuleren",
+      "undo": "Ongedaan",
+      "finish": "Klaar",
+      "center": "Midden",
+      "review": "Controleren",
+      "back": "Terug",
+      "more": "Meer types",
+      "placements": "Locaties",
+      "processing": "Verwerken…",
+      "locked": "Punt vastgezet",
+      "centerAim": "Richt op het midden · tik om vast te zetten",
+      "markFixtures": "Elementen markeren",
+      "tracking": "Tracking",
+      "trackingPaused": "Tracking onzeker",
+      "offscreen": "buiten beeld",
+      "noMarks": "Verdieping gescand · geen toestellen gemarkeerd",
+      "finishRoom": "Verdieping afronden",
+      "fewerSockets": "Minder stopcontacten",
+      "moreSockets": "Meer stopcontacten",
+      "variantHint": "Schuif om te kiezen · laat los om te plaatsen",
+      "variants": {
+        "socket": "Contact",
+        "light": "Licht",
+        "switch": "Schakelaar",
+        "twoWay": "Wissel",
+        "cross": "Kruis",
+        "push": "Druk",
+        "dimmer": "Dimmer",
+        "led": "LED",
+        "fluorescent": "TL",
+        "spot": "Spot"
+      },
+      "surfaceNeeded": "Richt op een gescande muur, vloer of plafond"
+    },
+    "documentBudget": "De scanreferenties passen niet in de documentopslag. Verwijder of verklein bestaande documenten en probeer opnieuw.",
+    "noClosedRooms": "Geen gesloten ruimtes gevonden. Scan de volledige begrenzing om ruimtes te herkennen.",
+    "roomTypes": {
+      "bedroom": "Slaapkamer",
+      "bathroom": "Badkamer",
+      "kitchen": "Keuken",
+      "livingRoom": "Woonkamer",
+      "diningRoom": "Eetkamer",
+      "laundry": "Wasruimte",
+      "office": "Kantoor"
+    },
+    "modelLayers": {
+      "object": "Meubels",
+      "wall": "Muren",
+      "openings": "Deuren en ramen",
+      "floor": "Vloer"
+    },
+    "assignCircuit": "Toewijzen aan kring",
+    "newCircuit": "Nieuwe kring",
+    "assignmentFailed": "Deze plaatsingen konden niet worden toegewezen.",
+    "selectPlacement": "Plaatsing selecteren",
+    "clearSelection": "Selectie wissen"
+  },
   "junctionIdentity": {
     "label": "Verbindingsidentificatie",
     "pickExisting": "Bestaande identificatie hergebruiken",
@@ -9,9 +130,11 @@
     "toggleVisibility": "Label tonen of verbergen op het schema"
   },
   "terminalStrip": {
-    "pin": "Klemnummer",
+    "pin": "Kringnummer",
     "incomingPin": "In",
-    "outgoingPin": "Uit"
+    "outgoingPin": "Uit",
+    "circuitConflict": "{{label}} is aan verschillende kringen toegewezen.",
+    "circuitConflictRemediation": "Gebruik voor elke kring een apart klemgroepnummer."
   },
   "appUpdate": {
     "banner": "Er is een nieuwe versie van de app beschikbaar.",
@@ -35,6 +158,7 @@
     "importFallbackProjectName": "Geïmporteerd project ({{idShort}})"
   },
   "common": {
+    "more": "Meer",
     "save": "Opslaan",
     "cancel": "Annuleren",
     "delete": "Verwijderen",
@@ -155,6 +279,7 @@
     "zoom": "Zoomen"
   },
   "commandPalette": {
+    "addSupplyTransformer": "Voedingstransformator toevoegen",
     "placeholder": "Opdrachten zoeken",
     "empty": "Geen opdrachten gevonden",
     "moveToCircuit": "Verplaats naar kring",
@@ -187,14 +312,98 @@
       "kind": "Kringtype",
       "direction": "Voedingszijde",
       "left": "Links",
-      "right": "Rechts"
+      "right": "Rechts",
+      "x": "X",
+      "y": "Y",
+      "startX": "Begin X",
+      "startY": "Begin Y",
+      "endX": "Eind X",
+      "endY": "Eind Y",
+      "thickness": "Dikte",
+      "wall": "Muur",
+      "planWidth": "Breedte",
+      "height": "Hoogte",
+      "stepDepth": "Tredediepte",
+      "asset": "Symbool",
+      "offsetX": "Verschuiving X",
+      "offsetY": "Verschuiving Y",
+      "rotationDeg": "Rotatie (°)",
+      "opacity": "Dekking (%)",
+      "segment": "Segment",
+      "text": "Tekst",
+      "title": "Titel",
+      "fontSize": "Tekstgrootte",
+      "titlePosition": "Titelpositie",
+      "route": "Draadtraject",
+      "index": "Draadpuntindex",
+      "placement": "Plansymbool",
+      "destination": "Bestemming",
+      "organization": "Voedingsindeling",
+      "connection": "Verbinding"
     },
     "kinds": {
       "lighting": "Verlichting",
       "sockets": "Stopcontacten",
       "fixed_appliance": "Vast toestel",
       "other": "Overig"
-    }
+    },
+    "removeFromOneWire": "Verwijderen van eendraadschema",
+    "showOnOneWire": "Tonen op eendraadschema",
+    "addFloor": "Verdieping toevoegen",
+    "deleteFloor": "Verdieping verwijderen",
+    "transformBackground": "Planachtergrond aanpassen",
+    "addPlanWall": "Muur toevoegen",
+    "addPlanDoor": "Deur toevoegen",
+    "addPlanWindow": "Raam toevoegen",
+    "addPlanStair": "Trap toevoegen",
+    "addPlanGraphic": "Plansymbool toevoegen",
+    "placeExistingOnPlan": "Op plan plaatsen",
+    "hideAllPanelModules": "Alle bordmodules verbergen",
+    "showAllPanelModules": "Alle bordmodules tonen",
+    "showAuxiliaryEnclosures": "Hulpbehuizingen op plan tonen",
+    "hideAuxiliaryEnclosures": "Hulpbehuizingen op plan verbergen",
+    "importPlanBackground": "Planachtergrond importeren",
+    "calibratePlan": "Planschaal instellen",
+    "removeBackground": "Planachtergrond verwijderen",
+    "splitWall": "Muur splitsen",
+    "planAddNote": "Plannotitie toevoegen",
+    "eendraadAddNote": "Schemanotitie toevoegen",
+    "eendraadCreateFrame": "Geselecteerde elementen omkaderen",
+    "planInsertWireWaypoint": "Draadpunt toevoegen",
+    "planMoveWireWaypoint": "Draadpunt verplaatsen",
+    "planRemoveWireWaypoint": "Draadpunt verwijderen",
+    "planMoveWireRiser": "Vloerdoorgang verplaatsen",
+    "planDisconnectOutgoingWires": "Uitgaande plandraden loskoppelen",
+    "cableAcceptLengthEstimates": "Geschatte kabellengtes overnemen",
+    "moveSupplyDevice": "Voedingstoestel verplaatsen",
+    "moveCircuitTrunkDevice": "Kringtoestel verplaatsen",
+    "values": {
+      "inside": "Binnen",
+      "outside": "Buiten",
+      "sharedSupply": "Gedeelde voeding",
+      "supplyWire": "Voedingsdraad",
+      "backupWire": "Back-updraad",
+      "backupOutput": "Back-upuitgang",
+      "changeoverGrid": "Netingang omschakelaar",
+      "converterGrid": "Netingang omvormer",
+      "converterDc": "DC-zijde omvormer",
+      "supplyDestination": "{{panel}} · {{lane}}",
+      "destinationAtPosition": "{{destination}} · positie {{position}}",
+      "circuitDestinationAtPosition": "{{panel}} · {{circuit}} · positie {{position}}",
+      "defaultNote": "Nieuwe notitie",
+      "defaultFrame": "Kader",
+      "singleFeed": "Enkele voeding",
+      "splitBackupFeed": "Gesplitste noodvoeding",
+      "splitSwitchableFeed": "Gesplitste omschakelbare voeding",
+      "installationSupply": "Installatievoeding"
+    },
+    "setPanelFeedOrganization": "Bordvoedingen wijzigen",
+    "setGridFeedBoundary": "Grens netvoeding verplaatsen",
+    "setBackupFeedBoundary": "Grens noodvoeding verplaatsen",
+    "movePanelSupply": "Bordvoeding verplaatsen",
+    "disconnectInverterGridInput": "Netingang omvormer loskoppelen",
+    "ejectSecondaryBusProtections": "Secundaire rail naar nieuw bord verplaatsen",
+    "ensureSecondaryPanelEarthingStem": "Bordaardingsaftakking toevoegen"
   },
   "shortcuts": {
     "title": "Sneltoetsen",
@@ -224,6 +433,7 @@
       "ctrlCmdP": "Ctrl / Cmd + P",
       "ctrlCmdD": "Ctrl / Cmd + D",
       "ctrlCmdK": "Ctrl / Cmd + K",
+      "ctrlCmdF": "Ctrl / Cmd + F",
       "tab": "Tab",
       "esc": "Esc",
       "space": "Spatie",
@@ -268,7 +478,7 @@
     },
     "entries": {
       "openCommandPalette": {
-        "description": "Opdrachtenpalet"
+        "description": "Commandopaneel"
       },
       "undo": {
         "description": "Ongedaan maken"
@@ -716,6 +926,12 @@
     }
   },
   "installation": {
+    "supplyConnectionLabel": "Netaansluiting",
+    "supplyDirect": "Rechtstreeks laagspanning",
+    "supplyTransformer": "Eigen transformator",
+    "connectionCurrent": "Aansluitstroom (A)",
+    "connectionUnspecified": "Niet opgegeven",
+    "connectionCustom": "Aangepast",
     "defaultCable": "Standaardkabel",
     "title": "Installatie",
     "profile": "Profiel",
@@ -794,6 +1010,7 @@
     "type": "Type",
     "rating": "Nominale stroom",
     "curve": "Uitschakelkarakteristiek",
+    "specialistCurveWarning": "Ongebruikelijk in huishoudelijke installaties. Controleer de kortsluitbeveiliging.",
     "sensitivity": "Differentieelstroom IΔn",
     "poles": "Polen",
     "polesConfig": "Poolconfiguratie",
@@ -1097,6 +1314,10 @@
       "options": "Opties"
     },
     "transformer": {
+      "primaryVoltage": "Primaire spanning (V)",
+      "secondaryVoltage": "Secundaire spanning (V)",
+      "ratedPower": "Nominaal vermogen (kVA)",
+      "shortCircuitVoltage": "Kortsluitspanning uk (%)",
       "safetyType": "Veiligheidstransformator",
       "safety_none": "Geen",
       "safety_closed_short": "Gesloten",
@@ -1251,6 +1472,9 @@
     "syncWithPanelView": "Sync met Bordweergave"
   },
   "canvas": {
+    "detachView": "Canvas losmaken",
+    "dockView": "Canvas terugplaatsen",
+    "popupBlocked": "Sta pop-ups toe voor Condui en probeer opnieuw.",
     "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Raster Tonen",
     "snap": "Uitlijnen",
@@ -1554,6 +1778,8 @@
     }
   },
   "sitplanVisibility": {
+    "colors": "Plankleuren",
+    "symbolColor": "Kleur {{category}}",
     "title": "Zichtbaarheid",
     "showAll": "Alles tonen",
     "groundPlans": "Grondplannen",
@@ -1636,6 +1862,7 @@
     "horn": "Hoorn",
     "siren": "Sirene",
     "panel_distribution": "Verdeelbord",
+    "junction_box": "Aftakdoos",
     "relay": "Relais",
     "domotica": "Domotica / slimme installatie",
     "energy_meter": "Energiemeter",
@@ -2263,6 +2490,11 @@
         "message": "Onderbrekingsvermogen voeding te laag: {{list}}",
         "details": "De aansluitbeveiliging vóór de meter heeft minstens 6000 A nodig. Overstroombeveiligingen erna hebben minstens 3000 A nodig."
       },
+      "circuitShortCircuitProtectionVerifiable": {
+        "message": "Kring {{circuitCode}}: kortsluitbeveiliging met karakteristiek {{curve}} is niet geverifieerd",
+        "missingData": "Vul het kaliber, de kabeldoorsneden en alle kabellengtes in om de kortsluitbeveiliging te controleren. Ontbrekende gegevens bevestigen geen afdoende beveiliging.",
+        "unsupportedCurve": "Condui heeft geen betrouwbare aanspreekdrempel voor deze karakteristiek. Controleer de beveiliging met de uitschakelcurve van de fabrikant en de minimale kortsluitstroom."
+      },
       "circuitWithinMaximumProtectedLength": {
         "message": "Stroombaan {{circuitCode}}: {{lengthM}} m kabel overschrijdt de beveiligde lengte van {{maxLengthM}} m",
         "details": "Een kortsluiting aan het uiteinde moet de {{curve}}{{ratingA}} nog onmiddellijk doen uitschakelen ({{tripCurrentA}} A). Met {{sectionMm2}} mm² is dat maximaal {{maxLengthM}} m. Kies een grotere doorsnede, een kortere route of een lager kaliber of curve."
@@ -2292,6 +2524,10 @@
         "details": "Het domein van een draad moet overeenkomen met het verwachte invoer/uitvoerdomein van het aangesloten onderdeel. Alleen omzetters (transformator, gelijkrichter, omvormer, DC-DC) mogen verschillende domeinen verbinden."
       },
       "mainRcdCompliance": {
+        "sensitivityMissing": {
+          "message": "De gevoeligheid van de hoofddifferentieel is onbekend",
+          "details": "Vul de gevoeligheid (mA) van het bestaande toestel in om de hoofddifferentieelbeveiliging te controleren. Gebruik bevestigde toestelspecificaties."
+        },
         "missing": {
           "message": "Hoofdvoeding heeft geen stroomopwaartse differentieel of differentieelautomaat",
           "details": "Het AREI vereist een hoofddifferentieel aan het begin van de installatie. Plaats een hoofddifferentieel of differentieelautomaat op de voedingsleiding stroomopwaarts van het hoofdbord."
@@ -2323,6 +2559,12 @@
         "details": "Het bord kan via een stroomopwaarts voedingstoestel worden afgeschakeld, maar er is geen lokale hoofdschakelaar/scheidingsschakelaar in dit bord. Lokale afschakelbaarheid verbetert veiligheid en onderhoud."
       },
       "circuitHasRcdProtection": {
+        "sensitivityMissing": {
+          "groupMessage": "Kringen hebben een voorgeschakelde differentieel met onbekende gevoeligheid",
+          "remediation": "Vul de gevoeligheid (mA) van de bestaande voorgeschakelde differentieel in op basis van bevestigde toestelspecificaties.",
+          "message": "Kring {{circuitCode}} heeft een voorgeschakelde differentieel met onbekende gevoeligheid",
+          "details": "Vul de gevoeligheid (mA) van de bestaande voorgeschakelde differentieel in om de beveiliging van 30 mA te controleren. Gebruik bevestigde toestelspecificaties."
+        },
         "missing": {
           "message": "Stroombaan {{circuitCode}} vereist differentieel- of differentieelautomaatbeveiliging (30 mA), maar er werd geen upstream toestel gevonden",
           "details": "Verlichting, algemene contactdozen, wasmachines, droogkasten, afwasmachines en EV-laadstroombanen vereisen differentieelbeveiliging van 30 mA. Voeg stroomopwaarts een differentieel of differentieelautomaat toe of leid de stroombaan via een bestaand 30 mA-toestel."
@@ -2694,6 +2936,7 @@
   },
   "plan": {
     "doorProperties": "Deur",
+    "gatePreset": "Poort",
     "windowProperties": "Raam",
     "openingWidth": "Breedte",
     "cm": "cm",
@@ -2777,7 +3020,11 @@
     "backupFeed": "Backupvoeding",
     "gridMarker": "Net",
     "backupMarker": "Backup",
-    "switchableBackupMarker": "Backup/Net"
+    "switchableBackupMarker": "Backup/Net",
+    "changeoverInput1": "Ingang 1",
+    "changeoverInputGrid": "Net",
+    "changeoverInputConverter": "Omvormervoeding",
+    "inverterGridInputDisconnected": "Netingang van de omvormer niet aangesloten"
   },
   "wallProperties": {
     "title": "Muureigenschappen",
@@ -3264,7 +3511,11 @@
     "shape": {
       "phase": "Fase",
       "neutral": "Nul",
-      "earth": "Aarding"
+      "earth": "Aarding",
+      "deck2": "Dubbeldeks",
+      "deck3": "Driedeks PE/N/L",
+      "install": "Installatie L/N/PE",
+      "single": "Enkeldeks"
     },
     "addJumper": "Brug toevoegen",
     "removeJumper": "Brug verwijderen",
@@ -3299,6 +3550,22 @@
         "unknown-connector": "Verbindingsklem bestaat niet meer",
         "pe-without-bonded-rail": "Aardingsklemmen op een rail zonder aarding"
       }
-    }
+    },
+    "tool": {
+      "select": "Selecteren",
+      "bridge": "Brug tekenen"
+    },
+    "bridgeThroughRail": "Aarding is al verbonden via de rail",
+    "shapeOf": "Vorm"
+  },
+  "oneWireReference": {
+    "title": "Gescande pagina",
+    "blend": "Laten opgaan in canvas",
+    "opacity": "Dekking",
+    "openDocument": "Document openen",
+    "remove": "Verwijderen van eendraadschema",
+    "showOnOneWire": "Tonen op eendraadschema",
+    "pageName": "Eendraadschema pagina {{page}}",
+    "documentPage": "{{name}} · pagina {{page}}"
   }
 }

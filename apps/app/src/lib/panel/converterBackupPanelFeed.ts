@@ -1,8 +1,10 @@
-import type { Panel, PanelGridModuleRef, ProtectionDevice } from '@/types/schema'
+import type { PanelGridModuleRef } from '@/types/schema'
 import {
   getProjectElectricalPanels,
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
+import { walkPanels } from './panelTree'
+import { getPanelReadContext, memoizePanelReadContext } from './panelReadContext'
 
 export interface ConverterBackupPanelFeed {
   panelId: string
@@ -13,19 +15,48 @@ export interface ConverterBackupPanelFeed {
   protectionRef: PanelGridModuleRef
 }
 
-function visitPanels(
-  panels: Panel[],
-  visit: (panel: Panel, protection: ProtectionDevice) => ConverterBackupPanelFeed | null
-): ConverterBackupPanelFeed | null {
-  for (const panel of panels) {
+const backupFeedsContextKey = Symbol('converterBackupPanelFeeds')
+
+function buildBackupFeeds(project: ProjectWithOptionalV2Electrical) {
+  const panels = getProjectElectricalPanels(project)
+  const byTarget = new Map<string, ConverterBackupPanelFeed>()
+  for (const panel of walkPanels(panels)) {
     for (const protection of panel.protections) {
-      const result = visit(panel, protection)
-      if (result) return result
+      const panelId = protection.subPanelId
+      if (panelId == null || byTarget.has(panelId)) continue
+      const circuit = (protection.circuits ?? []).find(
+        (candidate) => candidate.supplySource?.kind === 'converter-backup'
+      )
+      const converterId = circuit?.supplySource?.converterId
+      if (!converterId) continue
+      byTarget.set(panelId, {
+        panelId,
+        sourcePanelId: panel.id,
+        converterId,
+        protectionId: protection.id,
+        converterRef: { kind: 'trunkDevice', id: converterId, scope: 'supply' },
+        protectionRef: { kind: 'protection', id: protection.id },
+      })
     }
-    const nested = visitPanels(panel.subPanels ?? [], visit)
-    if (nested) return nested
   }
-  return null
+  // Source queries historically returned targets in panel-tree order, which can
+  // differ from the order of their source protection rows.
+  const bySource = new Map<string, ConverterBackupPanelFeed[]>()
+  for (const panel of walkPanels(panels)) {
+    const feed = byTarget.get(panel.id)
+    if (!feed) continue
+    const feeds = bySource.get(feed.sourcePanelId) ?? []
+    feeds.push(feed)
+    bySource.set(feed.sourcePanelId, feeds)
+  }
+  return { byTarget, bySource }
+}
+
+function getBackupFeeds(project: ProjectWithOptionalV2Electrical) {
+  const read = getPanelReadContext(project)
+  return read
+    ? memoizePanelReadContext(read, backupFeedsContextKey, () => buildBackupFeeds(project))
+    : buildBackupFeeds(project)
 }
 
 /**
@@ -37,22 +68,10 @@ export function findConverterBackupPanelFeed(
   project: ProjectWithOptionalV2Electrical,
   panelId: string
 ): ConverterBackupPanelFeed | null {
-  return visitPanels(getProjectElectricalPanels(project), (sourcePanel, protection) => {
-    if (protection.subPanelId !== panelId) return null
-    const circuit = (protection.circuits ?? []).find(
-      (candidate) => candidate.supplySource?.kind === 'converter-backup'
-    )
-    const converterId = circuit?.supplySource?.converterId
-    if (!converterId) return null
-    return {
-      panelId,
-      sourcePanelId: sourcePanel.id,
-      converterId,
-      protectionId: protection.id,
-      converterRef: { kind: 'trunkDevice', id: converterId, scope: 'supply' },
-      protectionRef: { kind: 'protection', id: protection.id },
-    }
-  })
+  const feed = getBackupFeeds(project).byTarget.get(panelId)
+  return feed
+    ? { ...feed, converterRef: { ...feed.converterRef }, protectionRef: { ...feed.protectionRef } }
+    : null
 }
 
 export function findConverterBackupProtectionRefs(
@@ -60,7 +79,7 @@ export function findConverterBackupProtectionRefs(
   converterId: string
 ): PanelGridModuleRef[] {
   const refs: PanelGridModuleRef[] = []
-  const walk = (panels: Panel[]): void => {
+  const walk = (panels: ReturnType<typeof getProjectElectricalPanels>): void => {
     for (const panel of panels) {
       for (const protection of panel.protections) {
         if (
@@ -82,16 +101,11 @@ export function findConverterBackupProtectionRefs(
 
 export function findConverterBackupPanelFeedsFromSource(
   project: ProjectWithOptionalV2Electrical,
-  sourcePanelId: string,
+  sourcePanelId: string
 ): ConverterBackupPanelFeed[] {
-  const feeds: ConverterBackupPanelFeed[] = []
-  const collectTargets = (panels: Panel[]): void => {
-    for (const panel of panels) {
-      const feed = findConverterBackupPanelFeed(project, panel.id)
-      if (feed?.sourcePanelId === sourcePanelId) feeds.push(feed)
-      collectTargets(panel.subPanels ?? [])
-    }
-  }
-  collectTargets(getProjectElectricalPanels(project))
-  return feeds
+  return (getBackupFeeds(project).bySource.get(sourcePanelId) ?? []).map((feed) => ({
+    ...feed,
+    converterRef: { ...feed.converterRef },
+    protectionRef: { ...feed.protectionRef },
+  }))
 }

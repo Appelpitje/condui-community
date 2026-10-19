@@ -3,16 +3,22 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useDialogStore } from '@/stores/dialogStore'
 import { APP_MODAL_BACKDROP_ATTR } from '@/lib/ui/appModalInteraction'
+import { registerDialogWindow } from '@/lib/ui/dialogOwner'
+import { CanvasWindowContext } from '@/components/viewport/ViewportContext'
 import { X, AlertTriangle, Info, CheckCircle, AlertCircle } from 'lucide-react'
 
 function Dialog() {
   const { t } = useTranslation()
   const dialog = useDialogStore((state) => state.dialog)
   const closeDialog = useDialogStore((state) => state.closeDialog)
+  const dialogDocument = useDialogStore((state) => state.ownerDocument)
+  const ownerDocument = dialogDocument ?? (typeof document === 'undefined' ? null : document)
+  const ownerWindow = ownerDocument?.defaultView ?? null
   const [promptValue, setPromptValue] = useState('')
   const [promptError, setPromptError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogOpenedAtRef = useRef(0)
+  useEffect(() => registerDialogWindow(window), [])
 
   const handleClose = useCallback(() => {
     if (dialog?.onClose) {
@@ -30,10 +36,12 @@ function Dialog() {
       setPromptValue(dialog.inputValue || '')
       setPromptError(null)
       // Focus input after a short delay to ensure dialog is rendered
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         inputRef.current?.focus()
       }, 100)
+      return () => clearTimeout(timer)
     }
+    return undefined
   }, [dialog])
 
   // Handle Escape key
@@ -43,21 +51,25 @@ function Dialog() {
         handleClose()
       }
     }
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [dialog, handleClose])
+    ownerDocument?.addEventListener('keydown', handleEscape)
+    return () => ownerDocument?.removeEventListener('keydown', handleEscape)
+  }, [dialog, handleClose, ownerDocument])
+
+  useEffect(() => {
+    if (!dialog || !ownerWindow) return
+    ownerWindow.addEventListener('pagehide', handleClose)
+    return () => ownerWindow.removeEventListener('pagehide', handleClose)
+  }, [dialog, handleClose, ownerWindow])
 
   // Prevent body scroll when dialog is open
   useEffect(() => {
-    if (dialog) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
+    if (!dialog || !ownerDocument) return
+    const previousOverflow = ownerDocument.body.style.overflow
+    ownerDocument.body.style.overflow = 'hidden'
     return () => {
-      document.body.style.overflow = ''
+      ownerDocument.body.style.overflow = previousOverflow
     }
-  }, [dialog])
+  }, [dialog, ownerDocument])
 
   if (!dialog) return null
 
@@ -153,9 +165,9 @@ function Dialog() {
       ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400'
       : iconBgColor()
 
-  if (typeof document === 'undefined') return null
+  if (!ownerDocument || !ownerWindow) return null
 
-  return createPortal(
+  const content = createPortal(
     <div
       {...{ [APP_MODAL_BACKDROP_ATTR]: 'true' }}
       className="fixed inset-0 z-[1100] flex items-stretch justify-center bg-black/50 p-2 backdrop-blur-sm transition-opacity duration-200 sm:items-center sm:p-4"
@@ -365,8 +377,9 @@ function Dialog() {
         ) : null}
       </div>
     </div>,
-    document.body
+    ownerDocument.body
   )
+  return <CanvasWindowContext.Provider value={ownerWindow}>{content}</CanvasWindowContext.Provider>
 }
 
 export default Dialog

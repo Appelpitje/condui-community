@@ -66,7 +66,7 @@ export function getJunctionIdentityDisplay(
   const value = identity.trim()
   if (symbol !== 'terminal_strip') return value
   const incoming = getTerminalStripDisplayLabel(value, terminalStripPin)
-  return terminalStripOutgoingPin == null ? incoming : `${incoming}/${terminalStripOutgoingPin}`
+  return terminalStripOutgoingPin == null || terminalStripOutgoingPin === terminalStripPin ? incoming : `${incoming}/${terminalStripOutgoingPin}`
 }
 
 export function collectJunctionIdentities(project: unknown, symbol: string): string[] {

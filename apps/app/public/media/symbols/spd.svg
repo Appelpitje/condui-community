@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-89.7 -100.0 156.0 156.0" role="img" aria-label="Overspanningsbeveiliging">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-48.5,28.0 -17.3,46.0 -17.3,-44.0 -48.5,-62.0" fill="#f1f5f9"/>
+  <polygon points="31.2,18.0 -17.3,46.0 -17.3,-44.0 31.2,-72.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-90.0 31.2,-72.0 -17.3,-44.0 -48.5,-62.0" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -48.50 28.00)"><circle cx="9.0" cy="-80" r="3.6" fill="#e2e8f0"/><path d="M7.0 -80h4M9.0 -82v4" stroke-width="1"/><circle cx="9.0" cy="-10" r="3.6" fill="#e2e8f0"/><path d="M7.0 -10h4M9.0 -12v4" stroke-width="1"/><circle cx="27.0" cy="-80" r="3.6" fill="#e2e8f0"/><path d="M25.0 -80h4M27.0 -82v4" stroke-width="1"/><circle cx="27.0" cy="-10" r="3.6" fill="#e2e8f0"/><path d="M25.0 -10h4M27.0 -12v4" stroke-width="1"/></g>
+  <polygon points="-54.6,8.5 -25.1,25.5 -25.1,-16.5 -54.6,-33.5" fill="#f1f5f9"/>
+  <polygon points="-18.2,21.5 -25.1,25.5 -25.1,-16.5 -18.2,-20.5" fill="#cbd5e1"/>
+  <polygon points="-47.6,-37.5 -18.2,-20.5 -25.1,-16.5 -54.6,-33.5" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -55.43 32.00)"><rect x="2" y="-64" width="14" height="38" rx="1.5" fill="#ffffff" stroke-width="1"/><text x="9" y="-54" font-size="5.5" font-weight="700" fill="#334155" stroke="none" text-anchor="middle" font-family="Figtree, system-ui, sans-serif">T2</text><rect x="5" y="-44" width="8" height="5" rx="1" fill="#22c55e" stroke-width="0.8"/><rect x="20" y="-64" width="14" height="38" rx="1.5" fill="#ffffff" stroke-width="1"/><text x="27" y="-54" font-size="5.5" font-weight="700" fill="#334155" stroke="none" text-anchor="middle" font-family="Figtree, system-ui, sans-serif">T2</text><rect x="23" y="-44" width="8" height="5" rx="1" fill="#22c55e" stroke-width="0.8"/></g>
+</g>
+</svg>

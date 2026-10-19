@@ -1,4 +1,4 @@
-import { selectProjectWireRuns } from '@/lib/projectV2/wireRuns'
+import { getDerivedWiresForValidation } from '@/lib/validation/derivedWiresForValidation'
 import { getInstallationPhases } from '@/lib/wires/phaseAssignment'
 import {
   getProjectElectricalInstallation,
@@ -13,9 +13,6 @@ import {
 } from '@/lib/supplyAssembly'
 import type { Offender } from '../types'
 import {
-  buildLayoutTree,
-  calculateBottomUpLayout,
-  deriveWires,
   i18n,
   projectPanels,
   type CheckContext,
@@ -323,14 +320,9 @@ function supplyConductorProtectionCoordination(context: CheckContext): Issue[] {
   const derivedSegmentsBySection = new Map<string, WireSegment[]>()
   let derivedSupplySegments: WireSegment[] = []
   if (explicitSectionKeys.size > 0) {
-    try {
-      const layout = calculateBottomUpLayout(context.project, new Map())
-      const tree = buildLayoutTree(layout)
-      derivedSupplySegments = deriveWires(
-        tree,
-        projectPanels(context.project),
-        installation, [], undefined, selectProjectWireRuns(context.project)
-      ).filter((segment) => !panelId || segment.panelId === panelId)
+    const snapshot = getDerivedWiresForValidation(context.query, context.project)
+    if (snapshot) {
+      derivedSupplySegments = panelId ? snapshot.byPanel.get(panelId) ?? [] : snapshot.segments
       for (const segment of derivedSupplySegments) {
         if (!segment.supplySectionKey || !explicitSectionKeys.has(segment.supplySectionKey)) continue
         const section = segment.cable?.sectionMm2
@@ -346,8 +338,6 @@ function supplyConductorProtectionCoordination(context: CheckContext): Issue[] {
         keys.add(segment.supplySectionKey)
         sectionKeysByConnection.set(segment.supplyConnectionId, keys)
       }
-    } catch {
-      // A layout failure must not turn an unknown physical wire section into a finding.
     }
   }
 

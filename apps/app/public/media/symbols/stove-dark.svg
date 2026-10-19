@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-77.3 -90.0 158.0 158.0" role="img" aria-label="Fornuis">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-48.5,28.0 3.5,58.0 3.5,-22.0 -48.5,-52.0" fill="#283548"/>
+  <polygon points="52.0,30.0 3.5,58.0 3.5,-22.0 52.0,-50.0" fill="#1e293b"/>
+  <polygon points="0.0,-80.0 52.0,-50.0 3.5,-22.0 -48.5,-52.0" fill="#334155"/>
+  <ellipse cx="1.7" cy="-65.0" rx="10" ry="5.8" fill="#020617"/><ellipse cx="1.7" cy="-65.0" rx="5" ry="2.9" fill="none" stroke="#64748b" stroke-width="1"/>
+  <ellipse cx="26.0" cy="-51.0" rx="10" ry="5.8" fill="#020617"/><ellipse cx="26.0" cy="-51.0" rx="5" ry="2.9" fill="none" stroke="#64748b" stroke-width="1"/>
+  <ellipse cx="-22.5" cy="-51.0" rx="10" ry="5.8" fill="#020617"/><ellipse cx="-22.5" cy="-51.0" rx="5" ry="2.9" fill="none" stroke="#64748b" stroke-width="1"/>
+  <ellipse cx="1.7" cy="-37.0" rx="10" ry="5.8" fill="#020617"/><ellipse cx="1.7" cy="-37.0" rx="5" ry="2.9" fill="none" stroke="#64748b" stroke-width="1"/>
+  <g transform="matrix(0.8660 0.5 0 1 -48.50 28.00)"><circle cx="12" cy="-72" r="3.2" fill="#334155" stroke-width="1"/><path d="M12 -75.2V-72.96" stroke-width="1"/><circle cx="24" cy="-72" r="3.2" fill="#334155" stroke-width="1"/><path d="M24 -75.2V-72.96" stroke-width="1"/><circle cx="36" cy="-72" r="3.2" fill="#334155" stroke-width="1"/><path d="M36 -75.2V-72.96" stroke-width="1"/><circle cx="48" cy="-72" r="3.2" fill="#334155" stroke-width="1"/><path d="M48 -75.2V-72.96" stroke-width="1"/>
+<rect x="8" y="-62" width="44" height="3" rx="1.5" fill="#64748b" stroke-width="1"/>
+<rect x="10" y="-54" width="40" height="30" rx="2" fill="#020617"/></g>
+</g>
+</svg>

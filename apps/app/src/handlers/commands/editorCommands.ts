@@ -1,7 +1,9 @@
+import { useProjectStore } from '@/stores/projectStore'
 import { resolveSelectionDeleteRefs, requestDeleteProjectEntities } from './deleteEntities'
 import { createElement } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { liveProjectSession, runProjectCommand } from '@/stores/liveProjectCommandSession'
+import SitplanVisibilityPanel from '@/components/plan/SitplanVisibilityPanel'
 import FloorSelectionDialog from '@/components/plan/FloorSelectionDialog'
 import {
   hidePlanPlacementsOnActiveFloor,
@@ -24,6 +26,7 @@ import { duplicateSelection } from './duplicateSelection'
 import { fitView } from './fitView'
 import { toggleViewportPanelFocus, zoomVisibleCanvases } from './viewport'
 import { createProjectPaletteCommands } from './projectPaletteCommands'
+import { openFindPanel } from './findPanel'
 
 const canEdit = (ctx: CommandContext) => ctx.capabilities.canEditProject
 
@@ -48,9 +51,10 @@ function switchCanvas(ctx: CommandContext, canvas: CanvasType): boolean {
     revealCanvas(canvas)
     return true
   }
-  const panel = useUIStore.getState().viewportLayout.panels[panelIndex]
+  const ui = ctx.viewport?.ui ?? useUIStore
+  const panel = ui.getState().viewportLayout.panels[panelIndex]
   if (!panel || panel.canvas === canvas) return false
-  useUIStore.getState().setPanelCanvas(panelIndex, canvas)
+  ui.getState().setPanelCanvas(panelIndex, canvas)
   return true
 }
 
@@ -70,7 +74,7 @@ function openCommandPalette(registry: CommandRegistry, ctx: CommandContext): voi
       registry,
       context: { ...ctx, source: 'palette', event: undefined },
     }),
-  })
+  }, ctx.viewport?.getOwnerWindow().document)
 }
 
 /** Situation-plan placements in the current selection. */
@@ -81,8 +85,10 @@ function selectedPlanPlacementIds(): string[] {
 
 function selectionDeleteRefs(ctx: CommandContext) {
   const ui = useUIStore.getState()
+  const windowUI = ctx.viewport?.ui.getState() ?? ui
   const panelIndex = actionPanelIndex(ctx)
-  const canvas = panelIndex == null ? ui.viewMode : ui.viewportLayout.panels[panelIndex]?.canvas
+  const canvas =
+    panelIndex == null ? windowUI.viewMode : windowUI.viewportLayout.panels[panelIndex]?.canvas
   return resolveSelectionDeleteRefs(ui.selection, canvas === 'plan' ? 'sitplan' : 'oneWire')
 }
 
@@ -122,6 +128,14 @@ function openMoveToFloorDialog(): void {
 export function createEditorCommands(registry: CommandRegistry): CommandDefinition[] {
   return [
     {
+      id: 'ui.findPanel',
+      labelKey: 'findPanel.title',
+      keyLabels: ['ctrlCmdF'],
+      keybindings: [{ key: 'f', mod: true }],
+      isEnabled: () => useProjectStore.getState().currentProject != null,
+      run: openFindPanel,
+    },
+    {
       id: 'ui.commandPalette',
       labelKey: 'shortcuts.entries.openCommandPalette.description',
       keyLabels: ['ctrlCmdK'],
@@ -149,6 +163,31 @@ export function createEditorCommands(registry: CommandRegistry): CommandDefiniti
       run: redo,
     },
     ...createProjectPaletteCommands(),
+    {
+      id: 'ui.plan.colors',
+      labelKey: 'sitplanVisibility.colors',
+      isEnabled: (ctx) => canEdit(ctx) && !!useProjectStore.getState().currentProject,
+      run: () => {
+        revealCanvas('plan')
+        useDialogStore.getState().openDialog({
+          type: 'custom',
+          title: i18n.t('sitplanVisibility.colors'),
+          content: createElement(SitplanVisibilityPanel),
+        })
+      },
+    },
+    {
+      id: 'ui.plan.wiring',
+      labelKey: 'planWiring.tool',
+      isEnabled: (ctx) =>
+        canEdit(ctx) &&
+        !!useProjectStore.getState().currentProject &&
+        !!useUIStore.getState().activeFloorId,
+      run: () => {
+        revealCanvas('plan')
+        useUIStore.getState().setActivePlanTool('wiring')
+      },
+    },
     // Selection-aware bindings to project commands (ADR 0003).
     {
       id: 'entities.delete',
@@ -191,14 +230,14 @@ export function createEditorCommands(registry: CommandRegistry): CommandDefiniti
       keyLabels: ['ctrlCmdL'],
       keybindings: [{ key: 'l', mod: true, shift: 'any', alt: 'any', whileTyping: true }],
       isEnabled: (ctx) => ctx.capabilities.canPlaceSymbols,
-      run: () => useUIStore.getState().togglePanel('library'),
+      run: (ctx) => (ctx.viewport?.ui ?? useUIStore).getState().togglePanel('library'),
     },
     {
       id: 'ui.panels.toggleProperties',
       labelKey: 'shortcuts.entries.toggleProperties.description',
       keyLabels: ['ctrlCmdP'],
       keybindings: [{ key: 'p', mod: true, shift: 'any', alt: 'any', whileTyping: true }],
-      run: () => useUIStore.getState().togglePanel('properties'),
+      run: (ctx) => (ctx.viewport?.ui ?? useUIStore).getState().togglePanel('properties'),
     },
     {
       id: 'ui.panels.toggleDock',
@@ -208,10 +247,16 @@ export function createEditorCommands(registry: CommandRegistry): CommandDefiniti
       run: (ctx) => {
         if (ctx.source === 'keyboard') {
           if (planFloorDrawingConsumesTabRef.current) return false
-          if (isTextLikeFocusTarget(document.activeElement)) return false
+          if (
+            isTextLikeFocusTarget(
+              (ctx.viewport?.getOwnerWindow().document ?? document).activeElement
+            )
+          )
+            return false
           if (ctx.pointerPanelIndex == null) return false
         }
-        useUIStore.getState().toggleMainDockPanelsCollapse()
+        const ui = ctx.viewport?.ui ?? useUIStore
+        ui.getState().toggleMainDockPanelsCollapse()
         return true
       },
     },
@@ -230,9 +275,10 @@ export function createEditorCommands(registry: CommandRegistry): CommandDefiniti
       keybindings: [{ key: ' ', code: 'Space' }],
       run: (ctx) => {
         const target = ctx.event?.target
-        if (target instanceof Element && target.closest('button')) return false
+        if ((target as Element | null)?.nodeType === 1 && (target as Element).closest('button'))
+          return false
         dispatchExtendPropertiesPanelFieldBlur()
-        toggleViewportPanelFocus(actionPanelIndex(ctx))
+        toggleViewportPanelFocus(actionPanelIndex(ctx), ctx.viewport)
         return true
       },
     },
@@ -243,6 +289,7 @@ export function createEditorCommands(registry: CommandRegistry): CommandDefiniti
       keybindings: [{ key: 'f' }],
       run: (ctx) =>
         fitView({
+          viewport: ctx.viewport,
           panelIndex: actionPanelIndex(ctx),
           pointerPanelIndex: ctx.pointerPanelIndex,
           canEditProject: ctx.capabilities.canEditProject,
@@ -253,14 +300,14 @@ export function createEditorCommands(registry: CommandRegistry): CommandDefiniti
       labelKey: 'shortcuts.entries.zoomIn.description',
       keyLabels: ['plus', 'equals'],
       keybindings: [{ key: '+' }, { key: '=' }],
-      run: () => zoomVisibleCanvases('in'),
+      run: (ctx) => zoomVisibleCanvases('in', ctx.viewport),
     },
     {
       id: 'ui.viewport.zoomOut',
       labelKey: 'shortcuts.entries.zoomOut.description',
       keyLabels: ['minus'],
       keybindings: [{ key: '-' }],
-      run: () => zoomVisibleCanvases('out'),
+      run: (ctx) => zoomVisibleCanvases('out', ctx.viewport),
     },
     {
       id: 'ui.viewport.showEendraad',

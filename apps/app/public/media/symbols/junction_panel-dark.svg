@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-57.3 -90.0 151.0 151.0" role="img" aria-label="Aftakkast">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-26.0,15.0 36.4,51.0 36.4,-29.0 -26.0,-65.0" fill="#283548"/>
+  <polygon points="62.4,36.0 36.4,51.0 36.4,-29.0 62.4,-44.0" fill="#1e293b"/>
+  <polygon points="0.0,-80.0 62.4,-44.0 36.4,-29.0 -26.0,-65.0" fill="#334155"/>
+  <g transform="matrix(0.8660 0.5 0 1 -25.98 15.00)"><rect x="6" y="-74" width="60" height="68" rx="2" fill="#334155" stroke-width="1"/>
+<circle cx="11" cy="-69" r="2.2" fill="#0f172a" stroke-width="0.8"/><circle cx="11" cy="-11" r="2.2" fill="#0f172a" stroke-width="0.8"/><circle cx="61" cy="-69" r="2.2" fill="#0f172a" stroke-width="0.8"/><circle cx="61" cy="-11" r="2.2" fill="#0f172a" stroke-width="0.8"/></g>
+  <ellipse cx="53.7" cy="21.0" rx="3.6" ry="4.4" fill="#64748b" stroke-width="1" transform="rotate(-30 53.7 21.0)"/>
+  <ellipse cx="45.0" cy="26.0" rx="3.6" ry="4.4" fill="#64748b" stroke-width="1" transform="rotate(-30 45.0 26.0)"/>
+  <ellipse cx="53.7" cy="-19.0" rx="3.6" ry="4.4" fill="#64748b" stroke-width="1" transform="rotate(-30 53.7 -19.0)"/>
+  <ellipse cx="45.0" cy="-14.0" rx="3.6" ry="4.4" fill="#64748b" stroke-width="1" transform="rotate(-30 45.0 -14.0)"/>
+</g>
+</svg>

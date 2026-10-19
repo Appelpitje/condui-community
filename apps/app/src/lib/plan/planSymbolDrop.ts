@@ -29,6 +29,7 @@ import { createDefaultAcCircuitCable } from '@/lib/wires/circuitWireDefaults'
 import { generateId } from '@/utils/id'
 import { getEndpointTypeFromSymbol } from '@/utils/symbolMapping'
 import { collectCircuits } from '@/utils/eendraad/panelHelpers'
+import { getPanelEndpoint } from '@/utils/panelPlacement'
 
 export type CreateEmptyCircuitOptions = {
   /** Legacy MCB label; leave empty so circuit code sync sets the protection label later. */
@@ -149,6 +150,33 @@ export interface PlanSymbolDropInput {
   floorLayer: string
   panelId: string
   circuit: PlanDropCircuitChoice
+}
+
+export type PlanPanelDropInput = Pick<PlanSymbolDropInput, 'floorId' | 'floorLayer' | 'pos'>
+
+/** A board dropped on free plan space is a new root board, as on free one-wire space. */
+export function placePanelOnPlanInProject(
+  project: ProjectV2,
+  input: PlanPanelDropInput,
+  language?: string
+): { panelId: string; endpointId: string; placementId: string } | null {
+  const outcome = placeElectricalSymbolInProject(
+    project,
+    { symbolId: 'panel_distribution', target: { type: null } },
+    { activeFloorId: input.floorId, viewportCenter: input.pos },
+    language
+  )
+  if (outcome.status !== 'placed') return null
+  const panelId = outcome.created.find((ref) => ref.kind === 'panel')?.id
+  const endpoint = panelId ? getPanelEndpoint(project, panelId) : null
+  const placement = endpoint?.placements[0]
+  if (!panelId || !endpoint || !placement) return null
+  // Automatic board placements use the ground floor and collision avoidance. An explicit
+  // plan drop instead owns the chosen floor and exact snapped position.
+  placement.floorId = input.floorId
+  placement.layer = input.floorLayer
+  placement.pos = { ...input.pos }
+  return { panelId, endpointId: endpoint.id, placementId: placement.id }
 }
 
 /**

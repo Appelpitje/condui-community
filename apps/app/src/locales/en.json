@@ -1,4 +1,125 @@
 {
+  "findPanel": {
+    "title": "Find panel",
+    "placeholder": "Search panels…",
+    "empty": "No panels found",
+    "oneWire": "One-wire diagram",
+    "panelView": "Panel layout",
+    "planView": "Situation plan",
+    "unplaced": "Not placed on a plan"
+  },
+  "nativeRoomScan": {
+    "title": "Floor scan",
+    "description": "Scan walls, doors and windows across this floor.",
+    "start": "Scan floor",
+    "scanning": "Scanning…",
+    "unsupported": "Room scanning is unavailable on this device.",
+    "failed": "Could not scan this floor.",
+    "cancelled": "Floor scan cancelled.",
+    "result": "Scan result",
+    "walls": "Walls",
+    "doors": "Doors",
+    "windows": "Windows",
+    "openings": "Openings",
+    "scanAgain": "Scan again",
+    "preview": "Floor plan preview",
+    "rotateLeft": "Rotate 90° left",
+    "rotateRight": "Rotate 90° right",
+    "addToFloor": "Add to {{floor}}",
+    "unmatched": "Unmatched openings",
+    "skippedWalls": "Skipped walls",
+    "checkCenters": "Check wall centers",
+    "noWalls": "No walls were found.",
+    "importFailed": "Could not add the scan.",
+    "floorUnavailable": "The selected floor is no longer available.",
+    "stale": "The project changed. Refresh the preview to continue.",
+    "refresh": "Refresh preview",
+    "search": "LiDAR RoomPlan room walls doors windows",
+    "roomNameDefault": "Room",
+    "roomName": "Room name",
+    "targetPanel": "Panel",
+    "includePlacements": "Mark sockets, lights and switches",
+    "existingInstallation": "Placement starts off because this project already has endpoints.",
+    "reviewHint": "Scan circuits are provisional. Review protection, cables and switch connections.",
+    "modelDocument": "Floor model",
+    "placementsDocument": "Scan placements",
+    "toReview": "To review",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "resetView": "Reset view",
+    "orbitHint": "Drag to orbit · pinch to zoom",
+    "reviewCircuit": "Review circuit",
+    "markReviewed": "Mark reviewed",
+    "capturedHeight": "Captured height",
+    "noPhoto": "No reference photo",
+    "elementRemoved": "The linked element was removed. The photo is retained.",
+    "showOnPlan": "Show on plan",
+    "showOnOneWire": "Show on one-wire",
+    "downloadScan": "Download scan",
+    "documentFailed": "Could not open this scan document.",
+    "group": {
+      "sockets": "sockets",
+      "lighting": "lighting",
+      "equipment": "equipment"
+    },
+    "capture": {
+      "cancel": "Cancel",
+      "undo": "Undo",
+      "finish": "Finish",
+      "center": "Centre",
+      "review": "Review",
+      "back": "Back",
+      "more": "More types",
+      "placements": "Locations",
+      "processing": "Processing…",
+      "locked": "Point locked",
+      "centerAim": "Centre aim · tap to lock a point",
+      "markFixtures": "Mark fixtures",
+      "tracking": "Tracking",
+      "trackingPaused": "Tracking uncertain",
+      "offscreen": "off-screen",
+      "noMarks": "Floor scanned · no fixtures marked",
+      "finishRoom": "Finish floor",
+      "fewerSockets": "Fewer outlets",
+      "moreSockets": "More outlets",
+      "variantHint": "Slide to choose · release to place",
+      "variants": {
+        "socket": "Socket",
+        "light": "Light",
+        "switch": "Switch",
+        "twoWay": "2-way",
+        "cross": "Cross",
+        "push": "Push",
+        "dimmer": "Dimmer",
+        "led": "LED",
+        "fluorescent": "TL",
+        "spot": "Spot"
+      },
+      "surfaceNeeded": "Aim at a scanned wall, floor or ceiling"
+    },
+    "documentBudget": "Scan references do not fit in the project document storage. Remove or reduce existing documents, then try again.",
+    "noClosedRooms": "No closed rooms detected. Finish scanning their boundaries to identify rooms.",
+    "roomTypes": {
+      "bedroom": "Bedroom",
+      "bathroom": "Bathroom",
+      "kitchen": "Kitchen",
+      "livingRoom": "Living room",
+      "diningRoom": "Dining room",
+      "laundry": "Laundry",
+      "office": "Office"
+    },
+    "modelLayers": {
+      "object": "Furniture",
+      "wall": "Walls",
+      "openings": "Doors and windows",
+      "floor": "Floor"
+    },
+    "assignCircuit": "Assign to circuit",
+    "newCircuit": "New circuit",
+    "assignmentFailed": "Could not assign these placements.",
+    "selectPlacement": "Select placement",
+    "clearSelection": "Clear selection"
+  },
   "junctionIdentity": {
     "label": "Junction identity",
     "pickExisting": "Reuse an existing identity",
@@ -9,9 +130,11 @@
     "toggleVisibility": "Show or hide label on diagram"
   },
   "terminalStrip": {
-    "pin": "Pin",
+    "pin": "Circuit number",
     "incomingPin": "In",
-    "outgoingPin": "Out"
+    "outgoingPin": "Out",
+    "circuitConflict": "{{label}} is assigned to different circuits.",
+    "circuitConflictRemediation": "Use a separate terminal group number for each circuit."
   },
   "appUpdate": {
     "banner": "A new version of the app is available.",
@@ -35,6 +158,7 @@
     "importFallbackProjectName": "Imported project ({{idShort}})"
   },
   "common": {
+    "more": "More",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -155,6 +279,7 @@
     "zoom": "Zoom"
   },
   "commandPalette": {
+    "addSupplyTransformer": "Add supply transformer",
     "placeholder": "Search commands",
     "empty": "No matching commands",
     "moveToCircuit": "Move to circuit",
@@ -187,14 +312,98 @@
       "kind": "Circuit type",
       "direction": "Feed side",
       "left": "Left",
-      "right": "Right"
+      "right": "Right",
+      "x": "X",
+      "y": "Y",
+      "startX": "Start X",
+      "startY": "Start Y",
+      "endX": "End X",
+      "endY": "End Y",
+      "thickness": "Thickness",
+      "wall": "Wall",
+      "planWidth": "Width",
+      "height": "Height",
+      "stepDepth": "Step depth",
+      "asset": "Symbol",
+      "offsetX": "Offset X",
+      "offsetY": "Offset Y",
+      "rotationDeg": "Rotation (°)",
+      "opacity": "Opacity (%)",
+      "segment": "Segment",
+      "text": "Text",
+      "title": "Title",
+      "fontSize": "Text size",
+      "titlePosition": "Title position",
+      "route": "Wire route",
+      "index": "Waypoint index",
+      "placement": "Plan symbol",
+      "destination": "Destination",
+      "organization": "Feed organization",
+      "connection": "Connection"
     },
     "kinds": {
       "lighting": "Lighting",
       "sockets": "Sockets",
       "fixed_appliance": "Fixed appliance",
       "other": "Other"
-    }
+    },
+    "removeFromOneWire": "Remove from one-wire",
+    "showOnOneWire": "Show on one-wire",
+    "addFloor": "Add floor",
+    "deleteFloor": "Delete floor",
+    "transformBackground": "Adjust plan background",
+    "addPlanWall": "Add wall",
+    "addPlanDoor": "Add door",
+    "addPlanWindow": "Add window",
+    "addPlanStair": "Add stair",
+    "addPlanGraphic": "Add plan symbol",
+    "placeExistingOnPlan": "Place on plan",
+    "hideAllPanelModules": "Hide all panel modules",
+    "showAllPanelModules": "Show all panel modules",
+    "showAuxiliaryEnclosures": "Show auxiliary enclosures on plan",
+    "hideAuxiliaryEnclosures": "Hide auxiliary enclosures on plan",
+    "importPlanBackground": "Import plan background",
+    "calibratePlan": "Set plan scale",
+    "removeBackground": "Remove plan background",
+    "splitWall": "Split wall",
+    "planAddNote": "Add plan note",
+    "eendraadAddNote": "Add schematic note",
+    "eendraadCreateFrame": "Frame selected elements",
+    "planInsertWireWaypoint": "Add wire waypoint",
+    "planMoveWireWaypoint": "Move wire waypoint",
+    "planRemoveWireWaypoint": "Remove wire waypoint",
+    "planMoveWireRiser": "Move floor passage",
+    "planDisconnectOutgoingWires": "Disconnect outgoing plan wires",
+    "cableAcceptLengthEstimates": "Accept cable length estimates",
+    "moveSupplyDevice": "Move supply device",
+    "moveCircuitTrunkDevice": "Move circuit device",
+    "values": {
+      "inside": "Inside",
+      "outside": "Outside",
+      "sharedSupply": "Shared supply",
+      "supplyWire": "Supply wire",
+      "backupWire": "Backup wire",
+      "backupOutput": "Backup output",
+      "changeoverGrid": "Changeover grid input",
+      "converterGrid": "Converter grid input",
+      "converterDc": "Converter DC",
+      "supplyDestination": "{{panel}} · {{lane}}",
+      "destinationAtPosition": "{{destination}} · position {{position}}",
+      "circuitDestinationAtPosition": "{{panel}} · {{circuit}} · position {{position}}",
+      "defaultNote": "New note",
+      "defaultFrame": "Frame",
+      "singleFeed": "Single feed",
+      "splitBackupFeed": "Split backup feed",
+      "splitSwitchableFeed": "Split switchable feed",
+      "installationSupply": "Installation supply"
+    },
+    "setPanelFeedOrganization": "Change panel feeds",
+    "setGridFeedBoundary": "Move grid feed boundary",
+    "setBackupFeedBoundary": "Move backup feed boundary",
+    "movePanelSupply": "Move panel supply",
+    "disconnectInverterGridInput": "Disconnect inverter grid input",
+    "ejectSecondaryBusProtections": "Move secondary bus to new panel",
+    "ensureSecondaryPanelEarthingStem": "Add panel earthing stem"
   },
   "shortcuts": {
     "title": "Shortcuts",
@@ -224,6 +433,7 @@
       "ctrlCmdP": "Ctrl / Cmd + P",
       "ctrlCmdD": "Ctrl / Cmd + D",
       "ctrlCmdK": "Ctrl / Cmd + K",
+      "ctrlCmdF": "Ctrl / Cmd + F",
       "tab": "Tab",
       "esc": "Esc",
       "space": "Space",
@@ -716,6 +926,12 @@
     }
   },
   "installation": {
+    "supplyConnectionLabel": "Grid connection",
+    "supplyDirect": "Direct low voltage",
+    "supplyTransformer": "Own transformer",
+    "connectionCurrent": "Connection current (A)",
+    "connectionUnspecified": "Unspecified",
+    "connectionCustom": "Custom",
     "defaultCable": "Default cable",
     "title": "Installation",
     "profile": "Profile",
@@ -794,6 +1010,7 @@
     "type": "Type",
     "rating": "Rated current",
     "curve": "Tripping curve",
+    "specialistCurveWarning": "Unusual in household installations. Verify short-circuit protection.",
     "sensitivity": "Residual trip current IΔn",
     "poles": "Poles",
     "polesConfig": "Pole configuration",
@@ -1097,6 +1314,10 @@
       "options": "Options"
     },
     "transformer": {
+      "primaryVoltage": "Primary voltage (V)",
+      "secondaryVoltage": "Secondary voltage (V)",
+      "ratedPower": "Rated power (kVA)",
+      "shortCircuitVoltage": "Short-circuit voltage uk (%)",
       "safetyType": "Safety transformer type",
       "safety_none": "None",
       "safety_closed_short": "Closed",
@@ -1251,6 +1472,9 @@
     "syncWithPanelView": "Sync with Panel view"
   },
   "canvas": {
+    "detachView": "Detach canvas",
+    "dockView": "Return canvas",
+    "popupBlocked": "Allow pop-ups for Condui, then try again.",
     "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Grid",
     "snap": "Snap",
@@ -1554,6 +1778,8 @@
     }
   },
   "sitplanVisibility": {
+    "colors": "Plan colors",
+    "symbolColor": "{{category}} color",
     "title": "Visibility",
     "showAll": "Show all",
     "groundPlans": "Ground Plans",
@@ -1636,6 +1862,7 @@
     "horn": "Horn",
     "siren": "Siren",
     "panel_distribution": "Distribution board",
+    "junction_box": "Junction box",
     "relay": "Relay",
     "domotica": "Domotica / Smart home device",
     "energy_meter": "Energy meter",
@@ -2263,6 +2490,11 @@
         "message": "Supply breaking capacity too low: {{list}}",
         "details": "The connection device before the meter needs at least 6000 A. Overcurrent devices after it need at least 3000 A."
       },
+      "circuitShortCircuitProtectionVerifiable": {
+        "message": "Circuit {{circuitCode}}: short-circuit protection with curve {{curve}} is not verified",
+        "missingData": "Enter the breaker rating, cable cross-sections and every cable length to check short-circuit protection. Missing data does not confirm adequate protection.",
+        "unsupportedCurve": "Condui has no reliable trip threshold for this characteristic. Verify protection using the manufacturer's trip curve and the minimum short-circuit current."
+      },
       "circuitWithinMaximumProtectedLength": {
         "message": "Circuit {{circuitCode}}: {{lengthM}} m of cable exceeds the protected length of {{maxLengthM}} m",
         "details": "A short circuit at the far end must still trip the {{curve}}{{ratingA}} instantly ({{tripCurrentA}} A). With {{sectionMm2}} mm² that allows at most {{maxLengthM}} m. Use a larger section, a shorter route, or a lower rating or curve."
@@ -2292,6 +2524,10 @@
         "details": "A wire's domain must match the expected input/output domain of the connected component. Only conversion components (transformer, rectifier, inverter, DC-DC) may connect different domains."
       },
       "mainRcdCompliance": {
+        "sensitivityMissing": {
+          "message": "Main RCD/RCBO sensitivity is unknown",
+          "details": "Enter the existing device’s residual-current sensitivity (mA) to verify main RCD protection. Use confirmed device specifications."
+        },
         "missing": {
           "message": "Main supply has no upstream RCD or RCBO",
           "details": "Belgian AREI Book 1 requires a main residual current device at the origin of the installation. Add a main RCD or RCBO on the supply trunk upstream of the main panel."
@@ -2323,6 +2559,12 @@
         "details": "The board can be disconnected via an upstream feeder device, but there is no local main switch/disconnector in this panel. Local isolation improves safety and maintainability."
       },
       "circuitHasRcdProtection": {
+        "sensitivityMissing": {
+          "groupMessage": "Circuits have upstream RCD/RCBO protection with unknown sensitivity",
+          "remediation": "Enter the existing upstream RCD/RCBO sensitivity (mA) from confirmed device specifications.",
+          "message": "Circuit {{circuitCode}} has upstream RCD/RCBO protection with unknown sensitivity",
+          "details": "Enter the existing upstream RCD/RCBO sensitivity (mA) to verify 30 mA protection. Use confirmed device specifications."
+        },
         "missing": {
           "message": "Circuit {{circuitCode}} requires RCD/RCBO protection (30 mA), but none was found upstream",
           "details": "Lighting, general-purpose socket, washer, dryer, dishwasher and EV charging circuits require 30 mA residual-current protection. Add an RCD or RCBO upstream or route this circuit through an existing 30 mA device."
@@ -2694,6 +2936,7 @@
   },
   "plan": {
     "doorProperties": "Door",
+    "gatePreset": "Gate",
     "windowProperties": "Window",
     "openingWidth": "Width",
     "cm": "cm",
@@ -2777,7 +3020,11 @@
     "backupFeed": "Backup feed",
     "gridMarker": "Grid",
     "backupMarker": "Backup",
-    "switchableBackupMarker": "Backup/Grid"
+    "switchableBackupMarker": "Backup/Grid",
+    "changeoverInput1": "Input 1",
+    "changeoverInputGrid": "Grid",
+    "changeoverInputConverter": "Inverter supply",
+    "inverterGridInputDisconnected": "Inverter grid input not connected"
   },
   "wallProperties": {
     "title": "Wall properties",
@@ -3264,7 +3511,11 @@
     "shape": {
       "phase": "Phase",
       "neutral": "Neutral",
-      "earth": "Earth"
+      "earth": "Earth",
+      "deck2": "Double-deck",
+      "deck3": "Triple-deck PE/N/L",
+      "install": "Installation L/N/PE",
+      "single": "Single-deck"
     },
     "addJumper": "Add jumper",
     "removeJumper": "Remove jumper",
@@ -3299,6 +3550,22 @@
         "unknown-connector": "Connector no longer exists",
         "pe-without-bonded-rail": "Earth terminals on a rail without earth"
       }
-    }
+    },
+    "tool": {
+      "select": "Select",
+      "bridge": "Draw jumper"
+    },
+    "bridgeThroughRail": "Earth is already joined through the rail",
+    "shapeOf": "Shape"
+  },
+  "oneWireReference": {
+    "title": "Scanned page",
+    "blend": "Blend with canvas",
+    "opacity": "Opacity",
+    "openDocument": "Open document",
+    "remove": "Remove from one-wire",
+    "showOnOneWire": "Show on one-wire",
+    "pageName": "One-wire page {{page}}",
+    "documentPage": "{{name}} · page {{page}}"
   }
 }

@@ -12,6 +12,7 @@ import type { SymbolExportDescriptor } from '@/lib/export/symbolSvgInject'
 import type { AnnotationProject } from '@/lib/projectV2/annotations'
 import type { ProjectWithOptionalV2Building } from '@/lib/projectV2/buildingFloors'
 import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'
+import type { SceneGeometryQuery } from '@/lib/sceneGeometry'
 
 /**
  * Export theme option - always explicit, default 'light'
@@ -203,6 +204,8 @@ export interface ExportContext {
   project: ExportProject
   eendraadLayout: BottomUpLayoutResult | null
   eendraadWireSegments?: WireSegment[]
+  /** Local focused preview only. When set, export builds only this requested scene. */
+  focusedScene?: SceneGeometryQuery
   resolvePageReference?: (
     project: ExportProject,
     baseHref: string

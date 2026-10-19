@@ -40,7 +40,7 @@
  */
 
 import type { Installation, ProjectPartyContact } from '@/types/schema'
-import { getVoltageSummaryLabel } from '@/utils/voltageLabel'
+import { getConnectionSummaryLabel } from '@/lib/electrical/supplyConnection'
 
 /** Column widths (px). Change these to resize columns; total frame width is derived automatically. */
 export const INFO_BLOCK_BOX_WIDTHS = {
@@ -243,6 +243,6 @@ export function formatInstallerAddress(
 }
 
 export function getVoltageLabel(installation: Installation): string {
-  const label = getVoltageSummaryLabel(installation.nominalVoltage)
+  const label = getConnectionSummaryLabel(installation)
   return `${label} 50 Hz`
 }

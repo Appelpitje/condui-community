@@ -1,13 +1,17 @@
-import { useState, useEffect, useRef, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useState,
+  useEffect,
+  useRef,
+  type DragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { GripVertical, Plus, Trash2, Pencil, Check, X, Eye, EyeOff, Copy } from 'lucide-react'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useDialogStore } from '@/stores/dialogStore'
 import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import type { Floor } from '@/types/schema'
-import { generateId } from '@/utils'
 import { readLegacyCompatibilityFloors } from '@/lib/projectV2/buildingFloors'
-import { duplicateFloorPlan } from '@/lib/plan/duplicateFloorPlan'
 import ContextMenuPortal from '@/components/canvas/ContextMenuPortal'
 
 interface FloorSelectionDialogProps {
@@ -38,8 +42,6 @@ function FloorSelectionDialog({
 }: FloorSelectionDialogProps) {
   const { t } = useTranslation()
   const currentProject = useProjectStore((s: ProjectState) => s.currentProject)
-  const addFloor = useProjectStore((s: ProjectState) => s.addFloor)
-  const deleteFloor = useProjectStore((s: ProjectState) => s.deleteFloor)
   const reorderFloors = useProjectStore((s: ProjectState) => s.reorderFloors)
   const togglePlanFloorOverlayFloor = useProjectStore(
     (s: ProjectState) => s.togglePlanFloorOverlayFloor
@@ -75,19 +77,13 @@ function FloorSelectionDialog({
 
   const handleAddConfirm = () => {
     if (!newFloorName.trim()) return
-    const newFloorId = generateId()
-    const sourceFloor = duplicateSourceFloorId
-      ? floors.find((floor) => floor.id === duplicateSourceFloorId)
-      : undefined
-    addFloor(
-      sourceFloor
-        ? duplicateFloorPlan(sourceFloor, newFloorId, newFloorName.trim())
-        : {
-            id: newFloorId,
-            name: newFloorName.trim(),
-          },
-    )
-    onSelect(newFloorId)
+    const outcome = runProjectCommand('floor.create', {
+      name: newFloorName.trim(),
+      ...(duplicateSourceFloorId ? { sourceFloorId: duplicateSourceFloorId } : {}),
+    })
+    const createdFloorId = outcome?.results[0]?.created.find((ref) => ref.kind === 'floor')?.id
+    if (!createdFloorId) return
+    onSelect(createdFloorId)
     setIsCreatingNew(false)
     setNewFloorName('')
     setDuplicateSourceFloorId(null)
@@ -142,11 +138,7 @@ function FloorSelectionDialog({
     if (!floor) return
     const floorIndex = floors.findIndex((f: Floor) => f.id === floor.id)
     const nextFloorId =
-      floorIndex > 0
-        ? floors[floorIndex - 1]?.id
-        : floors.length > 1
-          ? floors[1]?.id
-          : null
+      floorIndex > 0 ? floors[floorIndex - 1]?.id : floors.length > 1 ? floors[1]?.id : null
 
     openDialog({
       type: 'confirm',
@@ -156,7 +148,8 @@ function FloorSelectionDialog({
       confirmLabel: t('common.delete'),
       cancelLabel: t('common.cancel'),
       onConfirm: () => {
-        deleteFloor(floor.id)
+        const outcome = runProjectCommand('floor.delete', { floorId: floor.id })
+        if (!outcome) return
         if (floor.id === currentFloorId && nextFloorId) {
           onSelect(nextFloorId, { closeMenu: false, fitToView: true })
         }
@@ -200,9 +193,7 @@ function FloorSelectionDialog({
     }
     return (
       <div className="space-y-4">
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          {t('floorSelection.noFloors')}
-        </p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">{t('floorSelection.noFloors')}</p>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             {t('floorSelection.floorName')}
@@ -290,7 +281,8 @@ function FloorSelectionDialog({
     )
   }
 
-  const rowHighlightFloorId = listHighlightFloorId !== undefined ? listHighlightFloorId : currentFloorId
+  const rowHighlightFloorId =
+    listHighlightFloorId !== undefined ? listHighlightFloorId : currentFloorId
 
   // List of floors: select one to view, reorder, add/delete at bottom
   return (
@@ -424,30 +416,38 @@ function FloorSelectionDialog({
                       {overlayOn ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                     </button>
                   )}
-                  {!readOnly && <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      startRenameFloor(floor.id, floor.name)
-                    }}
-                    className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400"
-                    aria-label={t('common.edit')}
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>}
-                  {!readOnly && <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeleteFloorById(floor.id)
-                    }}
-                    disabled={isOnlyFloor}
-                    className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-35 disabled:pointer-events-none text-red-600 dark:text-red-400"
-                    aria-label={t('floorSelection.delete')}
-                    title={isOnlyFloor ? t('floorSelection.cannotDeleteLast') : t('floorSelection.delete')}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        startRenameFloor(floor.id, floor.name)
+                      }}
+                      className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400"
+                      aria-label={t('common.edit')}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  )}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteFloorById(floor.id)
+                      }}
+                      disabled={isOnlyFloor}
+                      className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-35 disabled:pointer-events-none text-red-600 dark:text-red-400"
+                      aria-label={t('floorSelection.delete')}
+                      title={
+                        isOnlyFloor
+                          ? t('floorSelection.cannotDeleteLast')
+                          : t('floorSelection.delete')
+                      }
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               )}
             </li>
@@ -455,16 +455,18 @@ function FloorSelectionDialog({
         })}
       </ul>
 
-      {!readOnly && <div className="flex gap-2 border-t border-gray-200 dark:border-gray-700 pt-2">
-        <button
-          type="button"
-          onClick={() => setIsCreatingNew(true)}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/20 transition-colors"
-        >
-          <Plus className="w-4 h-4 shrink-0" />
-          {t('floorSelection.add')}
-        </button>
-      </div>}
+      {!readOnly && (
+        <div className="flex gap-2 border-t border-gray-200 dark:border-gray-700 pt-2">
+          <button
+            type="button"
+            onClick={() => setIsCreatingNew(true)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/20 transition-colors"
+          >
+            <Plus className="w-4 h-4 shrink-0" />
+            {t('floorSelection.add')}
+          </button>
+        </div>
+      )}
 
       {floorContextMenu && (
         <ContextMenuPortal

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import {
   PROPERTIES_FIELD_BLUR_DELAY_MS,
   PROPERTIES_FIELD_BLUR_DELAY_AFTER_SPACE_MS,
@@ -6,11 +7,7 @@ import {
 } from '@/lib/ui/propertiesPanelFieldBlur'
 
 function isPanelEditableField(el: HTMLElement): boolean {
-  return (
-    el instanceof HTMLInputElement ||
-    el instanceof HTMLTextAreaElement ||
-    el.isContentEditable
-  )
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable
 }
 
 /**
@@ -18,6 +15,8 @@ function isPanelEditableField(el: HTMLElement): boolean {
  * canvas interaction (e.g. spacebar viewport focus) does not instantly end editing.
  */
 export function usePropertiesPanelFieldBlurOnLeave() {
+  const ownerWindow = useCanvasWindow()
+  const ownerDocument = ownerWindow.document
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const panelRefRef = useRef<HTMLElement | null>(null)
 
@@ -31,12 +30,12 @@ export function usePropertiesPanelFieldBlurOnLeave() {
   const runBlurIfStillInPanel = useCallback(() => {
     blurTimeoutRef.current = null
     const panelEl = panelRefRef.current
-    const activeEl = document.activeElement
-    if (!panelEl || !(activeEl instanceof HTMLElement)) return
+    const activeEl = ownerDocument.activeElement as HTMLElement | null
+    if (!panelEl || !activeEl || activeEl.nodeType !== 1) return
     if (!panelEl.contains(activeEl)) return
     if (!isPanelEditableField(activeEl)) return
     activeEl.blur()
-  }, [])
+  }, [ownerDocument])
 
   const scheduleBlur = useCallback(
     (delayMs: number, panelEl: HTMLElement) => {
@@ -55,13 +54,13 @@ export function usePropertiesPanelFieldBlurOnLeave() {
 
   const blurActiveFieldOnPanelLeave = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
-      const activeEl = document.activeElement
-      if (!(activeEl instanceof HTMLElement)) return
+      const activeEl = ownerDocument.activeElement as HTMLElement | null
+      if (!activeEl || activeEl.nodeType !== 1) return
       if (!e.currentTarget.contains(activeEl)) return
       if (!isPanelEditableField(activeEl)) return
       scheduleBlur(PROPERTIES_FIELD_BLUR_DELAY_MS, e.currentTarget)
     },
-    [scheduleBlur]
+    [scheduleBlur, ownerDocument]
   )
 
   const cancelBlurOnPanelEnter = useCallback(() => {
@@ -77,14 +76,14 @@ export function usePropertiesPanelFieldBlurOnLeave() {
       extendScheduledBlur()
     }
 
-    window.addEventListener(PROPERTIES_PANEL_EXTEND_BLUR_EVENT, onExtend)
-    window.addEventListener('keydown', onKeyDown, true)
+    ownerWindow.addEventListener(PROPERTIES_PANEL_EXTEND_BLUR_EVENT, onExtend)
+    ownerWindow.addEventListener('keydown', onKeyDown, true)
     return () => {
-      window.removeEventListener(PROPERTIES_PANEL_EXTEND_BLUR_EVENT, onExtend)
-      window.removeEventListener('keydown', onKeyDown, true)
+      ownerWindow.removeEventListener(PROPERTIES_PANEL_EXTEND_BLUR_EVENT, onExtend)
+      ownerWindow.removeEventListener('keydown', onKeyDown, true)
       clearScheduledBlur()
     }
-  }, [extendScheduledBlur, clearScheduledBlur])
+  }, [extendScheduledBlur, clearScheduledBlur, ownerWindow])
 
   return { blurActiveFieldOnPanelLeave, cancelBlurOnPanelEnter }
 }

@@ -94,12 +94,13 @@ export function computeDuplicateBlockOffset(
 
 export function clonePlacementsForDuplicate(
   placements: Placement[],
-  options?: ClonePlacementsOptions
+  options?: ClonePlacementsOptions,
+  newId: () => string = generateId,
 ): Placement[] {
   const offset = computeDuplicateBlockOffset(placements, options)
   return placements.map((p) => ({
     ...JSON.parse(JSON.stringify(p)),
-    id: generateId(),
+    id: newId(),
     ...(options?.autoOrient && p.rotationMode !== 'explicit' ? { rotationDeg: 0 } : {}),
     pos: {
       x: p.pos.x + offset.x,
@@ -114,13 +115,16 @@ export function clonePlacementsForDuplicate(
  * Other sitplan symbols: copy the source placement (single) with a nudge when present;
  * otherwise {@link ensureSitplanPlacementsForEndpoints} adds one on the resolved target floor.
  */
-export function sitplanPlacementsForDuplicateClone(source: Endpoint): Placement[] {
+export function sitplanPlacementsForDuplicateClone(
+  source: Endpoint,
+  newId: () => string = generateId,
+): Placement[] {
   if (isModularSocket(source) || !source.placements?.length) return []
   const options = clonePlacementsOptionsForEndpoint(source)
   const toCopy = endpointSupportsMultiplier(source)
     ? source.placements
     : source.placements.slice(0, 1)
-  return clonePlacementsForDuplicate(toCopy, options)
+  return clonePlacementsForDuplicate(toCopy, options, newId)
 }
 
 function isValidFloorId(project: DuplicateSitplanProject, floorId: string): boolean {
@@ -203,7 +207,8 @@ export function ensureSitplanPlacementsAt(
   endpointIds: string[],
   getEndpointById: (id: string) => Endpoint | undefined,
   addPlacement: (endpointId: string, placement: Placement) => void,
-  target: SitplanPlacementTarget
+  target: SitplanPlacementTarget,
+  newId: () => string = generateId,
 ): void {
   const floorId = resolveSitplanFloorForEndpoints(
     project,
@@ -232,7 +237,7 @@ export function ensureSitplanPlacementsAt(
     const placement = buildAutoSitplanPlacement(project, {
       circuitId: circuitInfo.circuit.id,
       floorId,
-      placementId: generateId(),
+      placementId: newId(),
       ...(preferredPlanPos ? { preferredPlanPos } : {}),
     })
     if (placement) addPlacement(endpointId, placement)

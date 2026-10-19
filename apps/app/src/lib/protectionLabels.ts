@@ -289,12 +289,10 @@ function buildResidualTopWireLines(
   byKey: Map<ProtectionLabelKey, ProtectionLabelPart>,
   splitResidualLine: boolean,
 ): ProtectionOneWireLabelLine[] {
-  const kind = getProtectionElectricalKind(source)
   const storedType =
     (source as ProtectionDevice).residualCurrentType ??
     (source as TrunkDevice).residualCurrentType
-  const effectiveType =
-    storedType ?? (kind === 'RCD' || kind === 'RCBO' ? DEFAULT_RESIDUAL_CURRENT_TYPE : undefined)
+  const effectiveType = storedType
   const maPart = byKey.get('protectionResidualCurrent')
   const chunks: string[] = []
   if (

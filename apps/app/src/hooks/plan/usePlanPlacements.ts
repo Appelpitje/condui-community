@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react'
 import { isAwaitingPlanPlacement } from '@/lib/plan/customPlacement'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
-import { getSymbolCategory } from '@/components/plan/SitplanVisibilityPanel'
+import { getSymbolCategory, SITPLAN_CATEGORY_VISIBILITY_KEYS } from '@/lib/plan/symbolCategories'
 import type { SymbolKey, Placement } from '@/types/schema'
 import type { PlanVisibility } from '@/stores/uiStore'
 import {
@@ -77,7 +77,11 @@ export function usePlanPlacements(
 ) {
   const previousPlacementsRef = useRef<SitplanPlacementRow[]>([])
   const previousVisiblePlacementsRef = useRef<SitplanPlacementRow[]>([])
-  const currentProject = useProjectStore((state: ProjectState) => state.currentProject)
+  const electrical = useProjectStore((state: ProjectState) => state.currentProject?.disciplines.electrical)
+  const projectId = useProjectStore((state: ProjectState) => state.currentProject?.project.id)
+  const hiddenPlacementIdsInput = useProjectStore((state: ProjectState) =>
+    activeFloorId ? state.getFloorById(activeFloorId)?.hiddenSitplanPlacementIds : undefined
+  )
   const getPlacementsByFloor = useProjectStore(
     (state: ProjectState) => state.getPlacementsByFloor
   )
@@ -88,20 +92,19 @@ export function usePlanPlacements(
   const findCircuitForEndpoint = useProjectStore(
     (state: ProjectState) => state.findCircuitForEndpoint
   )
-  const getFloorById = useProjectStore((state: ProjectState) => state.getFloorById)
 
   // Keep visibility filtering reactive even when placement rows are structurally unchanged.
   // The row-reuse optimization intentionally preserves the placements array identity, so a
   // hidden-placement-only edit needs its own dependency to invalidate visiblePlacements.
-  const hiddenPlacementIds = useMemo(() => {
-    if (!currentProject) return new Set<string>()
-    const floor = activeFloorId ? getFloorById(activeFloorId) : null
-    return new Set<string>(floor?.hiddenSitplanPlacementIds ?? [])
-  }, [activeFloorId, currentProject, getFloorById])
+  const hiddenPlacementIds = useMemo(
+    () => new Set<string>(hiddenPlacementIdsInput ?? []),
+    [hiddenPlacementIdsInput]
+  )
 
   // Get placements for the active floor, filtered by scope and optional panel filter.
   // Defer this graph walk so a one-wire-only edit cannot extend its input event.
   const placements = useMemo(() => {
+    const currentProject = useProjectStore.getState().currentProject
     if (!activeFloorId || !currentProject) return []
     const floorPlacements = getPlacementsByFloor(activeFloorId)
     const hasGround = installationHasAnyEarthing(
@@ -171,7 +174,8 @@ export function usePlanPlacements(
     return stablePlacements
   }, [
     activeFloorId,
-    currentProject,
+    electrical,
+    projectId,
     getPlacementsByFloor,
     getEndpointById,
     getTrunkDeviceById,
@@ -179,14 +183,21 @@ export function usePlanPlacements(
     sitplanPanelFilterId,
   ])
 
+  // Wire anchors remain eligible when symbol artwork or a symbol group is hidden.
+  // Explicitly hidden and not-yet-placed items still cannot anchor visible wires.
+  const wirePlacements = useMemo(
+    () =>
+      placements.filter((placement) =>
+        !hiddenPlacementIds.has(placement.id) && !isAwaitingPlanPlacement(placement)
+      ),
+    [placements, hiddenPlacementIds]
+  )
+
   // Filter placements by visibility (symbols master + per-category)
   const visiblePlacements = useMemo(() => {
     if (!planVisibility.symbolsVisible) return []
-    const filtered = placements.filter((placement: SitplanPlacementRow) => {
-      if (hiddenPlacementIds.has(placement.id)) return false
-      // Waiting for the user to place it (manual plan placement): stays in the Quick Placer only.
-      if (isAwaitingPlanPlacement(placement)) return false
-      if (placement.isEarthing) return planVisibility.panelsVisible
+    const filtered = wirePlacements.filter((placement: SitplanPlacementRow) => {
+      if (placement.isEarthing) return planVisibility.earthingVisible !== false
       if (placement.junctionPanelLabel != null) return planVisibility.panelsVisible
       if (placement.enclosureId != null) return planVisibility.panelsVisible
       const endpoint = placement.endpointId ? getEndpointById(placement.endpointId) : undefined
@@ -197,31 +208,22 @@ export function usePlanPlacements(
       if (!symbolKey) return false
       const cat = getSymbolCategory(symbolKey as SymbolKey)
       if (cat === null) return true
-      const flag =
-        cat === 'sockets'
-          ? planVisibility.socketsVisible
-          : cat === 'lights'
-            ? planVisibility.lightsVisible
-            : cat === 'switches'
-              ? planVisibility.switchesVisible
-              : cat === 'panels'
-                ? planVisibility.panelsVisible
-                : planVisibility.fixedAppliancesVisible
-      return flag
+      return planVisibility[SITPLAN_CATEGORY_VISIBILITY_KEYS[cat]] !== false
     })
     const stableVisiblePlacements = reuseMembers(previousVisiblePlacementsRef.current, filtered)
     previousVisiblePlacementsRef.current = stableVisiblePlacements
     return stableVisiblePlacements
   }, [
-    placements,
+    wirePlacements,
     planVisibility,
     getEndpointById,
     getTrunkDeviceById,
-    hiddenPlacementIds,
+    electrical,
   ])
 
   return {
     placements,
+    wirePlacements,
     visiblePlacements,
   }
 }

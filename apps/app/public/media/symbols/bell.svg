@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-41.6 -55.0 97.0 97.0" role="img" aria-label="Bel">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-20.8,12.0 13.9,32.0 13.9,2.0 -20.8,-18.0" fill="#f1f5f9"/>
+  <polygon points="34.6,20.0 13.9,32.0 13.9,2.0 34.6,-10.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-30.0 34.6,-10.0 13.9,2.0 -20.8,-18.0" fill="#ffffff"/>
+  <polygon points="3.5,-14.0 6.9,-12.0 6.9,-26.0 3.5,-28.0" fill="#cbd5e1"/>
+  <polygon points="10.4,-14.0 6.9,-12.0 6.9,-26.0 10.4,-28.0" fill="#1e293b"/>
+  <polygon points="6.9,-30.0 10.4,-28.0 6.9,-26.0 3.5,-28.0" fill="#94a3b8"/>
+  <path d="M-13.9 -28.0A20.8 17.0 0 0 1 27.7 -28.0A20.8 12.0 0 0 1 -13.9 -28.0Z" fill="#94a3b8"/>
+  <ellipse cx="-0.4" cy="-37.4" rx="3.7" ry="2.0" fill="#ffffff" stroke="none" opacity="0.8"/>
+  <path d="M3.5 14.0L14.2 -13.0" stroke-width="2.5"/><circle cx="14.2" cy="-13.0" r="3.5" fill="#1e293b"/>
+</g>
+</svg>

@@ -161,6 +161,8 @@ export interface DropBehavior {
 export interface DropBehaviorCallbacks {
   /** Optional deterministic id source for command-driven drops. */
   newId?: () => string
+  /** Reinsert an ordinary endpoint that was detached within the same transaction. */
+  existingEndpointId?: string
   addPanel: (panel: Panel, parentPanelId?: string) => void
   addProtection: (panelId: string, protection: ProtectionDevice) => void
   addCircuit: (panelId: string, circuit: Circuit, protectionId?: string) => void
@@ -556,7 +558,7 @@ function addCircuitDcPassiveDevice(
     symbol.id === 'junction_panel'
       ? (getFirstJunctionPanelLabel(project) ?? 'JP1')
       : symbol.id === 'terminal_strip'
-        ? getNextTerminalStripLabel(project)
+        ? getNextTerminalStripLabel(project, undefined, target.circuitId)
         : symbol.id === 'energy_meter'
           ? 'kWh'
           : symbol.id === 'dc_bus'
@@ -565,12 +567,12 @@ function addCircuitDcPassiveDevice(
   if (symbol.id === 'junction_panel') callbacks.ensureJunctionPanelPlacementForLabel(label)
 
   const device: TrunkDevice = {
-    id: generateId(),
+        id: callbacks.newId?.() ?? generateId(),
     type,
     symbol: symbol.id as TrunkDevice['symbol'],
     label,
     ...(symbol.id === 'terminal_strip'
-      ? getTerminalStripTrunkConnectionProps(project)
+      ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId)
       : isSharedJunctionSymbol(symbol.id)
         ? { junctionIdentity: getNextJunctionIdentity(project, symbol.id) }
         : {}),
@@ -592,7 +594,9 @@ function addCircuitDcPassiveDevice(
     const placement = buildVisibleTrunkSitplanPlacement(
       project,
       callbacks.getSitplanTarget(),
-      circuit.id
+      circuit.id,
+      undefined,
+      callbacks.newId
     )
     if (placement) device.placements = [placement]
   }
@@ -624,7 +628,7 @@ function addDcBusBranchProtectionDevice(
   const protectionType = PROTECTION_SYMBOL_ID_TO_TYPE[symbol.id]
   if (!protectionType) return null
   const device: TrunkDevice = {
-    id: generateId(),
+    id: callbacks.newId?.() ?? generateId(),
     type: 'protection',
     symbol: symbol.id as TrunkDevice['symbol'],
     label: '',
@@ -938,7 +942,7 @@ function addConverterDcBranchDevice(
       ...(target.supplyDcBusId
         ? {
             supplyDcBusId: target.supplyDcBusId,
-            supplyDcBusBranchId: target.supplyDcBusBranchId ?? generateId(),
+            supplyDcBusBranchId: target.supplyDcBusBranchId ?? callbacks.newId?.() ?? generateId(),
           }
         : {}),
       ...(target.converterDcConnection
@@ -965,13 +969,15 @@ function addCircuitTrunkSwitchAtDrop(
 
   const device = createCircuitTrunkSwitchDevice(
     symbol.id,
-    generateId(),
+    callbacks.newId?.() ?? generateId(),
     getCircuitTrunkSwitchPositionForDrop(target, getCircuitTrunkPositionForDrop(target, circuit))
   )
   const placement = buildVisibleTrunkSitplanPlacement(
     project,
     callbacks.getSitplanTarget(),
-    circuitId
+    circuitId,
+    undefined,
+    callbacks.newId
   )
   if (placement) device.placements = [placement]
   addCircuitTrunkDeviceAtDrop(target, circuit, device, callbacks)
@@ -1046,7 +1052,7 @@ function addDirectConverterBackupCircuit(
         ([, candidate]) => candidate === protectionType
       )?.[0] ?? 'mcb'
     const trunkDevice: TrunkDevice = {
-      id: generateId(),
+      id: callbacks.newId?.() ?? generateId(),
       type: 'protection',
       symbol: symbol as TrunkDevice['symbol'],
       label: '',
@@ -1073,8 +1079,8 @@ function addDirectConverterBackupCircuit(
     return true
   }
 
-  const circuitId = generateId()
-  const protectionId = generateId()
+  const circuitId = callbacks.newId?.() ?? generateId()
+  const protectionId = callbacks.newId?.() ?? generateId()
   // This branch lives on the inverter supply lane, not on the main bus. Its
   // protection and any downstream endpoints stay explicitly user-labelled.
   const code = ''
@@ -1197,7 +1203,7 @@ const protectionBehavior: DropBehavior = {
       const circuit = callbacks.getCircuitById(target.circuitId)
       if (!circuit) return
 
-      const deviceId = generateId()
+      const deviceId = callbacks.newId?.() ?? generateId()
       const trunkDevice: TrunkDevice = {
         id: deviceId,
         type: 'protection',
@@ -1210,7 +1216,9 @@ const protectionBehavior: DropBehavior = {
       const placement = buildVisibleTrunkSitplanPlacement(
         project,
         callbacks.getSitplanTarget(),
-        target.circuitId
+        target.circuitId,
+        undefined,
+        callbacks.newId
       )
       if (placement) trunkDevice.placements = [placement]
       addCircuitTrunkDeviceAtDrop(target, circuit, trunkDevice, callbacks)
@@ -1242,8 +1250,8 @@ const protectionBehavior: DropBehavior = {
       return
     }
 
-    const circuitId = generateId()
-    const protectionId = generateId()
+    const circuitId = callbacks.newId?.() ?? generateId()
+    const protectionId = callbacks.newId?.() ?? generateId()
     const defaults = getProtectionCreationProps(project, protectionType)
     const protection: ProtectionDevice = {
       id: protectionId,
@@ -1429,8 +1437,8 @@ const rcdBehavior: DropBehavior = {
       getNextAvailableCircuitCode(project, panel.id)
     )
 
-    const circuitId = generateId()
-    const protectionId = generateId()
+    const circuitId = callbacks.newId?.() ?? generateId()
+    const protectionId = callbacks.newId?.() ?? generateId()
     const defaults = getProtectionCreationProps(project, protectionType)
     const protection: ProtectionDevice = {
       id: protectionId,
@@ -1720,12 +1728,14 @@ const endpointBehavior: DropBehavior = {
 
     initializeBranchesIfNeeded(circuit)
 
-    const endpointId = callbacks.newId?.() ?? generateId()
+    const endpointId = callbacks.existingEndpointId ?? callbacks.newId?.() ?? generateId()
     const endpointType = getEndpointTypeFromSymbol(symbol)
     if (!endpointType) return
     const symbolKey = getSymbolKeyFromSymbol(symbol)
     const junctionIdentity = isSharedJunctionSymbol(symbol.id)
-      ? getNextJunctionIdentity(project, symbol.id)
+      ? symbol.id === 'terminal_strip'
+        ? '1'
+        : getNextJunctionIdentity(project, symbol.id)
       : undefined
 
     const isDomoticaOutputDrop = !!target.domoticaOutput && !!target.endpointId
@@ -1740,7 +1750,10 @@ const endpointBehavior: DropBehavior = {
       placements: [],
       ...(junctionIdentity ? { junctionIdentity } : {}),
       ...(symbol.id === 'terminal_strip'
-        ? { terminalStripPin: getTerminalStripCreationProps(project).terminalStripPin }
+        ? {
+            terminalStripPin: getTerminalStripCreationProps(project, undefined, target.circuitId)
+              .terminalStripPin,
+          }
         : {}),
       ...(symbol.id === 'domotica'
         ? { domoticaProps: { endpointCount: 1, endpointChildEndpointIds: [] } }
@@ -1936,7 +1949,9 @@ const endpointBehavior: DropBehavior = {
         0,
         dcBusBranchIndexes.length
       )
-      const insertionIndex = dcBusId
+      const insertionIndex = typeof target.branchInsertIndex === 'number'
+        ? clamp(target.branchInsertIndex, 0, branchesSansNewEndpoint.length)
+        : dcBusId
         ? requestedDcBusIndex < dcBusBranchIndexes.length
           ? dcBusBranchIndexes[requestedDcBusIndex]!
           : (dcBusBranchIndexes.at(-1) ?? branchesSansNewEndpoint.length - 1) + 1
@@ -2230,7 +2245,8 @@ function buildVisibleTrunkSitplanPlacement(
   project: DropBehaviorProject,
   sitplanTarget: SitplanPlacementTarget,
   circuitId: string,
-  preferredPlanPosOverride?: Point
+  preferredPlanPosOverride?: Point,
+  newId: () => string = generateId
 ): Placement | null {
   const activeFloorId = resolveCircuitSitplanTargetFloorId(
     project,
@@ -2244,7 +2260,7 @@ function buildVisibleTrunkSitplanPlacement(
   return buildAutoSitplanPlacement(project, {
     circuitId,
     floorId: activeFloorId,
-    placementId: generateId(),
+    placementId: newId(),
     ...(preferredPlanPos ? { preferredPlanPos } : {}),
   })
 }
@@ -2409,6 +2425,13 @@ const energyConversionBehavior: DropBehavior = {
       addEndpointToCircuitConverterDcConnection(target, project, symbol, t, callbacks)
       return
     }
+    // A transformer is a serial AC/AC device, not an inverter with a backup/DC branch.
+    if (target.type === 'supplyWire' && symbol.id === 'transformer') {
+      if (!checkDomainForConversion(target, project, symbol, t, callbacks)) return
+      const transformer = addSupplyTrunkDevice(symbol, target, project, callbacks)
+      if (transformer) callbacks.setSelection({ type: 'trunkDevice', ids: [transformer.id] })
+      return
+    }
     if (
       target.type === 'supplyWire' &&
       target.panelId &&
@@ -2489,7 +2512,7 @@ const energyConversionBehavior: DropBehavior = {
       const circuit = callbacks.getCircuitById(target.circuitId)
       if (!circuit) return
       const trunkPosition = getCircuitTrunkPositionForDrop(target, circuit)
-      const deviceId = generateId()
+      const deviceId = callbacks.newId?.() ?? generateId()
       const trunkDevice: TrunkDevice = {
         id: deviceId,
         type: 'conversion',
@@ -2500,7 +2523,9 @@ const energyConversionBehavior: DropBehavior = {
       const placement = buildVisibleTrunkSitplanPlacement(
         project,
         callbacks.getSitplanTarget(),
-        target.circuitId
+        target.circuitId,
+        undefined,
+        callbacks.newId
       )
       if (placement) trunkDevice.placements = [placement]
       addCircuitTrunkDeviceAtDrop(target, circuit, trunkDevice, callbacks)
@@ -2609,7 +2634,7 @@ const dcEndpointBehavior: DropBehavior = {
       const inverterMeta = getSymbolById('inverter')
       if (!inverterMeta) return
 
-      const inverterId = generateId()
+      const inverterId = callbacks.newId?.() ?? generateId()
       const inverter: TrunkDevice = {
         id: inverterId,
         type: 'conversion',
@@ -2640,7 +2665,8 @@ const dcEndpointBehavior: DropBehavior = {
         circuitId,
         endpointPlacement
           ? { x: endpointPlacement.pos.x - 80, y: endpointPlacement.pos.y }
-          : undefined
+          : undefined,
+        callbacks.newId
       )
       if (updatedCircuit && inverterPlacement) {
         callbacks.updateCircuit(circuitId, {
@@ -2730,7 +2756,7 @@ const energyMeterBehavior: DropBehavior = {
       // Compute trunkPosition from explicit circuit trunk segment metadata when available.
       const trunkPosition = getCircuitTrunkPositionForDrop(target, circuit)
 
-      const deviceId = generateId()
+      const deviceId = callbacks.newId?.() ?? generateId()
       const trunkDevice: TrunkDevice = {
         id: deviceId,
         type: 'energy_meter',
@@ -2759,7 +2785,7 @@ const panelBehavior: DropBehavior = {
     const panelNumber = totalPanelCount + 1
 
     const createPanel = (isMain: boolean): Panel => ({
-      id: generateId(),
+      id: callbacks.newId?.() ?? generateId(),
       name:
         totalPanelCount === 0
           ? t('panels.mainPanel', { defaultValue: 'Main Panel' })
@@ -2842,7 +2868,7 @@ const panelBehavior: DropBehavior = {
       callbacks.addPanel(newPanel)
       callbacks.updateProtection(feederProtection.id, { subPanelId: newPanelId })
 
-      const panelEndpointId = generateId()
+      const panelEndpointId = callbacks.newId?.() ?? generateId()
       callbacks.addEndpoint(converterBackupCircuit.id, {
         id: panelEndpointId,
         type: 'fixed_appliance',
@@ -2854,7 +2880,7 @@ const panelBehavior: DropBehavior = {
       const circuitWithPanel = callbacks.getCircuitById(converterBackupCircuit.id)
       if (circuitWithPanel) {
         const branch = circuitWithPanel.branches?.[0] ?? {
-          id: generateId(),
+          id: callbacks.newId?.() ?? generateId(),
           label: '',
           endpointIds: [],
         }
@@ -2908,8 +2934,8 @@ const panelBehavior: DropBehavior = {
       // Create MCB protection on the parent panel that feeds this sub-panel.
       // The MCB's subPanelId links it so the layout engine can render the
       // parent MCB on the sub-panel's supply wire as a mirrored reference.
-      const protectionId = generateId()
-      const circuitId = generateId()
+      const protectionId = callbacks.newId?.() ?? generateId()
+      const circuitId = callbacks.newId?.() ?? generateId()
       const voltagePoles = getVoltagePolesConfig(project)
       const mcbDefaults = getDefaultProtectionProps('MCB', voltagePoles)
       const feederCode = getNextAvailableCircuitCode(project, parentPanel.id)
@@ -3087,14 +3113,14 @@ const junctionBoxBehavior: DropBehavior = {
       const circuit = callbacks.getCircuitById(target.circuitId)
       if (!circuit) return
       const trunkPosition = getCircuitTrunkPositionForDrop(target, circuit)
-      const deviceId = generateId()
+      const deviceId = callbacks.newId?.() ?? generateId()
       const isTerminalStrip = symbol.id === 'terminal_strip'
       const trunkDevice: TrunkDevice = {
         id: deviceId,
         type: isTerminalStrip ? 'terminal_strip' : 'junction_box',
         symbol: isTerminalStrip ? 'terminal_strip' : 'junction_box',
         ...(isTerminalStrip
-          ? getTerminalStripTrunkCreationProps(project)
+          ? getTerminalStripTrunkCreationProps(project, undefined, target.circuitId)
           : { label: '', junctionIdentity: getNextJunctionIdentity(project, symbol.id) }),
         trunkPosition,
       }
@@ -3109,7 +3135,7 @@ const junctionBoxBehavior: DropBehavior = {
         const placement = buildAutoSitplanPlacement(project, {
           circuitId: target.circuitId,
           floorId: activeFloorId,
-          placementId: generateId(),
+          placementId: callbacks.newId?.() ?? generateId(),
           ...(preferredPlanPos ? { preferredPlanPos } : {}),
         })
         if (placement) trunkDevice.placements = [placement]
@@ -3180,7 +3206,7 @@ const junctionPanelBehavior: DropBehavior = {
       const label = getFirstJunctionPanelLabel(project) ?? 'JP1'
       callbacks.ensureJunctionPanelPlacementForLabel(label)
       const trunkPosition = getCircuitTrunkPositionForDrop(target, circuit)
-      const deviceId = generateId()
+      const deviceId = callbacks.newId?.() ?? generateId()
       const trunkDevice: TrunkDevice = {
         id: deviceId,
         type: 'junction_panel',
@@ -3204,7 +3230,7 @@ function addGroundTrunkDevice(
   t: TFunction,
   callbacks: DropBehaviorCallbacks
 ): void {
-  const deviceId = generateId()
+  const deviceId = callbacks.newId?.() ?? generateId()
   const insertIndex = target.groundDeviceInsertIndex ?? 0
 
   if (symbol.id === 'junction_box' || symbol.id === 'terminal_strip') {
@@ -3243,11 +3269,11 @@ function addGroundTrunkDevice(
     return
   }
 
-  const pairId = generateId()
+  const pairId = callbacks.newId?.() ?? generateId()
   ;[0, 1].forEach((offset) => {
     callbacks.addGroundTrunkDevice(
       {
-        id: offset === 0 ? deviceId : generateId(),
+        id: offset === 0 ? deviceId : callbacks.newId?.() ?? generateId(),
         type: 'earthing_separator',
         symbol: 'earthing_separator',
         label: t('symbols.names.earthing_separator', { defaultValue: 'PE' }),
@@ -3306,7 +3332,14 @@ function addSupplyTrunkDevice(
     converterDcConnection?: TrunkDevice['converterDcConnection']
   }
 ): TrunkDevice | null {
-  const deviceId = generateId()
+  const deviceId = callbacks.newId?.() ?? generateId()
+
+  const supplyPanel = findPanelForTarget(project, target)
+  const terminalCircuitId = target.circuitId ?? (
+    supplyPanel?.isMain === false
+      ? supplyPanel.circuits?.find((circuit) => circuit.code === 'PANEL')?.id
+      : undefined
+  )
 
   // Determine trunk device type and properties based on symbol
   let deviceType: TrunkDeviceType = 'junction_box'
@@ -3323,7 +3356,7 @@ function addSupplyTrunkDevice(
     label = ''
   } else if (symbol.id === 'terminal_strip') {
     deviceType = 'terminal_strip'
-    label = getNextTerminalStripLabel(project)
+    label = getNextTerminalStripLabel(project, undefined, terminalCircuitId)
   } else if (symbol.id === 'junction_panel') {
     deviceType = 'junction_panel'
     label = getFirstJunctionPanelLabel(project) ?? 'JP1'
@@ -3369,7 +3402,7 @@ function addSupplyTrunkDevice(
     symbol: symbol.id as TrunkDevice['symbol'],
     label,
     ...(symbol.id === 'terminal_strip'
-      ? getTerminalStripTrunkConnectionProps(project)
+      ? getTerminalStripTrunkConnectionProps(project, undefined, terminalCircuitId)
       : isSharedJunctionSymbol(symbol.id)
         ? { junctionIdentity: getNextJunctionIdentity(project, symbol.id) }
         : {}),
@@ -3448,7 +3481,7 @@ function addSupplyTrunkDevice(
       const placement = buildAutoSitplanPlacement(project, {
         circuitId: panelSupplyCircuit?.id ?? `panel-supply:${target.panelId ?? 'main'}`,
         floorId: activeFloorId,
-        placementId: generateId(),
+        placementId: callbacks.newId?.() ?? generateId(),
         ...(preferredPlanPos ? { preferredPlanPos } : {}),
       })
       if (placement) {
@@ -3507,7 +3540,7 @@ const noteBehavior: DropBehavior = {
   validTargets: [null],
   execute: (_target, _project, _symbol, _t, callbacks) => {
     const pos = callbacks.dropCanvasPosition ?? { x: 0, y: 0 }
-    const noteId = `note-${generateId()}`
+    const noteId = `note-${callbacks.newId?.() ?? generateId()}`
     callbacks.addEendraadNote({
       id: noteId,
       text: 'New note',

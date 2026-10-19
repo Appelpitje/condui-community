@@ -23,6 +23,12 @@ import {
   getLeftBiasedBusFeedStubX,
   PANEL_BUS_FEED_GAP,
 } from '@/lib/panel/panelBusFeedPreview'
+import {
+  DRAG_PREVIEW_WIRE_WIDTH,
+  DRAG_PREVIEW_BUS_WIDTH,
+  DRAG_PREVIEW_HIGHLIGHT_WIDTH,
+  DRAG_PREVIEW_DASH,
+} from './canvasSymbols'
 
 interface DragPreviewProps {
   position: Point
@@ -238,7 +244,7 @@ export function DragPreview({
   }
 
   return (
-    <Group>
+    <Group name="eendraad-legacy-drag-preview">
       {/* Panel outline highlight */}
       {targetPanel && (
         <Rect
@@ -250,7 +256,7 @@ export function DragPreview({
           stroke={previewColor}
           strokeWidth={3}
           opacity={previewOpacity}
-          dash={[8, 4]}
+          dash={DRAG_PREVIEW_DASH}
           listening={false}
         />
       )}
@@ -266,7 +272,9 @@ export function DragPreview({
             wireSegment.endPoint.y,
           ]}
           stroke={previewColor}
-          strokeWidth={Math.max(4, wireSegment.type === 'mainBus' || wireSegment.type === 'trunk' ? 8 : 4)}
+          strokeWidth={wireSegment.type === 'mainBus' || wireSegment.type === 'trunk'
+            ? DRAG_PREVIEW_HIGHLIGHT_WIDTH
+            : DRAG_PREVIEW_WIRE_WIDTH}
           opacity={previewOpacity * 0.8}
           lineCap="round"
           lineJoin="round"
@@ -397,9 +405,9 @@ export function DragPreview({
                   <Line
                     points={[mcbX, mcbY, mcbX, mcbY - 50]}
                     stroke={previewColor}
-                    strokeWidth={3}
+                    strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                     opacity={previewOpacity}
-                    dash={[8, 4]}
+                    dash={DRAG_PREVIEW_DASH}
                     listening={false}
                   />
                 </>
@@ -451,9 +459,9 @@ export function DragPreview({
                   <Line
                     points={[busStartX, busY, busEndX, busY]}
                     stroke={previewColor}
-                    strokeWidth={LAYOUT_CONSTANTS.BUS_THICKNESS}
+                    strokeWidth={DRAG_PREVIEW_BUS_WIDTH}
                     opacity={previewOpacity * 0.6}
-                    dash={[8, 4]}
+                    dash={DRAG_PREVIEW_DASH}
                     lineCap="round"
                     listening={false}
                   />
@@ -461,9 +469,9 @@ export function DragPreview({
                   <Line
                     points={[newMcbX, busY, newMcbX, newMcbY]}
                     stroke={previewColor}
-                    strokeWidth={3}
+                    strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                     opacity={previewOpacity}
-                    dash={[8, 4]}
+                    dash={DRAG_PREVIEW_DASH}
                     listening={false}
                   />
                   {/* Ghost MCB at new position */}
@@ -494,9 +502,9 @@ export function DragPreview({
                   <Line
                     points={[newMcbX, newMcbY, newMcbX, newMcbY - 50]}
                     stroke={previewColor}
-                    strokeWidth={3}
+                    strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                     opacity={previewOpacity}
-                    dash={[8, 4]}
+                    dash={DRAG_PREVIEW_DASH}
                     listening={false}
                   />
                 </>
@@ -575,7 +583,7 @@ export function DragPreview({
                 <Line
                   points={[wireX, deviceY + symbolSize / 2, wireX, mcbY]}
                   stroke={previewColor}
-                  strokeWidth={3}
+                  strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                   opacity={previewOpacity * 0.5}
                   dash={[6, 3]}
                   listening={false}
@@ -584,7 +592,7 @@ export function DragPreview({
                 <Line
                   points={[wireX, deviceY - symbolSize / 2, wireX, topWireY]}
                   stroke={previewColor}
-                  strokeWidth={3}
+                  strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                   opacity={previewOpacity * 0.5}
                   dash={[6, 3]}
                   listening={false}
@@ -676,9 +684,9 @@ export function DragPreview({
                 <Line
                   points={[circuitX, wireTopY, circuitX , insertY, circuitX + 80, insertY]}
                   stroke={previewColor}
-                  strokeWidth={3}
+                  strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                   opacity={previewOpacity}
-                  dash={[8, 4]}
+                  dash={DRAG_PREVIEW_DASH}
                   listening={false}
                 />
                 {/* Preview circle at insertion point */}
@@ -780,9 +788,9 @@ export function DragPreview({
                       <Line
                         points={[socketX, endpointY, applianceX, endpointY]}
                         stroke={previewColor}
-                        strokeWidth={3}
+                        strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                         opacity={previewOpacity}
-                        dash={[8, 4]}
+                        dash={DRAG_PREVIEW_DASH}
                         listening={false}
                       />
                       {symbolImage && (
@@ -833,17 +841,17 @@ export function DragPreview({
                     <Line
                       points={[endpointX, endpointY, endpointX, branchY]}
                       stroke={previewColor}
-                      strokeWidth={3}
+                      strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                       opacity={previewOpacity}
-                      dash={[8, 4]}
+                      dash={DRAG_PREVIEW_DASH}
                       listening={false}
                     />
                     <Line
                       points={[endpointX - 20, branchY, endpointX + 20, branchY]}
                       stroke={previewColor}
-                      strokeWidth={3}
+                      strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                       opacity={previewOpacity}
-                      dash={[8, 4]}
+                      dash={DRAG_PREVIEW_DASH}
                       listening={false}
                     />
                     <Circle
@@ -975,7 +983,7 @@ export function DragPreview({
                     <Line
                       points={[stubX, busY, stubX, busY + stubLength]}
                       stroke={previewColor}
-                      strokeWidth={3}
+                      strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                       opacity={previewOpacity}
                       dash={[6, 3]}
                       listening={false}
@@ -1071,7 +1079,7 @@ export function DragPreview({
               <Line
                 points={[bendX, supplyY, deviceX, supplyY]}
                 stroke={previewColor}
-                strokeWidth={4}
+                strokeWidth={DRAG_PREVIEW_WIRE_WIDTH}
                 opacity={previewOpacity * 0.6}
                 lineCap="round"
                 listening={false}

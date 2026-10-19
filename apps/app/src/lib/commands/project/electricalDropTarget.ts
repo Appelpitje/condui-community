@@ -6,6 +6,11 @@ import { getEditableProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
 import { getPanelBusSections } from '@/lib/panel/panelBusSections'
 import { getStandardCircuitBranches } from '@/lib/layout/endpointChains'
+import {
+  getCircuitConverterDcConnectionCount,
+  getCircuitConverterPrimaryBranch,
+  supportsCircuitConverterDcConnections,
+} from '@/lib/layout/circuitConverterGeometry'
 import type { CommandCheck } from './types'
 
 const id = z.string().min(1)
@@ -47,7 +52,7 @@ export const electricalDropTargetSchema = z.strictObject({
   supplyConverterDcConnectionIndex: index.optional(),
   supplyDcBusId: id.optional(),
   supplyDcBusBranchId: id.optional(),
-  converterGridPlacement: z.enum(['inline', 'input-leg']).optional(),
+  converterGridPlacement: z.enum(['inline', 'input-leg', 'converter-leg']).optional(),
   changeoverGridPlacement: z.enum(['inline', 'input-leg']).optional(),
   supplyConverterChangeoverSlot: z.boolean().optional(),
   groundDeviceInsertIndex: index.optional(),
@@ -72,6 +77,11 @@ export const electricalDropTargetSchema = z.strictObject({
   domoticaChildDropIntent: z.enum(['replace', 'insertBefore', 'insertAfter']).optional(),
   converterDcConnection: z.strictObject({ converterId: id, connectionIndex: index }).optional(),
   dcBusId: id.optional(),
+}).superRefine((target, context) => {
+  if (target.type === 'circuit' && !target.circuitId)
+    context.addIssue({ code: 'custom', path: ['circuitId'], message: 'A circuit target needs a circuit id.' })
+  if (target.type === 'endpoint' && !target.endpointId)
+    context.addIssue({ code: 'custom', path: ['endpointId'], message: 'An endpoint target needs an endpoint id.' })
 }) satisfies z.ZodType<DropTarget>
 
 function flattenPanels(panels: readonly Panel[]): Panel[] {
@@ -127,11 +137,36 @@ export function checkElectricalDropTarget(
     return fail('endpoint_not_found', 'Endpoint anchor does not belong to the target circuit')
   if (target.type === 'endpoint' && !target.endpointId)
     return fail('endpoint_required', 'An endpoint target needs an endpoint id')
+  const connection = target.converterDcConnection
+  const converterBranch = connection && owner?.circuit.branches?.find((branch) =>
+    branch.branchDevices?.some((device) => device.id === connection.converterId))
+  const converter = connection && (
+    owner?.circuit.trunkDevices?.find((device) => device.id === connection.converterId) ??
+    converterBranch?.branchDevices?.find((device) => device.id === connection.converterId)
+  )
+  if (connection) {
+    if (!converter || !supportsCircuitConverterDcConnections(converter))
+      return fail('converter_not_found', 'Converter does not belong to the target circuit')
+    if (connection.connectionIndex >= getCircuitConverterDcConnectionCount(converter))
+      return fail('converter_connection_not_found', 'Converter connection no longer exists')
+  }
   if (target.branchId && owner) {
     const circuit = owner.circuit
     const prefix = `branch-${circuit.id}-`
     let branchIds: string[] | undefined
-    if (
+    if (connection && converter && target.branchId ===
+      `converter-dc-output-${converter.id}-${connection.connectionIndex}`) {
+      // Expanded DC outputs are rendered branches, including empty inputs that
+      // have no stored branch yet. Validate their actual connection membership.
+      const primaryIds = new Set((converterBranch ??
+        getCircuitConverterPrimaryBranch(circuit, converter))?.endpointIds ?? [])
+      branchIds = circuit.endpoints.filter((endpoint) =>
+        endpoint.converterDcConnection
+          ? endpoint.converterDcConnection.converterId === converter.id &&
+            endpoint.converterDcConnection.connectionIndex === connection.connectionIndex
+          : connection.connectionIndex === 0 && primaryIds.has(endpoint.id)
+      ).map((endpoint) => endpoint.id)
+    } else if (
       target.branchId === `${prefix}empty` &&
       !getStandardCircuitBranches(circuit)
         .flat()
@@ -172,13 +207,6 @@ export function checkElectricalDropTarget(
     !owner?.circuit.subCircuitIds?.includes(target.insertBeforeNestedCircuitId)
   )
     return fail('nested_circuit_not_found', 'Nested circuit does not belong to the target circuit')
-  if (
-    target.converterDcConnection &&
-    !owner?.circuit.trunkDevices?.some(
-      (device) => device.id === target.converterDcConnection!.converterId
-    )
-  )
-    return fail('converter_not_found', 'Converter does not belong to the target circuit')
   if (
     target.dcBusId &&
     !owner?.circuit.trunkDevices?.some((device) => device.id === target.dcBusId)

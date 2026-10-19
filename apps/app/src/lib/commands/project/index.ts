@@ -1,3 +1,5 @@
+import { planSetColors } from './commands/planSetColors'
+import { planDrawWire } from './commands/planDrawWire'
 import { panelEditLayout } from './commands/panelEditLayout'
 import { panelRewire } from './commands/panelRewire'
 import { ProjectCommandRegistry } from './registry'
@@ -14,6 +16,38 @@ import { circuitCreateEmpty, planPlaceSymbol } from './commands/planPlaceSymbol'
 import { planMovePlacements, planMoveToFloor } from './commands/planPlacements'
 import { propertiesEdit } from './commands/propertiesEdit'
 import { electricalCreateCircuitAndAssign } from './commands/electricalCreateCircuitAndAssign'
+import { planImportRoomScan } from './commands/planImportRoomScan'
+import {
+  buildingCreateFloor,
+  buildingDeleteFloor,
+  planAttachBackground,
+  planDetachBackground,
+  planCalibrateScale,
+  planTransformBackground,
+} from './commands/floorSetup'
+import { planPlaceExisting } from './commands/planPlaceExisting'
+import { planCreateBuildingGeometry } from './commands/planCreateBuildingGeometry'
+import { planMergeWallPoints } from './commands/planMergeWallPoints'
+import { planSplitWall } from './commands/planSplitWall'
+import { junctionEdit } from './commands/junctionEdit'
+import { junctionEnsureAsset } from './commands/junctionEnsureAsset'
+import {
+  annotationCreateNote,
+  eendraadCreateFrame,
+  planEditWireRoute,
+  planDisconnectWires,
+  cableAcceptLengthEstimates,
+} from './commands/planFinishing'
+import { electricalDuplicateProtection } from './commands/electricalDuplicateProtection'
+import { electricalDuplicateElements } from './commands/electricalDuplicateElements'
+import { panelMoveSupply } from './commands/panelMoveSupply'
+import { panelEnsureEarthingStem } from './commands/panelEnsureEarthingStem'
+import { panelEjectSecondaryBusProtections } from './commands/panelEjectSecondaryBusProtections'
+import { supplyDisconnectInverterGridInput } from './commands/supplyDisconnectInverterGridInput'
+import {
+  electricalMoveSupplyTrunkDevice,
+  electricalMoveCircuitTrunkDevice,
+} from './commands/electricalMoveTrunkDevices'
 
 export {
   electricalCreateCircuitAndAssign,
@@ -21,9 +55,20 @@ export {
   type ElectricalCreateCircuitAndAssignInput,
 } from './commands/electricalCreateCircuitAndAssign'
 
-export { panelEditLayout, panelEditLayoutInputSchema, type PanelEditLayoutInput } from './commands/panelEditLayout'
+export {
+  panelEditLayout,
+  panelEditLayoutInputSchema,
+  type PanelEditLayoutInput,
+} from './commands/panelEditLayout'
 export { panelRewire, panelRewireInputSchema, type PanelRewireInput } from './commands/panelRewire'
 export * from './types'
+export * from './inspection'
+export { inspectProjectGraph, projectGraphQuerySchema, type ProjectGraphQuery } from './projectGraph'
+export { describeProjectWorkflow } from './workflowGuide'
+export * from './insertionTargets'
+export { inspectJunctionConnections } from './junctionConnections'
+export { inspectCableEstimates, cableEstimateQuerySchema } from './cableEstimates'
+export { inspectPlanWireRoutes, planWireRouteQuerySchema } from './planWireRoutes'
 export { ProjectCommandRegistry, type ParsedInvocation } from './registry'
 export {
   propertiesEditInputSchema,
@@ -47,6 +92,7 @@ export {
 /** Every project command, by id. UI adapters, scripts and agents all run commands from here. */
 export function createProjectCommandRegistry(): ProjectCommandRegistry {
   return new ProjectCommandRegistry()
+    .register(planSetColors)
     .register(floorRename)
     .register(planMovePlacements)
     .register(planMoveToFloor)
@@ -65,6 +111,33 @@ export function createProjectCommandRegistry(): ProjectCommandRegistry {
     .register(panelRewire)
     .register(propertiesEdit)
     .register(electricalCreateCircuitAndAssign)
+    .register(planImportRoomScan)
+    .register(planDrawWire)
+    .register(buildingCreateFloor)
+    .register(buildingDeleteFloor)
+    .register(planAttachBackground)
+    .register(planDetachBackground)
+    .register(planCalibrateScale)
+    .register(planPlaceExisting)
+    .register(planCreateBuildingGeometry)
+    .register(planMergeWallPoints)
+    .register(planSplitWall)
+    .register(planTransformBackground)
+    .register(annotationCreateNote)
+    .register(eendraadCreateFrame)
+    .register(planEditWireRoute)
+    .register(planDisconnectWires)
+    .register(cableAcceptLengthEstimates)
+    .register(junctionEdit)
+    .register(junctionEnsureAsset)
+    .register(electricalDuplicateProtection)
+    .register(electricalDuplicateElements)
+    .register(panelMoveSupply)
+    .register(panelEnsureEarthingStem)
+    .register(panelEjectSecondaryBusProtections)
+    .register(supplyDisconnectInverterGridInput)
+    .register(electricalMoveSupplyTrunkDevice)
+    .register(electricalMoveCircuitTrunkDevice)
 }
 
 export const projectCommands = createProjectCommandRegistry()

@@ -1,5 +1,14 @@
 import { registerPrimitive } from './registry'
-import type { CheckContext, CheckResult, Issue, Offender, SitplanMapping, Panel } from './common'
+import type {
+  CheckContext,
+  CheckResult,
+  Issue,
+  Offender,
+  SitplanMapping,
+  Panel,
+  InstallationQueryAPI,
+  ValidationProject,
+} from './common'
 import { i18n, VALIDATION_DEBUG, projectPanels } from './common'
 import { logger } from '@/lib/logger'
 import {
@@ -10,6 +19,66 @@ import {
 import { getSymbolById } from '@/lib/symbols'
 import { getSituationPlanPlacementIdsHiddenByPanel } from '@/lib/plan/panelPlanPlacementVisibility'
 
+// All placements in a run share this read-only visibility and identifier inventory.
+// A new query always gets fresh data, including when its project object is reused.
+const placementSnapshots = new WeakMap<
+  InstallationQueryAPI,
+  {
+    project: ValidationProject
+    hidden: Set<string>
+    mappingByPlacement: Map<string, SitplanMapping>
+    endpointByPlacement?: Map<string, string>
+  }
+>()
+
+function getPlacementSnapshot(context: CheckContext) {
+  const { query, project } = context
+  const cached = placementSnapshots.get(query)
+  if (cached?.project === project) return cached
+  const mappingByPlacement = new Map<string, SitplanMapping>()
+  for (const mapping of query.getSitplanToEendraadMapping()) {
+    // Preserve the first-match semantics of the previous Array.find lookup.
+    if (!mappingByPlacement.has(mapping.placementId))
+      mappingByPlacement.set(mapping.placementId, mapping)
+  }
+  const snapshot: NonNullable<ReturnType<typeof placementSnapshots.get>> = {
+    project,
+    hidden: getSituationPlanPlacementIdsHiddenByPanel(project),
+    mappingByPlacement,
+  }
+  placementSnapshots.set(query, snapshot)
+  return snapshot
+}
+
+function getEndpointOwningPlacement(
+  context: CheckContext,
+  placementId: string
+): string | undefined {
+  const snapshot = getPlacementSnapshot(context)
+  if (!snapshot.endpointByPlacement) {
+    const owners = new Map<string, string>()
+    const visit = (panels: Panel[]) => {
+      for (const panel of panels) {
+        const circuits = [
+          ...panel.circuits,
+          ...panel.protections.flatMap((protection) => protection.circuits ?? []),
+        ]
+        for (const circuit of circuits) {
+          for (const endpoint of circuit.endpoints) {
+            for (const placement of endpoint.placements) {
+              if (!owners.has(placement.id)) owners.set(placement.id, endpoint.id)
+            }
+          }
+        }
+        visit(panel.subPanels)
+      }
+    }
+    visit(projectPanels(context.project))
+    snapshot.endpointByPlacement = owners
+  }
+  return snapshot.endpointByPlacement.get(placementId)
+}
+
 /**
  * Check if a placement has valid circuit point identifier
  */
@@ -17,12 +86,13 @@ function placementHasValidIdentifier(
   context: CheckContext,
   _params?: Record<string, unknown>
 ): CheckResult | Issue[] {
-  const { scope, query, project } = context
+  const { scope, query } = context
   if (scope.type !== 'placement') {
     return { passed: true }
   }
 
-  if (getSituationPlanPlacementIdsHiddenByPanel(project).has(scope.id)) {
+  const snapshot = getPlacementSnapshot(context)
+  if (snapshot.hidden.has(scope.id)) {
     return { passed: true }
   }
 
@@ -31,40 +101,10 @@ function placementHasValidIdentifier(
     return { passed: true } // Placement not found, skip
   }
 
-  const mappings = query.getSitplanToEendraadMapping()
-  const mapping = mappings.find((m: SitplanMapping) => m.placementId === scope.id)
+  const mapping = snapshot.mappingByPlacement.get(scope.id)
+  if (mapping?.circuitPointId) return { passed: true }
 
-  if (mapping && mapping.circuitPointId) {
-    return { passed: true }
-  }
-
-  let endpointId: string | undefined
-  const mappingEntry = mappings.find((m: SitplanMapping) => m.placementId === scope.id)
-  if (mappingEntry) {
-    endpointId = mappingEntry.endpointId
-  } else {
-    const findEndpointOwningPlacement = (panels: Panel[]): string | undefined => {
-      for (const panel of panels) {
-        for (const circuit of panel.circuits) {
-          for (const endpoint of circuit.endpoints) {
-            if (endpoint.placements.some((p) => p.id === scope.id)) return endpoint.id
-          }
-        }
-        for (const protection of panel.protections) {
-          if (!protection.circuits) continue
-          for (const circuit of protection.circuits) {
-            for (const endpoint of circuit.endpoints) {
-              if (endpoint.placements.some((p) => p.id === scope.id)) return endpoint.id
-            }
-          }
-        }
-        const found = findEndpointOwningPlacement(panel.subPanels)
-        if (found) return found
-      }
-      return undefined
-    }
-    endpointId = findEndpointOwningPlacement(projectPanels(project))
-  }
+  const endpointId = mapping?.endpointId ?? getEndpointOwningPlacement(context, scope.id)
 
   const endpoint = endpointId ? query.getEndpointById(endpointId) : undefined
   const endpointLabel = endpoint?.label ?? endpoint?.symbol ?? endpointId ?? 'unknown endpoint'

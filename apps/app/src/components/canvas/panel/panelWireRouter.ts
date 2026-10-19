@@ -641,11 +641,18 @@ export function routePanelWire(
       }
     }
     const hasExplicitPortals = links.some((link) => link.fromPortal || link.toPortal)
+    const endpointDegrees = new Map<string, number>()
+    if (!hasExplicitPortals) {
+      for (const link of links) {
+        for (const point of [link.from, link.to]) {
+          const key = pointKey(point)
+          endpointDegrees.set(key, (endpointDegrees.get(key) ?? 0) + 1)
+        }
+      }
+    }
     for (const link of links) {
       // Legacy callers have no endpoint metadata; only unshared chain ends are portals.
-      const isChainEnd = (point: WirePathPoint) => links.reduce((count, candidate) =>
-        count + Number(pointKey(candidate.from) === pointKey(point)) +
-        Number(pointKey(candidate.to) === pointKey(point)), 0) === 1
+      const isChainEnd = (point: WirePathPoint) => endpointDegrees.get(pointKey(point)) === 1
       if (hasExplicitPortals ? link.fromPortal : isChainEnd(link.from)) {
         addNearestPathwayAccess(link.from, link.fromSurfaceId)
       }
@@ -677,6 +684,83 @@ export function routePanelWire(
     const horizontal = aVertical ? b : a
     const point = { x: vertical.from.x, y: horizontal.from.y }
     return pointOnSegment(point, a) && pointOnSegment(point, b) ? point : null
+  }
+
+  // Most pathways belong to distant boards. Index their axes once instead of
+  // testing every endpoint and intersection against every board's ladder.
+  type AxisEntry = { coordinate: number; segmentIndex: number; point?: WirePathPoint }
+  const endpointsByX: AxisEntry[] = []
+  const endpointsByY: AxisEntry[] = []
+  const verticalsByX: AxisEntry[] = []
+  const horizontalsByY: AxisEntry[] = []
+  basePathways.forEach((segment, segmentIndex) => {
+    for (const point of [segment.from, segment.to]) {
+      endpointsByX.push({ coordinate: point.x, segmentIndex, point })
+      endpointsByY.push({ coordinate: point.y, segmentIndex, point })
+    }
+    if (Math.abs(segment.from.x - segment.to.x) <= EPSILON) {
+      verticalsByX.push({ coordinate: segment.from.x, segmentIndex })
+    } else {
+      horizontalsByY.push({ coordinate: segment.from.y, segmentIndex })
+    }
+  })
+  for (const entries of [endpointsByX, endpointsByY, verticalsByX, horizontalsByY]) {
+    entries.sort((a, b) => a.coordinate - b.coordinate)
+  }
+  const axisRange = (entries: AxisEntry[], low: number, high: number): [number, number] => {
+    let left = 0
+    let right = entries.length
+    while (left < right) {
+      const middle = (left + right) >>> 1
+      if (entries[middle]!.coordinate < low) left = middle + 1
+      else right = middle
+    }
+    const start = left
+    right = entries.length
+    while (left < right) {
+      const middle = (left + right) >>> 1
+      if (entries[middle]!.coordinate <= high) left = middle + 1
+      else right = middle
+    }
+    return [start, left]
+  }
+  const possibleIntersections = (segment: WirePathSegment): number[] => {
+    const vertical = Math.abs(segment.from.x - segment.to.x) <= EPSILON
+    const candidates = new Set<number>()
+    const minX = vertical ? segment.from.x : Math.min(segment.from.x, segment.to.x)
+    const maxX = vertical ? segment.from.x : Math.max(segment.from.x, segment.to.x)
+    const minY = vertical ? Math.min(segment.from.y, segment.to.y) : segment.from.y
+    const maxY = vertical ? Math.max(segment.from.y, segment.to.y) : segment.from.y
+    // Broad-phase only: retain the exact tolerance tests below, including
+    // near-axis segments and coordinates that share a rounded pointKey.
+    const xRange = axisRange(endpointsByX, minX - 2 * EPSILON, maxX + 2 * EPSILON)
+    const yRange = axisRange(endpointsByY, minY - 2 * EPSILON, maxY + 2 * EPSILON)
+    const useX = xRange[1] - xRange[0] <= yRange[1] - yRange[0]
+    const [endpointStart, endpointEnd] = useX ? xRange : yRange
+    const endpoints = useX ? endpointsByX : endpointsByY
+    for (let index = endpointStart; index < endpointEnd; index++) {
+      const entry = endpoints[index]!
+      const point = entry.point!
+      if (point.x >= minX - 2 * EPSILON && point.x <= maxX + 2 * EPSILON &&
+        point.y >= minY - 2 * EPSILON && point.y <= maxY + 2 * EPSILON) {
+        candidates.add(entry.segmentIndex)
+      }
+    }
+    const perpendiculars = vertical ? horizontalsByY : verticalsByX
+    const [start, end] = axisRange(
+      perpendiculars, (vertical ? minY : minX) - EPSILON,
+      (vertical ? maxY : maxX) + EPSILON
+    )
+    for (let index = start; index < end; index++) {
+      const entry = perpendiculars[index]!
+      const other = basePathways[entry.segmentIndex]!
+      const axis = vertical ? segment.from.x : segment.from.y
+      const otherLow = vertical ? Math.min(other.from.x, other.to.x) : Math.min(other.from.y, other.to.y)
+      const otherHigh = vertical ? Math.max(other.from.x, other.to.x) : Math.max(other.from.y, other.to.y)
+      if (axis >= otherLow - EPSILON && axis <= otherHigh + EPSILON) candidates.add(entry.segmentIndex)
+    }
+    // Original pathway order controls graph-node ids and equal-cost route ties.
+    return [...candidates].sort((a, b) => a - b)
   }
 
   const nodes: GraphNode[] = []
@@ -712,7 +796,8 @@ export function routePanelWire(
 
   for (const segment of basePathways) {
     const splitPoints = [segment.from, segment.to]
-    for (const other of basePathways) {
+    for (const otherIndex of possibleIntersections(segment)) {
+      const other = basePathways[otherIndex]!
       const crossing = intersection(segment, other)
       if (crossing) splitPoints.push(crossing)
       if (pointOnSegment(other.from, segment)) splitPoints.push(other.from)

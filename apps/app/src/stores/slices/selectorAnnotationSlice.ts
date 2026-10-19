@@ -50,6 +50,10 @@ import { duplicateJunctionOccurrenceIds } from '@/lib/plan/sharedJunctionPlaceme
 import { resolveSitplanTargetFloorId } from '@/lib/plan/sitplanTargetFloor'
 import { addEendraadNoteInProject } from '@/lib/projectMutations/storeActions'
 import {
+  addOneWireFrameInProject,
+  addSitplanNoteInProject,
+} from '@/lib/projectMutations/annotationMutations'
+import {
   editOneWireFrames,
   editOneWireNotes,
   editOneWireSegments,
@@ -81,6 +85,7 @@ import {
   restoreFromQuarantine as doRestoreFromQuarantine,
 } from '@/lib/validation/quarantine'
 import { editWireRunAtAnchor } from '@/lib/wires/editWireRun'
+import { acceptWireLengthEstimatesInProject } from '@/lib/wires/wireLengthMutations'
 import { useUIStore } from '@/stores/uiStore'
 import {
   DEFAULT_ELECTRICAL_DOMAIN,
@@ -950,19 +955,7 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
   acceptWireLengthEstimates: (entries) =>
     set((state) => {
       if (!state.currentProject || entries.length === 0) return
-      const calibratedAnchors = new Set(
-        estimateCableRoutes(state.currentProject)
-          .routes.filter((route) => route.scaleCalibrated !== false && route.highM > 0)
-          .flatMap((route) => [route.anchor, ...(route.aliasAnchors ?? [])])
-      )
-      for (const entry of entries) {
-        if (!calibratedAnchors.has(entry.anchor)) continue
-        editWireRunAtAnchor(state.currentProject, entry.anchor, entry.cable, {
-          lengthM: entry.lengthM,
-          lengthSource: 'estimated',
-        })
-      }
-      state.isDirty = true
+      if (acceptWireLengthEstimatesInProject(state.currentProject, entries)) state.isDirty = true
     }),
 
   makeWireCableProjectDefault: (anchor, cable) =>
@@ -1087,11 +1080,7 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
   // Sitplan Note actions
   addSitplanNote: (note: Note) =>
     set((state) => {
-      if (state.currentProject) {
-        replaceSitplanNotes(state.currentProject, [
-          ...querySitplanNotes(state.currentProject),
-          note,
-        ])
+      if (state.currentProject && addSitplanNoteInProject(state.currentProject, note)) {
         state.isDirty = true
       }
     }),
@@ -1150,8 +1139,7 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
   // Frame actions
   addFrame: (frame: Frame) =>
     set((state) => {
-      if (state.currentProject) {
-        editOneWireFrames(state.currentProject).push(frame)
+      if (state.currentProject && addOneWireFrameInProject(state.currentProject, frame)) {
         state.isDirty = true
       }
     }),

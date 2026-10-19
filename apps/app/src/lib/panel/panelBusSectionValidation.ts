@@ -130,7 +130,7 @@ export function validatePanelBusSectionTopology(
       const order = section.phaseOrder ?? []
       if (
         order.length > 3 ||
-        new Set(order).size !== order.length ||
+        (order.length < 3 && new Set(order).size !== order.length) ||
         order.some((phase) => phase !== 'L1' && phase !== 'L2' && phase !== 'L3')
       ) {
         issues.push(

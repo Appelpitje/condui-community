@@ -54,7 +54,10 @@ import {
   getMainBusProtectionPhaseAssignment,
   getPanelIncomingPhaseState,
   isPhaseAssignmentLabelVisible,
+  formatPhaseAssignment,
+  supportsExplicitPhaseSelection,
 } from '@/lib/wires/phaseAssignment'
+import { measureSymbolLabelTextWidth } from '@/lib/symbolLabelTextWidth'
 import {
   LAYOUT_CONSTANTS,
   hasPanelAttachmentOnSecondaryBus,
@@ -84,6 +87,11 @@ import {
   supportsCircuitConverterDcConnections,
 } from './circuitConverterGeometry'
 import { getSupplyConverterDcConnectionIndex } from '@/lib/supplyAssembly/converterDcConnections'
+import {
+  converterInputSplitNodeId,
+  isConverterGridLegPlacement,
+  orderConverterGridLegDevicesFromConverter,
+} from '@/lib/supplyAssembly/changeoverGridSource'
 import {
   ensureInstallationFeedTopology,
   getSupplyWireHideWireLabelForRole,
@@ -613,6 +621,9 @@ function mirrorWireSegmentHorizontally(segment: WireSegment, axisX: number): voi
       x: mirrorX(segment.phaseLabelAnchor.x),
     }
   }
+  if (segment.junctionPoint) {
+    segment.junctionPoint = { ...segment.junctionPoint, x: mirrorX(segment.junctionPoint.x) }
+  }
   if (segment.wireLabelBaseEndPoint) {
     segment.wireLabelBaseEndPoint = {
       ...segment.wireLabelBaseEndPoint,
@@ -632,6 +643,62 @@ function mirrorWireSegmentHorizontally(segment: WireSegment, axisX: number): voi
   else if (segment.busFeedMarkerSide === 'right') segment.busFeedMarkerSide = 'left'
   else if (segment.busFeedMarkerSide === 'below-left') segment.busFeedMarkerSide = 'below-right'
   else if (segment.busFeedMarkerSide === 'below-right') segment.busFeedMarkerSide = 'below-left'
+}
+
+/**
+ * Mark every true T junction among supply wires with a dot: three or more wire ends meeting
+ * at a point without all being collinear, or a wire end landing on the inside of another
+ * wire. Corners (two ends) and straight continuations get none.
+ */
+function markSupplyTJunctions(candidates: WireSegment[]): void {
+  const wires = candidates.filter((wire) => wire.type !== 'mainBus' && wire.domain !== 'DC')
+  const key = (point: Point2) => `${Math.round(point.x * 100)},${Math.round(point.y * 100)}`
+  const ends = new Map<string, { point: Point2; directions: Point2[]; wires: WireSegment[] }>()
+  for (const wire of wires) {
+    for (const [point, other] of [
+      [wire.startPoint, wire.endPoint],
+      [wire.endPoint, wire.startPoint],
+    ] as const) {
+      const length = Math.hypot(other.x - point.x, other.y - point.y)
+      if (length < 1e-6) continue
+      const entry = ends.get(key(point)) ?? { point, directions: [], wires: [] }
+      entry.directions.push({ x: (other.x - point.x) / length, y: (other.y - point.y) / length })
+      entry.wires.push(wire)
+      ends.set(key(point), entry)
+    }
+  }
+  const marked = new Set<string>()
+  const mark = (point: Point2, wire: WireSegment) => {
+    if (marked.has(key(point))) return
+    marked.add(key(point))
+    wire.junctionPoint = { x: point.x, y: point.y }
+  }
+  for (const [pointKey, { point, directions, wires: atPoint }] of ends) {
+    if (directions.length >= 3) {
+      const bends = directions.some((a, index) =>
+        directions.slice(index + 1).some((b) => Math.abs(a.x * b.y - a.y * b.x) > 1e-3)
+      )
+      if (bends) mark(point, atPoint[0]!)
+      continue
+    }
+    // A wire end on the inside of another, perpendicular wire.
+    for (const wire of wires) {
+      if (atPoint.includes(wire)) continue
+      const { startPoint: a, endPoint: b } = wire
+      const horizontal = Math.abs(a.y - b.y) < 0.01
+      const vertical = Math.abs(a.x - b.x) < 0.01
+      const inside = horizontal
+        ? Math.abs(point.y - a.y) < 0.01 &&
+          point.x > Math.min(a.x, b.x) + 0.5 &&
+          point.x < Math.max(a.x, b.x) - 0.5
+        : vertical
+          ? Math.abs(point.x - a.x) < 0.01 &&
+            point.y > Math.min(a.y, b.y) + 0.5 &&
+            point.y < Math.max(a.y, b.y) - 0.5
+          : false
+      if (inside && !marked.has(pointKey)) mark(point, atPoint[0]!)
+    }
+  }
 }
 
 /**
@@ -2375,6 +2442,7 @@ function derivePanelWires(
     )
 
     if (sourceChangeoverNode) {
+      const changeoverSegmentStart = segments.length
       const changeoverX = sourceChangeoverNode.bounds.x
       const changeoverY = sourceChangeoverNode.bounds.y
       const backupBusRun = busRunForRole('backup')
@@ -2400,19 +2468,28 @@ function derivePanelWires(
         .filter(
           (node) =>
             (node.domainRef as TrunkDevice | undefined)?.supplyPath === 'converter-grid' &&
-            (node.domainRef as TrunkDevice | undefined)?.converterGridPlacement !== 'input-leg'
+            !isConverterGridLegPlacement(
+              (node.domainRef as TrunkDevice | undefined)?.converterGridPlacement
+            )
         )
         .sort((a, b) => a.bounds.x - b.bounds.x)
       const converterGridInputLegNodes = supplyTrunkDeviceNodes
         .filter(
           (node) =>
             (node.domainRef as TrunkDevice | undefined)?.supplyPath === 'converter-grid' &&
-            (node.domainRef as TrunkDevice | undefined)?.converterGridPlacement === 'input-leg'
+            isConverterGridLegPlacement(
+              (node.domainRef as TrunkDevice | undefined)?.converterGridPlacement
+            )
         )
         .sort((a, b) => a.bounds.y - b.bounds.y)
+      // Port 1 tapped from the inverter's grid-input leg (`converter-input`), as planned by the
+      // layout on the grid-tap geometry.
+      const usesConverterInputTap =
+        backupConverterNode != null && sourceChangeoverNode.supplyConverterInputTapY != null
       // The layout can widen this riser to clear the protection's side text.
-      // Derive the conductor from that positioned leg instead of the fixed lead.
-      elbowX =
+      // Derive the conductor from that positioned leg instead of the fixed lead. With the
+      // converter-input tap the port-1 devices are inline on the tap wire instead.
+      if (!usesConverterInputTap) elbowX =
         supplyTrunkDeviceNodes.find(
           (node) =>
             (node.domainRef as TrunkDevice | undefined)?.supplyPath === 'changeover-grid' &&
@@ -2422,6 +2499,8 @@ function derivePanelWires(
         backupConverterNode?.bounds.y ??
         changeoverY - LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_LANE_OFFSET
       const lowerY = supplyNode.bounds.y
+      // Height of the T where the port-1 riser joins the inverter leg (`converter-input`).
+      const converterInputTapY = sourceChangeoverNode.supplyConverterInputTapY ?? changeoverY + portOffset
       const slotEndX =
         backupConverterNode?.bounds.x ??
         (backupOutputNodes.at(-1)?.bounds.x ?? elbowX) + LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_SLOT_LENGTH
@@ -2470,6 +2549,56 @@ function derivePanelWires(
         )
         segments.push(connectedSegment)
         return connectedSegment
+      }
+
+      /**
+       * The inverter leg usually carries fewer conductors than the grid. Name them where the leg
+       * narrows: just above the first protection (from the grid lane up) that drops conductors,
+       * or at the leg start when the leg itself is already narrower. The text sits on the
+       * device-name side of the riser, which stays free of the ratings text.
+       */
+      const labelConverterLegNarrowing = (
+        legSegments: Array<{ segment: WireSegment; lowerNode?: LayoutNode }>
+      ) => {
+        const system = installation?.nominalVoltage.system
+        if (!system || !supportsExplicitPhaseSelection(system) || legSegments.length === 0) return
+        const full = getFullInstallationPhaseAssignment(system)
+        const signature = (assignment: CircuitPhaseAssignment | undefined) =>
+          assignment?.phases.filter((phase) => phase !== 'PE').join('|') ?? ''
+        let assignment = full
+        let target: (typeof legSegments)[number] | undefined
+        // Walk the leg devices up from the grid lane: the segment above the first device that
+        // drops conductors carries the label.
+        const devicesFromGrid = legSegments
+          .flatMap(({ lowerNode }) => (lowerNode ? [lowerNode] : []))
+          .reverse()
+        for (const node of devicesFromGrid) {
+          const device = node.domainRef as TrunkDevice | undefined
+          if (!device || device.type !== 'protection') continue
+          const next = getDownstreamProtectionPhaseAssignment(device, system, assignment)
+          if (signature(next) !== signature(assignment)) {
+            target = legSegments.find(({ lowerNode }) => lowerNode === node)
+            break
+          }
+          assignment = next
+        }
+        const legStart = legSegments.at(-1)!
+        if (!target && signature(legStart.segment.phaseAssignment) !== signature(full)) {
+          target = legStart
+        }
+        if (!target || !target.segment.phaseAssignment) return
+        if (signature(target.segment.phaseAssignment) === signature(full)) return
+        const { startPoint, endPoint } = target.segment
+        const near = startPoint.y > endPoint.y ? startPoint : endPoint
+        const text = formatPhaseAssignment(target.segment.phaseAssignment)
+        const width = measureSymbolLabelTextWidth(text, 'Figtree', 8)
+        const mirrored = panelNode.horizontalMirrorAxisX != null
+        target.segment.forcePhaseLabel = true
+        target.segment.phaseLabelAnchor = {
+          // Readable left of the riser in the final drawing, mirrored or not.
+          x: mirrored ? near.x + 5 + width : near.x - 5 - width,
+          y: near.y - 12,
+        }
       }
 
       const outputNodes = supplyTrunkDeviceNodes.filter((node) => {
@@ -2612,36 +2741,76 @@ function derivePanelWires(
         // The converter's grid AC connection is its bottom port. The right-hand port is
         // deliberately left free for the shared battery/PV DC connection.
         if (converterGridInputConnected) {
+          const converterLegX = getNodeConnectionAnchor(backupConverterNode).x
           const converterBottom = applyNodeWireInset(
             getNodeConnectionAnchor(backupConverterNode),
-            { x: getNodeConnectionAnchor(backupConverterNode).x, y: lowerY },
+            { x: converterLegX, y: lowerY },
             backupConverterNode
           )
+          const converterIdForKeys = backupConverterNode.domainId ?? backupConverterNode.id
+          // Converter-only devices sit nearest the converter, shared devices below them. With the
+          // converter-input tap the T junction sits between both groups at the port-1 height.
+          const orderedLegNodes = orderConverterGridLegDevicesFromConverter(
+            converterGridInputLegNodes.map((node) => ({
+              node,
+              device: node.domainRef as TrunkDevice,
+            }))
+          ).map(({ node }) => node)
+          const aboveTapNodes = usesConverterInputTap
+            ? orderedLegNodes.filter(
+                (node) =>
+                  (node.domainRef as TrunkDevice | undefined)?.converterGridPlacement ===
+                  'converter-leg'
+              )
+            : orderedLegNodes
+          const belowTapNodes = usesConverterInputTap
+            ? orderedLegNodes.filter((node) => !aboveTapNodes.includes(node))
+            : []
+          const tapWaypoints = usesConverterInputTap
+            ? [
+                {
+                  point: { x: converterLegX, y: converterInputTapY },
+                  node: undefined as LayoutNode | undefined,
+                },
+              ]
+            : []
           const inputLegWaypoints = [
             { point: converterBottom, node: undefined as LayoutNode | undefined },
-            ...converterGridInputLegNodes.map((node) => ({
+            ...aboveTapNodes.map((node) => ({
+              point: { x: node.bounds.x, y: node.bounds.y },
+              node,
+            })),
+            ...tapWaypoints,
+            ...belowTapNodes.map((node) => ({
               point: { x: node.bounds.x, y: node.bounds.y },
               node,
             })),
             {
-              point: { x: getNodeConnectionAnchor(backupConverterNode).x, y: lowerY },
+              point: { x: converterLegX, y: lowerY },
               node: undefined as LayoutNode | undefined,
             },
           ]
           const inputLegNodeIds = [
             backupConverterNode.domainId,
-            ...converterGridInputLegNodes.map((node) => node.domainId),
+            ...aboveTapNodes.map((node) => node.domainId),
+            ...(usesConverterInputTap && supplyAssembly
+              ? [converterInputSplitNodeId(supplyAssembly.id)]
+              : []),
+            ...belowTapNodes.map((node) => node.domainId),
             inverterGridSplitNodeId,
           ].filter((id): id is string => !!id)
           const inputLegSectionEndpoints = [
-            `converter:${backupConverterNode.domainId ?? backupConverterNode.id}:grid`,
-            ...converterGridInputLegNodes.map((node) => `device:${node.domainId ?? node.id}`),
-            `converter-grid-tap:${backupConverterNode.domainId ?? backupConverterNode.id}`,
+            `converter:${converterIdForKeys}:grid`,
+            ...aboveTapNodes.map((node) => `device:${node.domainId ?? node.id}`),
+            ...(usesConverterInputTap ? [`converter-input-tap:${converterIdForKeys}`] : []),
+            ...belowTapNodes.map((node) => `device:${node.domainId ?? node.id}`),
+            `converter-grid-tap:${converterIdForKeys}`,
           ]
+          const legSegments: Array<{ segment: WireSegment; lowerNode?: LayoutNode }> = []
           for (let index = 0; index < inputLegWaypoints.length - 1; index++) {
             const from = inputLegWaypoints[index]!
             const to = inputLegWaypoints[index + 1]!
-            pushChangeoverWire(
+            const segment = pushChangeoverWire(
               from.node ? applyNodeWireInset(from.point, to.point, from.node) : from.point,
               to.node ? applyNodeWireInset(to.point, from.point, to.node) : to.point,
               'upstream',
@@ -2657,7 +2826,9 @@ function derivePanelWires(
                 inputLegSectionEndpoints[index + 1]!
               )
             )
+            if (segment) legSegments.push({ segment, lowerNode: to.node })
           }
+          labelConverterLegNarrowing(legSegments)
         }
         pushConverterDcWires(backupConverterNode)
       } else {
@@ -2722,50 +2893,110 @@ function derivePanelWires(
       const changeoverGridSwitchSectionKey = changeoverGridSectionKey(
         changeoverGridSectionEndpoints.length - 2
       )
-      const gridChangeoverInputSegment = pushChangeoverWire(
-        { x: rightPortX, y: lowerPortY },
-        { x: elbowX, y: lowerPortY },
-        'upstream',
-        firstChangeoverGridConnection,
-        undefined,
-        changeoverGridSwitchSectionKey
-      )
-      const changeoverGridInputLegWaypoints = [
-        { point: { x: elbowX, y: lowerPortY }, node: undefined as LayoutNode | undefined },
-        ...changeoverGridInputLegNodes.map((node) => ({
-          point: { x: elbowX, y: node.bounds.y },
-          node,
-        })),
-        { point: { x: elbowX, y: lowerY }, node: undefined as LayoutNode | undefined },
-      ]
-      for (let index = 0; index < changeoverGridInputLegWaypoints.length - 1; index++) {
-        const from = changeoverGridInputLegWaypoints[index]!
-        const to = changeoverGridInputLegWaypoints[index + 1]!
-        const start = from.node ? applyNodeWireInset(from.point, to.point, from.node) : from.point
-        const end = to.node ? applyNodeWireInset(to.point, from.point, to.node) : to.point
-        const fromId =
-          index === 0
-            ? sourceChangeoverNode.domainId
-            : changeoverGridInputLegNodes[index - 1]?.domainId
-        const toId =
-          index < changeoverGridInputLegNodes.length
-            ? changeoverGridInputLegNodes[index]?.domainId
-            : changeoverGridSourceNodeId
-        const sectionIndex = changeoverGridSectionEndpoints.length - 2 - index
-        pushChangeoverWire(
-          start,
-          end,
-          'upstream',
-          (fromId && toId ? findAssemblyConnection(fromId, toId, 'grid-ac') : undefined) ??
-            firstChangeoverGridConnection,
-          undefined,
-          changeoverGridSectionKey(sectionIndex)
+      const converterTapX = backupConverterNode
+        ? getNodeConnectionAnchor(backupConverterNode).x
+        : undefined
+      // With the converter-input tap the port-1 riser ends at the T's height and a horizontal
+      // wire joins the inverter leg there. Everything else stays on the grid-tap geometry.
+      const tapsConverterInput = usesConverterInputTap && converterTapX != null
+      const tapNodeId =
+        tapsConverterInput && supplyAssembly ? converterInputSplitNodeId(supplyAssembly.id) : undefined
+      const riserBottomY = converterInputTapY
+      let gridChangeoverInputSegment: WireSegment | undefined
+      if (tapsConverterInput) {
+        // Port 1 is fed from the T on the inverter leg: a horizontal wire at the T's height with
+        // its devices inline (nearest the switch first), rising to the port when the T is lower.
+        const lane = [...changeoverGridInputLegNodes].sort(
+          (a, b) => Math.abs(b.bounds.x - converterTapX!) - Math.abs(a.bounds.x - converterTapX!)
         )
+        const electricalIds = [
+          sourceChangeoverNode.domainId,
+          ...lane.map((node) => node.domainId),
+          tapNodeId,
+        ]
+        const sectionEndpoints = [
+          `changeover:${sourceChangeoverNode.domainId ?? sourceChangeoverNode.id}:grid`,
+          ...lane.map((node) => `device:${node.domainId ?? node.id}`),
+          `converter-input-tap:${backupConverterNode?.domainId ?? backupConverterNode?.id}`,
+        ]
+        const points: Array<{ point: { x: number; y: number }; node?: LayoutNode }> = [
+          { point: { x: rightPortX, y: lowerPortY } },
+          ...(riserBottomY > lowerPortY + 0.01
+            ? [{ point: { x: elbowX, y: lowerPortY } }, { point: { x: elbowX, y: riserBottomY } }]
+            : []),
+          ...lane.map((node) => ({ point: { x: node.bounds.x, y: riserBottomY }, node })),
+          { point: { x: converterTapX!, y: riserBottomY } },
+        ]
+        let section = 0
+        for (let index = 0; index < points.length - 1; index++) {
+          const from = points[index]!
+          const to = points[index + 1]!
+          const fromId = electricalIds[section]
+          const toId = electricalIds[section + 1]
+          const segment = pushChangeoverWire(
+            from.node ? applyNodeWireInset(from.point, to.point, from.node) : from.point,
+            to.node ? applyNodeWireInset(to.point, from.point, to.node) : to.point,
+            'upstream',
+            (section === 0 ? firstChangeoverGridConnection : undefined) ??
+              (fromId && toId ? findAssemblyConnection(fromId, toId, 'grid-ac') : undefined) ??
+              firstChangeoverGridConnection,
+            undefined,
+            supplySectionKey(
+              'changeover-grid',
+              sectionEndpoints[section]!,
+              sectionEndpoints[section + 1]!
+            )
+          )
+          if (index === 0) gridChangeoverInputSegment = segment
+          if (to.node) section++
+        }
+      } else {
+        gridChangeoverInputSegment = pushChangeoverWire(
+          { x: rightPortX, y: lowerPortY },
+          { x: elbowX, y: lowerPortY },
+          'upstream',
+          firstChangeoverGridConnection,
+          undefined,
+          changeoverGridSwitchSectionKey
+        )
+        const changeoverGridInputLegWaypoints = [
+          { point: { x: elbowX, y: lowerPortY }, node: undefined as LayoutNode | undefined },
+          ...changeoverGridInputLegNodes.map((node) => ({
+            point: { x: elbowX, y: node.bounds.y },
+            node,
+          })),
+          { point: { x: elbowX, y: lowerY }, node: undefined as LayoutNode | undefined },
+        ]
+        for (let index = 0; index < changeoverGridInputLegWaypoints.length - 1; index++) {
+          const from = changeoverGridInputLegWaypoints[index]!
+          const to = changeoverGridInputLegWaypoints[index + 1]!
+          const start = from.node ? applyNodeWireInset(from.point, to.point, from.node) : from.point
+          const end = to.node ? applyNodeWireInset(to.point, from.point, to.node) : to.point
+          const fromId =
+            index === 0
+              ? sourceChangeoverNode.domainId
+              : changeoverGridInputLegNodes[index - 1]?.domainId
+          const toId =
+            index < changeoverGridInputLegNodes.length
+              ? changeoverGridInputLegNodes[index]?.domainId
+              : changeoverGridSourceNodeId
+          const sectionIndex = changeoverGridSectionEndpoints.length - 2 - index
+          pushChangeoverWire(
+            start,
+            end,
+            'upstream',
+            (fromId && toId ? findAssemblyConnection(fromId, toId, 'grid-ac') : undefined) ??
+              firstChangeoverGridConnection,
+            undefined,
+            changeoverGridSectionKey(sectionIndex)
+          )
+        }
       }
 
       const backupInputAssignment = backupChangeoverInputSegment?.phaseAssignment
       const gridInputAssignment = gridChangeoverInputSegment?.phaseAssignment
       if (
+        gridChangeoverInputSegment &&
         backupInputAssignment &&
         gridInputAssignment &&
         backupInputAssignment.phases.join('|') !== gridInputAssignment.phases.join('|')
@@ -2913,6 +3144,7 @@ function derivePanelWires(
           supplySectionKey('changeover-shared-grid', from.sectionEndpointId, to.sectionEndpointId)
         )
       }
+      markSupplyTJunctions(segments.slice(changeoverSegmentStart))
     } else if (directConverterNode) {
       const rootBranchOutput = supplyAssembly?.loadHandoffs.some(
         (handoff) => handoff.id === `${supplyAssembly.id}-root-input-${panel.id}`
@@ -2937,14 +3169,18 @@ function derivePanelWires(
         .filter(
           (node) =>
             (node.domainRef as TrunkDevice | undefined)?.supplyPath === 'converter-grid' &&
-            (node.domainRef as TrunkDevice | undefined)?.converterGridPlacement !== 'input-leg'
+            !isConverterGridLegPlacement(
+              (node.domainRef as TrunkDevice | undefined)?.converterGridPlacement
+            )
         )
         .sort((a, b) => a.bounds.x - b.bounds.x)
       const converterGridInputLegNodes = supplyTrunkDeviceNodes
         .filter(
           (node) =>
             (node.domainRef as TrunkDevice | undefined)?.supplyPath === 'converter-grid' &&
-            (node.domainRef as TrunkDevice | undefined)?.converterGridPlacement === 'input-leg'
+            isConverterGridLegPlacement(
+              (node.domainRef as TrunkDevice | undefined)?.converterGridPlacement
+            )
         )
         .sort((a, b) => a.bounds.y - b.bounds.y)
       const serialNodes = supplyTrunkDeviceNodes.filter(
@@ -3797,6 +4033,16 @@ function derivePanelWires(
       })
       .filter((candidate): candidate is { device: TrunkDevice; x: number } => !!candidate)
       .sort((left, right) => right.x - left.x)
+    // The changeover's output carries only the conductors it switches.
+    const changeoverSwitchNode = supplyAssembly?.nodes.find(
+      (node) => node.kind === 'changeover-switch'
+    )
+    const changeoverLoadConnection = changeoverSwitchNode
+      ? findAssemblyPortConnection(changeoverSwitchNode.id, 'load')
+      : undefined
+    const changeoverLoadAssignment =
+      (changeoverLoadConnection && getAcConnectionPhaseAssignment(changeoverLoadConnection)) ??
+      getFullInstallationPhaseAssignment(installation.nominalVoltage.system)
     for (const segment of segments) {
       const isChangeoverLoadSegment = segment.supplySectionKey?.includes(':changeover-load:')
       if (segment.supplyConnectionId && !isChangeoverLoadSegment) continue
@@ -3822,7 +4068,9 @@ function derivePanelWires(
               installation.nominalVoltage.system,
               assignment
             ),
-          getFullInstallationPhaseAssignment(installation.nominalVoltage.system)
+          isChangeoverLoadSegment
+            ? changeoverLoadAssignment
+            : getFullInstallationPhaseAssignment(installation.nominalVoltage.system)
         )
     }
 
@@ -3924,6 +4172,27 @@ function derivePanelWires(
           x: node?.bounds.x ?? candidates[0]?.startPoint.x ?? 0,
           y: node?.bounds.y ?? candidates[0]?.startPoint.y ?? 0,
         })
+      }
+      // A changeover switching fewer conductors than the grid names them right after it.
+      const fullAssignment = getFullInstallationPhaseAssignment(installation.nominalVoltage.system)
+      if (
+        changeoverSwitchNode &&
+        fullAssignment &&
+        changeoverLoadConnection &&
+        connectionSignature(changeoverLoadConnection) &&
+        connectionSignature(changeoverLoadConnection) !== phaseSignature(fullAssignment)
+      ) {
+        const loadEndpoint = `changeover:${changeoverSwitchNode.deviceId ?? changeoverSwitchNode.id}:load`
+        const node = renderedSupplyDeviceNodes.find(
+          (candidate) => candidate.domainId === (changeoverSwitchNode.deviceId ?? changeoverSwitchNode.id)
+        )
+        const candidates = segments.filter(
+          (segment) =>
+            segment.supplySectionKey?.includes(':changeover-load:') === true &&
+            segment.supplySectionKey.includes(loadEndpoint) &&
+            segment.domain !== 'DC'
+        )
+        if (node) markPhaseTransition(candidates, { x: node.bounds.x, y: node.bounds.y })
       }
       for (const node of supplyAssembly.nodes) {
         if (node.kind === 'protection') {

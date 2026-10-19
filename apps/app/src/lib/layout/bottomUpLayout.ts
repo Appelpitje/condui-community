@@ -1,5 +1,6 @@
 import { hasSupplyInlineLabels, getSupplyInlineLabelLines } from './supplyInlineDeviceLabels'
 import { logger } from '@/lib/logger'
+import { COMPACT_PANEL_THRESHOLD, packPanelGroup } from './compactPanelPacking'
 /**
  * Bottom-Up Eendraad Layout Engine
  *
@@ -91,7 +92,7 @@ import {
   applyMetadataCalloutMultiplier,
   getMetadataCalloutWidth,
 } from '@/lib/metadataCalloutGrouping'
-import { getVoltageSummaryLabel } from '@/utils/voltageLabel'
+import { getSupplySourceSummaryLabel } from '@/lib/electrical/supplyConnection'
 import { getPanelFrameTitlePadding, getPanelSymbolLabel } from '@/lib/panel/panelDiagramLabels'
 import { hasExplicitPanelBusSections } from '@/lib/panel/panelBusSections'
 import { getSubPanelMainBusFeedDevice } from '@/lib/panel/subPanelFeed'
@@ -139,7 +140,15 @@ import {
   getBranchConverterMetadataCallouts,
   getCircuitConverterMetadataCallouts,
 } from './circuitConverterMetadataCallouts'
-import { isVerticalSupplyDevice } from './supplyDeviceOrientation'
+import {
+  isVerticalSupplyDevice,
+  type SupplyDeviceOrientationContext,
+} from './supplyDeviceOrientation'
+import {
+  isConverterGridLegPlacement,
+  orderConverterGridLegDevicesFromConverter,
+  resolveSupplyLayoutChangeoverGridSource,
+} from '@/lib/supplyAssembly/changeoverGridSource'
 import { getSupplyTopLabelPlacements, type SupplyTopLabelPlacement } from './supplyTopLabelLayout'
 import {
   getSupplyAssemblyPanelRole,
@@ -272,6 +281,253 @@ function getSupplyConverterDcDeviceOffset(device: TrunkDevice, index: number): n
 
 const SUPPLY_CONVERTER_EMPTY_DC_STUB_LENGTH = 24
 const SUPPLY_CONVERTER_EMPTY_DC_ROW_SPACING = 12
+
+/** Half the height of the side texts beside a device on a vertical supply leg. */
+function getVerticalSupplySideLabelHalfHeight(device: TrunkDevice): number {
+  const technicalLines = hasSupplyInlineLabels(device)
+    ? getSupplyInlineLabelLines(device).reduce(
+        (count, line) => count + countSymbolLabelVisualLines(line.text),
+        0
+      )
+    : 0
+  const label = (device.label ?? '').trim()
+  const nameLines = label ? countSymbolLabelVisualLines(label) : 0
+  return Math.max(LAYOUT_CONSTANTS.SYMBOL_SIZE / 2, (Math.max(technicalLines, nameLines) * 12) / 2)
+}
+
+/** Canonical changeover port offset from its center (ports 1 and 2 sit below/above it). */
+export const SUPPLY_CHANGEOVER_PORT_OFFSET = (LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE * 7) / 24
+
+type PlannedLegDevice = { id: string; y: number; device: TrunkDevice }
+
+/**
+ * Where the port-1 tap joins the inverter grid-input leg (`converter-input`), drawn on the
+ * geometry of the historical grid tap so switching between both only re-routes the port-1
+ * feed. Port 1 keeps its riser; the riser ends at the T instead of the grid lane, and a
+ * horizontal wire joins the leg there. The T must sit below the converter-only devices,
+ * above the shared ones, below the port-1 devices, at or below port 1, and clear of all their
+ * side texts. Positions only change when that is impossible: first the port-1 devices are
+ * spread over the shorter riser, then the shared devices move down, and only as a last
+ * resort the grid lane drops by the remaining shortfall.
+ */
+export function planConverterInputTap(input: {
+  port1Y: number
+  lowerY: number
+  /** Leg devices from the converter down, at their grid-tap positions. */
+  leg: PlannedLegDevice[]
+  /** Port-1 riser devices at their grid-tap positions. */
+  portOne: PlannedLegDevice[]
+  /** Horizontal grid-lane devices whose name labels sit above the lane under the tap wire. */
+  gridLaneLabels: boolean
+}): { tapY: number; lowerY: number; y: Map<string, number> } {
+  const clearance = 4
+  const half = (entry: PlannedLegDevice) => getVerticalSupplySideLabelHalfHeight(entry.device)
+  const above = input.leg.filter(({ device }) => device.converterGridPlacement === 'converter-leg')
+  const below = input.leg.filter(({ device }) => device.converterGridPlacement !== 'converter-leg')
+  // Below the T the tap wire may carry inline port-1 devices with a two-line caption; keep
+  // room for it even while the wire is empty, so adding one never moves anything vertically.
+  const tapGridReserve = LAYOUT_CONSTANTS.SYMBOL_SIZE / 2 + 5 + 2 * 12 + clearance
+  const gridReserve =
+    (input.gridLaneLabels
+      ? LAYOUT_CONSTANTS.SYMBOL_SIZE / 2 + 5 + 12
+      : LAYOUT_CONSTANTS.SYMBOL_SIZE / 2) + clearance
+  const lowest = Math.max(
+    input.port1Y,
+    ...above.map((entry) => entry.y + half(entry) + clearance)
+  )
+  const highest = (lowerY: number, shared: PlannedLegDevice[]) =>
+    Math.min(
+      lowerY - Math.max(gridReserve, tapGridReserve),
+      ...shared.map((entry) => entry.y - half(entry) - clearance)
+    )
+  const portOneHalf = Math.max(0, ...input.portOne.map(half))
+  // Riser devices sit beside the leg devices above the T, whose ratings face the riser: they
+  // must not share a height with them.
+  const clashesWithAbove = (y: number) =>
+    above.some((entry) => Math.abs(entry.y - y) < half(entry) + portOneHalf + clearance)
+  const riserStart = Math.max(
+    input.port1Y,
+    ...above.map((entry) => entry.y + half(entry) + clearance)
+  )
+  const keepPortOne =
+    input.portOne.length > 0 && !input.portOne.some((entry) => clashesWithAbove(entry.y))
+      ? Math.max(...input.portOne.map((entry) => entry.y)) + portOneHalf + clearance
+      : Number.POSITIVE_INFINITY
+  const portOnePitch = Math.max(2 * portOneHalf + clearance, 30)
+  const spreadPortOne =
+    input.portOne.length > 0
+      ? (above.length > 0 ? riserStart : input.port1Y) +
+        (input.portOne.length + 1) * portOnePitch
+      : Number.NEGATIVE_INFINITY
+  const y = new Map<string, number>()
+  const spreadRiser = (tapY: number) => {
+    const start = above.length > 0 ? riserStart : input.port1Y
+    input.portOne.forEach((entry, index) => {
+      y.set(
+        entry.id,
+        start + ((input.portOne.length - index) * (tapY - start)) / (input.portOne.length + 1)
+      )
+    })
+  }
+  const hi = highest(input.lowerY, below)
+  const keepAll = Math.max(lowest, input.portOne.length > 0 ? keepPortOne : lowest)
+  if (keepAll <= hi) return { tapY: keepAll, lowerY: input.lowerY, y }
+  const withSpreadRiser = Math.max(lowest, spreadPortOne)
+  if (withSpreadRiser <= hi) {
+    const tapY = Math.max(withSpreadRiser, Math.min(keepPortOne, hi))
+    if (tapY < keepPortOne) spreadRiser(tapY)
+    return { tapY, lowerY: input.lowerY, y }
+  }
+  // The shared devices have to move below the T.
+  const tapY = withSpreadRiser
+  if (tapY < keepPortOne) spreadRiser(tapY)
+  const sharedHalf = Math.max(LAYOUT_CONSTANTS.SYMBOL_SIZE / 2, ...below.map(half))
+  const gap = Math.max(
+    2 * sharedHalf + clearance,
+    sharedHalf + gridReserve,
+    LAYOUT_CONSTANTS.SUPPLY_VERTICAL_LEG_DEVICE_SPACING / 2 + clearance
+  )
+  const lowerY =
+    below.length === 0
+      ? Math.max(input.lowerY, tapY + Math.max(gridReserve, tapGridReserve))
+      : Math.max(input.lowerY, tapY + (below.length + 1) * gap, tapY + tapGridReserve)
+  below.forEach((entry, index) => {
+    y.set(entry.id, tapY + ((index + 1) * (lowerY - tapY)) / (below.length + 1))
+  })
+  return { tapY, lowerY, y }
+}
+
+/**
+ * Inline port-1 devices on the horizontal tap wire, at the T's height. The first stored device
+ * sits in the middle of the wire, further ones step towards the switch; none ever sits nearer
+ * the T than the middle. Their texts must clear the leg devices' ratings beside the T and the
+ * name labels of grid-lane devices below. Only the horizontal span grows: when the devices need
+ * more room the inverter leg moves away from the switch.
+ */
+function planConverterInputTapLane(input: {
+  converterX: number
+  riserX: number
+  tapY: number
+  lowerY: number
+  legDevices: TrunkDevice[]
+  portOne: TrunkDevice[]
+  gridLaneDevices: Array<{ device: TrunkDevice; x: number }>
+}): { converterX: number; x: Map<string, number> } {
+  const x = new Map<string, number>()
+  if (input.portOne.length === 0) return { converterX: input.converterX, x }
+  const clearance = 4
+  const ratingsWidth = (device: TrunkDevice) =>
+    hasSupplyInlineLabels(device)
+      ? Math.max(
+          0,
+          ...getSupplyInlineLabelLines(device).map((line) =>
+            // Rendered ratings run about as wide as 10 px Figtree in the browser metric.
+            measureSymbolLabelTextWidth(line.text, 'Figtree', 10)
+          )
+        )
+      : 0
+  const ratingsLines = (device: TrunkDevice) =>
+    hasSupplyInlineLabels(device)
+      ? getSupplyInlineLabelLines(device).reduce(
+          (count, line) => count + countSymbolLabelVisualLines(line.text),
+          0
+        )
+      : 0
+  const nameWidth = (device: TrunkDevice) =>
+    (device.label ?? '').trim()
+      ? measureSymbolLabelTextWidth((device.label ?? '').trim(), 'Figtree', 11)
+      : 0
+  const half = LAYOUT_CONSTANTS.SYMBOL_SIZE / 2
+  const portOneHalf = Math.max(
+    half,
+    ...input.portOne.map((device) => Math.max(ratingsWidth(device), nameWidth(device)) / 2)
+  )
+  const legReach = Math.max(
+    0,
+    ...input.legDevices.map((device) => {
+      const width = ratingsWidth(device)
+      return width > 0 ? half + PROTECTION_TECHNICAL_LABEL_OFFSET_FROM_SYMBOL + width : 0
+    })
+  )
+  const firstOffset = Math.max(
+    LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_BRANCH_DEVICE_SPACING,
+    legReach + portOneHalf + clearance
+  )
+  const pitch = Math.max(
+    LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_BRANCH_DEVICE_SPACING,
+    2 * portOneHalf + clearance
+  )
+  const riserGap = portOneHalf + 10
+  // Grid-lane name labels reach up towards the port-1 captions when the lanes are close.
+  const captionBottom =
+    input.tapY + half + 5 + Math.max(0, ...input.portOne.map(ratingsLines)) * 12 + clearance
+  const blocked =
+    input.lowerY - (half + 5 + 12) < captionBottom
+      ? input.gridLaneDevices.map(({ device, x: deviceX }) => {
+          const reach = Math.max(half, nameWidth(device) / 2) + portOneHalf + clearance
+          return [deviceX - reach, deviceX + reach] as const
+        })
+      : []
+  // The middle must leave the leg's ratings beside the T clear.
+  let converterX = Math.max(input.converterX, input.riserX + 2 * firstOffset)
+  for (let attempt = 0; attempt < 16; attempt++) {
+    x.clear()
+    let cursor = (converterX + input.riserX) / 2
+    for (const device of input.portOne) {
+      for (const [left, right] of [...blocked].sort((a, b) => b[0] - a[0])) {
+        if (cursor > left && cursor < right) cursor = left
+      }
+      x.set(device.id, cursor)
+      cursor -= pitch
+    }
+    const nearestSwitch = Math.min(...x.values())
+    const shortfall = input.riserX + riserGap - nearestSwitch
+    if (shortfall <= 0.01) break
+    // Widening moves the middle by only half as much.
+    converterX += 2 * shortfall
+  }
+  return { converterX, x }
+}
+
+/**
+ * X of the inverter on the changeover's port-2 wire, which bends down at `laneStartX`. The
+ * historical slot past `elbowX` stays the minimum; backup-output devices start in the middle of
+ * the drawn wire and step towards the switch, so it only grows once they no longer fit.
+ */
+function getChangeoverBackupLaneEndX(input: {
+  elbowX: number
+  laneStartX: number
+  backupOutputCount: number
+  otherLaneCount: number
+}): number {
+  const spacing = LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_BRANCH_DEVICE_SPACING
+  const slotEndX =
+    input.elbowX + LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_SLOT_LENGTH + input.otherLaneCount * spacing
+  // One centred device needs the historical one-device slot; each further one a spacing on
+  // both halves.
+  return input.backupOutputCount > 0
+    ? Math.max(
+        slotEndX,
+        input.laneStartX +
+          LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_SLOT_LENGTH +
+          spacing +
+          2 * (input.backupOutputCount - 1) * spacing
+      )
+    : slotEndX
+}
+
+/**
+ * Backup-output positions on that wire, as offsets from the elbow: the last stored device in the
+ * middle, the earlier ones a device spacing apart towards the switch (stored order runs from the
+ * switch to the inverter).
+ */
+function getChangeoverBackupLaneOffsets(count: number, laneLength: number): number[] {
+  const spacing = LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_BRANCH_DEVICE_SPACING
+  return Array.from(
+    { length: count },
+    (_, index) => laneLength / 2 - (count - 1 - index) * spacing
+  )
+}
 
 function getSupplyConverterEmptyTopPortY(
   converterY: number,
@@ -896,7 +1152,16 @@ export interface BottomUpPanelLayout {
     upperY: number
     lowerY: number
     slotEndX: number
+    /**
+     * Present when changeover port 1 is fed from the inverter's grid-input leg: the T junction
+     * on that leg (`x`, `y`) and the port-1 riser (`riserX`) that now ends at the T's height.
+     * Devices above the T feed only the inverter, devices below it are shared by the inverter
+     * and port 1; port-1 devices stay on the riser.
+     */
+    converterInputTap?: { x: number; y: number; riserX: number }
   }
+  /** Effective changeover grid source when it differs from the historical main-grid tap. */
+  supplyChangeoverGridSource?: 'converter-input'
   /** Grid-connected converter branch without a source changeover. */
   supplyConverterBranch?: {
     deviceId: string
@@ -1063,6 +1328,11 @@ export function mirrorDetachedSupplyPanelLayoutHorizontally(
       panelLayout.supplyChangeoverBranches.slotEndX,
       axisX
     )
+    const converterInputTap = panelLayout.supplyChangeoverBranches.converterInputTap
+    if (converterInputTap) {
+      converterInputTap.x = mirrorPointX(converterInputTap.x, axisX)
+      converterInputTap.riserX = mirrorPointX(converterInputTap.riserX, axisX)
+    }
   }
   if (panelLayout.supplyConverterBranch) {
     panelLayout.supplyConverterBranch.x = mirrorPointX(panelLayout.supplyConverterBranch.x, axisX)
@@ -1201,6 +1471,11 @@ export function mirrorInlineSupplyPanelLayoutHorizontally(panelLayout: BottomUpP
       panelLayout.supplyChangeoverBranches.slotEndX,
       axisX
     )
+    const converterInputTap = panelLayout.supplyChangeoverBranches.converterInputTap
+    if (converterInputTap) {
+      converterInputTap.x = mirrorPointX(converterInputTap.x, axisX)
+      converterInputTap.riserX = mirrorPointX(converterInputTap.riserX, axisX)
+    }
   }
   if (panelLayout.supplyConverterBranch) {
     panelLayout.supplyConverterBranch.x = mirrorPointX(panelLayout.supplyConverterBranch.x, axisX)
@@ -1488,6 +1763,11 @@ function applyShiftToPanelLayout(panelLayout: BottomUpPanelLayout, dx: number, d
     panelLayout.supplyChangeoverBranches.upperY += dy
     panelLayout.supplyChangeoverBranches.lowerY += dy
     panelLayout.supplyChangeoverBranches.slotEndX += dx
+    if (panelLayout.supplyChangeoverBranches.converterInputTap) {
+      panelLayout.supplyChangeoverBranches.converterInputTap.x += dx
+      panelLayout.supplyChangeoverBranches.converterInputTap.riserX += dx
+      panelLayout.supplyChangeoverBranches.converterInputTap.y += dy
+    }
   }
   if (panelLayout.supplyConverterBranch) {
     panelLayout.supplyConverterBranch.x += dx
@@ -1611,43 +1891,6 @@ function applyPanelFrameBottomAlignmentByRow(
         panelLayout.frame.y + panelLayout.frame.height - infoBlock.height - INFO_BLOCK_FRAME_MARGIN
     }
   })
-}
-
-/**
- * Keep depth rows visually separate when a multi-root forest contains a tall
- * nested panel. The local panel solver bottom-aligns its content, so adding a
- * depth offset based only on the previous row's height can still leave the
- * next row's top edge inside that previous row.
- */
-function applyPanelFrameDepthSpacing(
-  panelLayouts: BottomUpPanelLayout[],
-  depthByPanelId: ReadonlyMap<string, number>,
-  rowSpacing: number
-): void {
-  const depths = [
-    ...new Set(panelLayouts.map((layout) => depthByPanelId.get(layout.panel.id) ?? 0)),
-  ].sort((left, right) => left - right)
-  let previousRowBottom: number | undefined
-
-  for (const depth of depths) {
-    const rowLayouts = panelLayouts.filter(
-      (layout) => (depthByPanelId.get(layout.panel.id) ?? 0) === depth
-    )
-    if (rowLayouts.length === 0) continue
-
-    const rowTop = Math.min(...rowLayouts.map((layout) => layout.frame.y))
-    if (previousRowBottom != null) {
-      const requiredRowTop = previousRowBottom + rowSpacing
-      if (rowTop < requiredRowTop) {
-        const dy = requiredRowTop - rowTop
-        rowLayouts.forEach((layout) => applyShiftToPanelLayout(layout, 0, dy))
-      }
-    }
-
-    previousRowBottom = Math.max(
-      ...rowLayouts.map((layout) => layout.frame.y + layout.frame.height)
-    )
-  }
 }
 
 /**
@@ -2789,12 +3032,24 @@ function calculateBottomUpPanelLayout(
     (device) => device.symbol === 'source_changeover'
   )
   const hasSupplyChangeover = supplyChangeoverIndex >= 0
+  // Port 1 of the changeover may be tapped part-way up the inverter's grid-input leg
+  // (`converter-input`). It is drawn on the grid-tap geometry; only the port-1 feed re-routes.
+  const usesConverterInputTap =
+    hasSupplyChangeover &&
+    resolveSupplyLayoutChangeoverGridSource(supplyTrunkDevices, panel) === 'converter-input'
+  // Port-1 devices then sit inline on the horizontal tap wire.
+  const supplyOrientationContext: SupplyDeviceOrientationContext | undefined =
+    usesConverterInputTap ? { changeoverGridSource: 'converter-input' } : undefined
+  const isVerticalPositionedSupplyDevice = (
+    device: Parameters<typeof isVerticalSupplyDevice>[0]
+  ): boolean => isVerticalSupplyDevice(device, supplyOrientationContext)
   const changeoverAdjacentLabelWidth = Math.max(
     0,
     ...supplyTrunkDevices
       .filter(
         (device) =>
-          (device.supplyPath === 'changeover-grid' &&
+          (!usesConverterInputTap &&
+            device.supplyPath === 'changeover-grid' &&
             device.changeoverGridPlacement === 'input-leg') ||
           (supplyTrunkDevices.indexOf(device) < supplyChangeoverIndex &&
             (device.supplyPath == null || device.supplyPath === 'serial'))
@@ -2829,12 +3084,15 @@ function calculateBottomUpPanelLayout(
   ).length
   const converterGridInlineDeviceCount = supplyTrunkDevices.filter(
     (device) =>
-      device.supplyPath === 'converter-grid' && device.converterGridPlacement !== 'input-leg'
+      device.supplyPath === 'converter-grid' &&
+      !isConverterGridLegPlacement(device.converterGridPlacement)
   ).length
-  const converterGridInputLegDeviceCount = supplyTrunkDevices.filter(
+  const converterGridLegDevices = supplyTrunkDevices.filter(
     (device) =>
-      device.supplyPath === 'converter-grid' && device.converterGridPlacement === 'input-leg'
-  ).length
+      device.supplyPath === 'converter-grid' &&
+      isConverterGridLegPlacement(device.converterGridPlacement)
+  )
+  const converterGridInputLegDeviceCount = converterGridLegDevices.length
   if (hasSupplyChangeover) {
     supplyY += 48 + (LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_LANE_OFFSET - 44)
   }
@@ -2905,7 +3163,7 @@ function calculateBottomUpPanelLayout(
         .filter(
           (device) =>
             !device.supplyDcBusId &&
-            !isVerticalSupplyDevice(device) &&
+            !isVerticalPositionedSupplyDevice(device) &&
             (device.notes ?? '').trim().length > 0 &&
             isSymbolLabelVisible(device.symbolLabelDisplay, 'trunkDeviceNotes', true)
         )
@@ -2934,6 +3192,38 @@ function calculateBottomUpPanelLayout(
       Math.max(0, converterGridInputLegDeviceCount - 2) *
         LAYOUT_CONSTANTS.SUPPLY_DIRECT_CONVERTER_INPUT_LEG_EXPANSION
     : 0
+  if (
+    !options.feedOutput &&
+    supplyTrunkDevices.some(
+      (device) => device.symbol === 'transformer' && !isVerticalPositionedSupplyDevice(device)
+    )
+  ) {
+    // Inline supply nameplates sit beneath the panel bus. Reserve their wrapped,
+    // collision-solved height before positioning the supply rails and devices.
+    const topLabels = getSupplyTopLabelPlacements(
+      supplyTrunkDevices.map((device, index) => ({
+        device,
+        x: -index * LAYOUT_CONSTANTS.SUPPLY_DEVICE_SPACING,
+        y: 0,
+      })),
+      'Figtree',
+      supplyTrunkNotesOrientation,
+      supplyOrientationContext
+    )
+    const transformerIds = new Set(
+      supplyTrunkDevices.filter((device) => device.symbol === 'transformer').map((device) => device.id)
+    )
+    const nameplateHeight = Math.max(
+      0,
+      ...topLabels
+        .filter((placement) => transformerIds.has(placement.deviceId))
+        .map((placement) => -placement.y)
+    )
+    supplyY = Math.max(
+      supplyY,
+      mainBusY + MAIN_BUS_RENDER_STROKE_WIDTH / 2 + nameplateHeight + 8
+    )
+  }
   let supplySourceY = hasSupplyChangeover
     ? supplyY + changeoverLaneOffset
     : hasDirectConverter
@@ -2951,6 +3241,7 @@ function calculateBottomUpPanelLayout(
   }
   const supplyDevicePositions: SupplyDevicePosition[] = []
   let supplyChangeoverLowerY: number | undefined
+  let supplyConverterInputTap: { x: number; y: number; riserX: number } | undefined
 
   if (hasSupplyDevices) {
     const n = supplyTrunkDevices.length
@@ -3025,25 +3316,52 @@ function calculateBottomUpPanelLayout(
         position.y = changeoverDevicePosition.y
       })
       const upperY = changeoverDevicePosition.y - changeoverLaneOffset
+      // Port-1 devices sit inline on the horizontal tap wire with the converter-input tap: they
+      // never change the vertical geometry there.
+      const riserDeviceCount = usesConverterInputTap ? 0 : changeoverGridInputLegDeviceCount
       const baseLowerY =
         changeoverDevicePosition.y +
         changeoverLaneOffset +
-        Math.max(0, changeoverGridInputLegDeviceCount - 1) *
-          LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_VERTICAL_EXPANSION
-      const changeoverPortOffset = (LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE * 7) / 24
+        Math.max(0, riserDeviceCount - 1) * LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_VERTICAL_EXPANSION
+      const changeoverPortOffset = SUPPLY_CHANGEOVER_PORT_OFFSET
       const changeoverLegTopY = changeoverDevicePosition.y + changeoverPortOffset
       const changeoverLegRequiredLowerY =
         changeoverLegTopY +
-        (changeoverGridInputLegDeviceCount + 1) *
-          LAYOUT_CONSTANTS.SUPPLY_VERTICAL_LEG_DEVICE_SPACING
+        (riserDeviceCount + 1) * LAYOUT_CONSTANTS.SUPPLY_VERTICAL_LEG_DEVICE_SPACING
       const converterLegRequiredLowerY =
         upperY +
         (converterGridInputLegDeviceCount + 1) * LAYOUT_CONSTANTS.SUPPLY_VERTICAL_LEG_DEVICE_SPACING
-      const lowerY = Math.max(
+      const gridTapLowerY = Math.max(
         baseLowerY,
-        changeoverGridInputLegDeviceCount > 0 ? changeoverLegRequiredLowerY : baseLowerY,
+        riserDeviceCount > 0 ? changeoverLegRequiredLowerY : baseLowerY,
         converterGridInputLegDeviceCount > 0 ? converterLegRequiredLowerY : baseLowerY
       )
+      // Grid-tap positions of the leg and port-1 riser devices. The converter-input tap is
+      // planned on this geometry so switching the source keeps everything else in place.
+      const gridTapLegPositions = orderConverterGridLegDevicesFromConverter(
+        supplyDevicePositions.filter(
+          ({ device }) =>
+            device.supplyPath === 'converter-grid' &&
+            isConverterGridLegPlacement(device.converterGridPlacement)
+        )
+      )
+      const converterInputTapPlan = usesConverterInputTap
+        ? planConverterInputTap({
+            port1Y: changeoverLegTopY,
+            lowerY: gridTapLowerY,
+            leg: gridTapLegPositions.map(({ device }, index) => ({
+              id: device.id,
+              device,
+              y:
+                upperY +
+                ((index + 1) * (gridTapLowerY - upperY)) / (gridTapLegPositions.length + 1),
+            })),
+            // Port-1 devices are placed inline on the tap wire below, so they never move the T.
+            portOne: [],
+            gridLaneLabels: converterGridInlineDeviceCount > 0,
+          })
+        : undefined
+      const lowerY = converterInputTapPlan?.lowerY ?? gridTapLowerY
       supplyChangeoverLowerY = lowerY
       // The source and lower grid rail are the physical endpoint of these vertical
       // legs. Keep that endpoint aligned with the expanded leg so canvas and PDF
@@ -3053,11 +3371,52 @@ function calculateBottomUpPanelLayout(
         changeoverDevicePosition.x +
         LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE / 2 +
         changeoverElbowLead
-      const converterX =
-        elbowX +
-        LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_SLOT_LENGTH +
-        Math.max(backupOutputDeviceCount, converterGridInlineDeviceCount) *
-          LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_BRANCH_DEVICE_SPACING
+      // With the converter-input tap the port-1 feed leaves the switch close by and runs
+      // horizontally at the T's height; its devices sit inline on that wire.
+      const tapRiserX =
+        changeoverDevicePosition.x +
+        LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE / 2 +
+        LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_ELBOW_LEAD
+      // The port-2 wire bends down at the port-1 riser only while that riser carries devices;
+      // otherwise right beside the switch.
+      const backupLaneStartX =
+        !usesConverterInputTap && changeoverGridInputLegDeviceCount > 0 ? elbowX : tapRiserX
+      const gridTapConverterX = getChangeoverBackupLaneEndX({
+        elbowX,
+        laneStartX: backupLaneStartX,
+        backupOutputCount: backupOutputDeviceCount,
+        otherLaneCount: converterGridInlineDeviceCount,
+      })
+      const tapLane = converterInputTapPlan
+        ? planConverterInputTapLane({
+            converterX: gridTapConverterX,
+            riserX: tapRiserX,
+            tapY: converterInputTapPlan.tapY,
+            lowerY,
+            legDevices: gridTapLegPositions.map(({ device }) => device),
+            portOne: supplyDevicePositions
+              .filter(
+                ({ device }) =>
+                  device.supplyPath === 'changeover-grid' &&
+                  device.changeoverGridPlacement === 'input-leg'
+              )
+              .map(({ device }) => device),
+            gridLaneDevices: supplyDevicePositions
+              .filter(
+                ({ device }) =>
+                  device.supplyPath === 'converter-grid' &&
+                  !isConverterGridLegPlacement(device.converterGridPlacement)
+              )
+              .map(({ device }, index) => ({
+                device,
+                x:
+                  elbowX +
+                  LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_SLOT_LENGTH +
+                  index * LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_BRANCH_DEVICE_SPACING,
+              })),
+          })
+        : undefined
+      const converterX = tapLane?.converterX ?? gridTapConverterX
       const converterPosition = supplyDevicePositions.find(
         ({ device }) => device.supplyPath === 'backup'
       )
@@ -3100,11 +3459,13 @@ function calculateBottomUpPanelLayout(
       const backupOutputPositions = supplyDevicePositions.filter(
         ({ device }) => device.supplyPath === 'backup-output'
       ).sort((a, b) => a.device.trunkPosition - b.device.trunkPosition || a.device.id.localeCompare(b.device.id))
+      // Centred on the wire as drawn.
+      const backupOutputOffsets = getChangeoverBackupLaneOffsets(
+        backupOutputPositions.length,
+        converterX - backupLaneStartX
+      )
       backupOutputPositions.forEach((position, index) => {
-        position.x =
-          elbowX +
-          LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_SLOT_LENGTH +
-          index * LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_BRANCH_DEVICE_SPACING
+        position.x = backupLaneStartX + backupOutputOffsets[index]!
         position.y = upperY
       })
 
@@ -3121,18 +3482,25 @@ function calculateBottomUpPanelLayout(
           device.supplyPath === 'changeover-grid' && device.changeoverGridPlacement === 'input-leg'
       )
       changeoverGridInputLegPositions.forEach((position, index) => {
+        const inlineX = tapLane?.x.get(position.device.id)
+        if (inlineX != null && converterInputTapPlan) {
+          position.x = inlineX
+          position.y = converterInputTapPlan.tapY
+          return
+        }
         position.x = elbowX
         position.y =
           changeoverDevicePosition.y +
-          changeoverPortOffset +
-          ((changeoverGridInputLegPositions.length - index) *
-            (lowerY - changeoverDevicePosition.y - changeoverPortOffset)) /
-            (changeoverGridInputLegPositions.length + 1)
+            changeoverPortOffset +
+            ((changeoverGridInputLegPositions.length - index) *
+              (gridTapLowerY - changeoverDevicePosition.y - changeoverPortOffset)) /
+              (changeoverGridInputLegPositions.length + 1)
       })
 
       const converterGridPositions = supplyDevicePositions.filter(
         ({ device }) =>
-          device.supplyPath === 'converter-grid' && device.converterGridPlacement !== 'input-leg'
+          device.supplyPath === 'converter-grid' &&
+          !isConverterGridLegPlacement(device.converterGridPlacement)
       )
       converterGridPositions.forEach((position, index) => {
         position.x =
@@ -3141,15 +3509,28 @@ function calculateBottomUpPanelLayout(
           index * LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_BRANCH_DEVICE_SPACING
         position.y = lowerY
       })
-      const converterGridInputLegPositions = supplyDevicePositions.filter(
-        ({ device }) =>
-          device.supplyPath === 'converter-grid' && device.converterGridPlacement === 'input-leg'
+      // Drawn from the converter down to the grid lane: converter-only devices first.
+      const converterGridInputLegPositions = orderConverterGridLegDevicesFromConverter(
+        supplyDevicePositions.filter(
+          ({ device }) =>
+            device.supplyPath === 'converter-grid' &&
+            isConverterGridLegPlacement(device.converterGridPlacement)
+        )
       )
       converterGridInputLegPositions.forEach((position, index) => {
         position.x = converterX
         position.y =
-          upperY + ((index + 1) * (lowerY - upperY)) / (converterGridInputLegPositions.length + 1)
+          converterInputTapPlan?.y.get(position.device.id) ??
+          upperY +
+            ((index + 1) * (gridTapLowerY - upperY)) / (converterGridInputLegPositions.length + 1)
       })
+      if (converterInputTapPlan) {
+        supplyConverterInputTap = {
+          x: converterX,
+          y: converterInputTapPlan.tapY,
+          riserX: tapRiserX,
+        }
+      }
 
       const sourceSerialPositions = supplyDevicePositions
         .filter((position) => {
@@ -3230,11 +3611,15 @@ function calculateBottomUpPanelLayout(
             LAYOUT_CONSTANTS.SUPPLY_DEVICE_SPACING)
         const directGridPositions = supplyDevicePositions.filter(
           ({ device }) =>
-            device.supplyPath === 'converter-grid' && device.converterGridPlacement !== 'input-leg'
+            device.supplyPath === 'converter-grid' &&
+            !isConverterGridLegPlacement(device.converterGridPlacement)
         )
-        const directGridInputLegPositions = supplyDevicePositions.filter(
-          ({ device }) =>
-            device.supplyPath === 'converter-grid' && device.converterGridPlacement === 'input-leg'
+        const directGridInputLegPositions = orderConverterGridLegDevicesFromConverter(
+          supplyDevicePositions.filter(
+            ({ device }) =>
+              device.supplyPath === 'converter-grid' &&
+              isConverterGridLegPlacement(device.converterGridPlacement)
+          )
         )
         const lowerLanePositions = [...loadSerialPositions, ...directGridPositions].sort(
           (left, right) => {
@@ -3474,12 +3859,20 @@ function calculateBottomUpPanelLayout(
       }))
     : groundDevicePositions
   const changeoverSlotEndX = changeoverPosition
-    ? changeoverPosition.x +
-      LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE / 2 +
-      changeoverElbowLead +
-      LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_SLOT_LENGTH +
-      Math.max(backupOutputDeviceCount, changeoverGridDeviceCount) *
-        LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_BRANCH_DEVICE_SPACING
+    ? getChangeoverBackupLaneEndX({
+        elbowX:
+          changeoverPosition.x +
+          LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE / 2 +
+          changeoverElbowLead,
+        laneStartX:
+          changeoverPosition.x +
+          LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE / 2 +
+          (!usesConverterInputTap && changeoverGridInputLegDeviceCount > 0
+            ? changeoverElbowLead
+            : LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_ELBOW_LEAD),
+        backupOutputCount: backupOutputDeviceCount,
+        otherLaneCount: changeoverGridDeviceCount,
+      })
     : undefined
   if (changeoverSlotEndX != null) {
     supplyX = Math.max(supplyX, changeoverSlotEndX + LAYOUT_CONSTANTS.SYMBOL_SIZE / 2)
@@ -3565,7 +3958,10 @@ function calculateBottomUpPanelLayout(
   const supplyMetadataPeers = supplyDevicePositions.filter(({ device }) => {
     return (
       isSupplyMetadataCalloutDevice(device) &&
-      !(device.supplyPath === 'converter-grid' && device.converterGridPlacement === 'input-leg')
+      !(
+        device.supplyPath === 'converter-grid' &&
+        isConverterGridLegPlacement(device.converterGridPlacement)
+      )
     )
   })
   const supplyMetadataHasLongPeer = supplyMetadataPeers.some(({ device }) => {
@@ -3625,8 +4021,13 @@ function calculateBottomUpPanelLayout(
   addSupplyRailPoint(supplyY, supplyBendX)
   addSupplyRailPoint(supplyY, supplyX)
   addSupplyRailPoint(supplySourceY, supplyX)
+  if (supplyConverterInputTap && changeoverPosition) {
+    // The horizontal tap wire from the inverter leg to changeover port 1.
+    addSupplyRailPoint(supplyConverterInputTap.y, changeoverPosition.x)
+    addSupplyRailPoint(supplyConverterInputTap.y, supplyConverterInputTap.x)
+  }
   supplyDevicePositions.forEach(({ device, x, y }) => {
-    if (device.type === 'dc_bus' || !isVerticalSupplyDevice(device)) {
+    if (device.type === 'dc_bus' || !isVerticalPositionedSupplyDevice(device)) {
       addSupplyRailPoint(y, x)
     }
   })
@@ -3675,8 +4076,37 @@ function calculateBottomUpPanelLayout(
   const supplyTopLabelPlacements = getSupplyTopLabelPlacements(
     supplyDevicePositions,
     'Figtree',
-    supplyTrunkNotesOrientation
+    supplyTrunkNotesOrientation,
+    supplyOrientationContext
   )
+  if (changeoverPosition) {
+    // The port elbow rises right beside the switch (the port-1 riser, or the fixed lead when
+    // there is none). Keep the switch's centered name on the near side of that wire.
+    const portOneRiser = usesConverterInputTap ? undefined : supplyDevicePositions.find(
+      ({ device }) =>
+        device.supplyPath === 'changeover-grid' && device.changeoverGridPlacement === 'input-leg'
+    )
+    const wireElbowX =
+      portOneRiser?.x ??
+      changeoverPosition.x +
+        LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_RENDER_SIZE / 2 +
+        LAYOUT_CONSTANTS.SUPPLY_CHANGEOVER_ELBOW_LEAD
+    for (const placement of supplyTopLabelPlacements) {
+      if (placement.deviceId !== changeoverPosition.device.id || placement.kind !== 'name') continue
+      const overlap = placement.x + placement.width - (wireElbowX - 4)
+      if (overlap <= 0) continue
+      // Never push it onto the load-side drop or devices on the other side of the switch.
+      const loadSideLimit = Math.max(
+        supplyBendX,
+        ...supplyDevicePositions
+          .filter(({ x, y }) => x < changeoverPosition.x && Math.abs(y - changeoverPosition.y) < 1)
+          .map(({ x }) => x + LAYOUT_CONSTANTS.SYMBOL_SIZE / 2)
+      )
+      const shift = Math.max(0, Math.min(overlap, placement.x - (loadSideLimit + 4)))
+      placement.x -= shift
+      placement.offsetX -= shift
+    }
+  }
   supplyDevicePositions.forEach((position) => {
     position.topLabelPlacements = supplyTopLabelPlacements.filter(
       (placement) => placement.deviceId === position.device.id
@@ -5464,7 +5894,7 @@ function calculateBottomUpPanelLayout(
   }: Pick<SupplyDevicePosition, 'device' | 'y'>): number => {
     const lineCount =
       hasSupplyInlineLabels(device) &&
-      !isVerticalSupplyDevice(device) &&
+      !isVerticalPositionedSupplyDevice(device) &&
       (device.symbolLabelDisplay?.position ?? 'bottom') === 'bottom'
         ? getSupplyInlineLabelLines(device).reduce(
             (count, line) => count + countSymbolLabelVisualLines(line.text),
@@ -5493,7 +5923,7 @@ function calculateBottomUpPanelLayout(
     usesSplitSupplyGround ? renderedGroundY + LAYOUT_CONSTANTS.SYMBOL_SIZE / 2 : 0
   )
   const voltageLabel = installation?.nominalVoltage
-    ? getVoltageSummaryLabel(installation.nominalVoltage)
+    ? getSupplySourceSummaryLabel(installation)
     : ''
   const voltageLabelRight = voltageLabel
     ? supplyX +
@@ -5637,7 +6067,7 @@ function calculateBottomUpPanelLayout(
         if (metadataPlacement || metadataRenderedByPeer) {
           const multiplier = getSupplyDeviceMultiplier(position.device)
           const badgeOverhang = multiplier > 1 ? getMultiplierBadgeWidth(multiplier) / 2 : 0
-          const sideLines = isVerticalSupplyDevice(position.device)
+          const sideLines = isVerticalPositionedSupplyDevice(position.device)
             ? [
                 position.device.label ?? '',
                 ...(isSymbolLabelVisible(
@@ -5655,7 +6085,7 @@ function calculateBottomUpPanelLayout(
               measureSymbolLabelTextWidth(
                 line,
                 'Figtree',
-                hasSupplyInlineLabels(position.device) && isVerticalSupplyDevice(position.device)
+                hasSupplyInlineLabels(position.device) && isVerticalPositionedSupplyDevice(position.device)
                   ? PROTECTION_LABEL_FONT_SIZE
                   : 8
               )
@@ -5663,7 +6093,7 @@ function calculateBottomUpPanelLayout(
           )
           const sideHeight =
             sideLines.reduce((count, line) => count + countSymbolLabelVisualLines(line), 0) *
-            (hasSupplyInlineLabels(position.device) && isVerticalSupplyDevice(position.device)
+            (hasSupplyInlineLabels(position.device) && isVerticalPositionedSupplyDevice(position.device)
               ? PROTECTION_LABEL_FONT_SIZE + 2
               : 10)
           // Text stays upright after mirroring. Reserve both side-label directions
@@ -5721,9 +6151,9 @@ function calculateBottomUpPanelLayout(
         const labelWidth = Math.max(0, measureLines(labelLines))
         const halfWidth = Math.max(SUPPLY_INFO_DEVICE_HORIZONTAL_REACH, labelWidth / 2 + 5)
         const isVerticalProtection =
-          hasSupplyInlineLabels(position.device) && isVerticalSupplyDevice(position.device)
+          hasSupplyInlineLabels(position.device) && isVerticalPositionedSupplyDevice(position.device)
         const hasVerticalSideLabel =
-          isVerticalSupplyDevice(position.device) && verticalSideLabelWidth > 0
+          isVerticalPositionedSupplyDevice(position.device) && verticalSideLabelWidth > 0
         return {
           left: Math.min(
             position.x - halfWidth,
@@ -5780,12 +6210,16 @@ function calculateBottomUpPanelLayout(
       }
       addRailPoint(supplyY, supplyBendX)
       addRailPoint(supplySourceY, supplyX)
+      if (supplyConverterInputTap && changeoverPosition) {
+        addRailPoint(supplyConverterInputTap.y, changeoverPosition.x)
+        addRailPoint(supplyConverterInputTap.y, supplyConverterInputTap.x)
+      }
       for (const { device, x, y } of supplyDevicePositions) {
         // Devices mounted on inverter/DC-bus risers contribute vertical collision
         // blocks below. Treating their Y coordinate as a supply rail invents a
         // full-width horizontal obstacle that does not exist in the drawing.
         // A DC bus itself remains horizontal even when connected to a top port.
-        if (device.type === 'dc_bus' || !isVerticalSupplyDevice(device)) {
+        if (device.type === 'dc_bus' || !isVerticalPositionedSupplyDevice(device)) {
           addRailPoint(y, x)
         }
       }
@@ -6387,8 +6821,18 @@ function calculateBottomUpPanelLayout(
           lowerY:
             (supplyChangeoverLowerY ?? changeoverPosition.y + changeoverLaneOffset) + frameOffset.y,
           slotEndX: (changeoverSlotEndX ?? changeoverPosition.x) + frameOffset.x,
+          ...(supplyConverterInputTap
+            ? {
+                converterInputTap: {
+                  x: supplyConverterInputTap.x + frameOffset.x,
+                  y: supplyConverterInputTap.y + frameOffset.y,
+                  riserX: supplyConverterInputTap.riserX + frameOffset.x,
+                },
+              }
+            : {}),
         }
       : undefined,
+    ...(usesConverterInputTap ? { supplyChangeoverGridSource: 'converter-input' as const } : {}),
     supplyConverterBranch:
       (hasDirectConverter || hasSupplyChangeover) &&
       (directConverterIndex >= 0 ||
@@ -6556,9 +7000,7 @@ function calculateBottomUpLayoutScoped(
   const panelLayouts: BottomUpPanelLayout[] = []
   const detachedSupplyLayouts: BottomUpPanelLayout[] = []
   const panelLayoutById = new Map<string, BottomUpPanelLayout>()
-  const depthHeights = new Map<number, number>()
   const originalFrameYByPanelId = new Map<string, number>()
-  const depthByPanelId = new Map<string, number>()
 
   // Map to store parent MCB info for each sub-panel
   const subPanelMcbMap = new Map<
@@ -6567,7 +7009,6 @@ function calculateBottomUpLayoutScoped(
   >()
 
   const flatPanels = flattenPanelsForRendering(panels)
-  const useMultiRootForestLayout = panels.length > 1
   flatPanels.forEach((flatPanel) => {
     let parentMcbInfo: {
       protection: ProtectionDevice
@@ -6682,85 +7123,69 @@ function calculateBottomUpLayoutScoped(
 
     panelLayouts.push(panelLayout)
     panelLayoutById.set(flatPanel.panel.id, panelLayout)
-    depthByPanelId.set(flatPanel.panel.id, flatPanel.depth)
     originalFrameYByPanelId.set(flatPanel.panel.id, panelLayout.frame.y)
   })
 
-  applyPanelFrameBottomAlignmentByRow(panelLayouts, (panelLayout) =>
-    useMultiRootForestLayout ? (depthByPanelId.get(panelLayout.panel.id) ?? 0) : 0
-  )
+  applyPanelFrameBottomAlignmentByRow(panelLayouts, () => 0)
 
   const getOrderedChildren = createOrderedPanelChildrenResolver(project, panelLayoutById)
   const placementPanels = flattenPanelsForPlacement(panels, getOrderedChildren)
-
-  panelLayouts.forEach((panelLayout) => {
-    const depth = depthByPanelId.get(panelLayout.panel.id) ?? 0
-    depthHeights.set(depth, Math.max(depthHeights.get(depth) ?? 0, panelLayout.frame.height))
-  })
-
-  const rowOffsetByDepth = new Map<number, number>()
-  let currentRowOffset = 0
-  const maxDepth = Math.max(0, ...depthHeights.keys())
-  for (let depth = 0; depth <= maxDepth; depth++) {
-    rowOffsetByDepth.set(depth, currentRowOffset)
-    currentRowOffset += (depthHeights.get(depth) ?? 0) + ROW_SPACING
-  }
-
-  const subtreeWidthByPanelId = new Map<string, number>()
-  const computeSubtreeWidth = (panel: Panel): number => {
-    const existing = subtreeWidthByPanelId.get(panel.id)
-    if (existing != null) return existing
-    const layout = panelLayoutById.get(panel.id)
-    if (!layout) return 0
-    const childWidths = getOrderedChildren(panel).map((child) => computeSubtreeWidth(child))
-    const childrenWidth =
-      childWidths.length > 0
-        ? childWidths.reduce((sum, width) => sum + width, 0) +
-          PANEL_SPACING * (childWidths.length - 1)
-        : 0
-    const subtreeWidth = Math.max(layout.frame.width, childrenWidth)
-    subtreeWidthByPanelId.set(panel.id, subtreeWidth)
-    return subtreeWidth
-  }
-
-  panels.forEach((panel) => computeSubtreeWidth(panel))
-
-  if (useMultiRootForestLayout) {
-    const placeSubtree = (panel: Panel, leftX: number, depth: number) => {
-      const layout = panelLayoutById.get(panel.id)
-      const subtreeWidth = subtreeWidthByPanelId.get(panel.id) ?? 0
-      if (!layout) return
-
-      const previewFrameShift = getManualOverrideFrameShift(layout, manualOverrides)
-      const targetFrameX = leftX + (subtreeWidth - layout.frame.width) / 2 + previewFrameShift
-      const targetFrameY =
-        (originalFrameYByPanelId.get(panel.id) ?? layout.frame.y) +
-        (rowOffsetByDepth.get(depth) ?? 0)
-      applyShiftToPanelLayout(layout, targetFrameX - layout.frame.x, targetFrameY - layout.frame.y)
-
-      const orderedChildren = getOrderedChildren(panel)
-      if (orderedChildren.length === 0) return
-
-      const childWidths = orderedChildren.map((child) => subtreeWidthByPanelId.get(child.id) ?? 0)
-      const totalChildrenWidth =
-        childWidths.reduce((sum, width) => sum + width, 0) +
-        PANEL_SPACING * (childWidths.length - 1)
-      let childLeft = leftX + (subtreeWidth - totalChildrenWidth) / 2
-      orderedChildren.forEach((child, index) => {
-        placeSubtree(child, childLeft, depth + 1)
-        childLeft += (childWidths[index] ?? 0) + PANEL_SPACING
+  // Keep all main panels together, followed by their feeder-ordered descendants.
+  // A second main panel must not push sub-panels into the detached supply row.
+  const orderedPanels = [
+    ...placementPanels.filter(({ depth }) => depth === 0),
+    ...placementPanels.filter(({ depth }) => depth > 0),
+  ]
+  if (orderedPanels.length >= COMPACT_PANEL_THRESHOLD) {
+    const measure = (panel: Panel): CompactNode => {
+      const layout = panelLayoutById.get(panel.id)!
+      const children: CompactNode[] = getOrderedChildren(panel).map(measure)
+      const packing = packPanelGroup(children, PANEL_SPACING, ROW_SPACING)
+      return {
+        layout,
+        children,
+        packing,
+        width: Math.max(layout.frame.width, packing.width),
+        height: layout.frame.height + (children.length ? ROW_SPACING + packing.height : 0),
+      }
+    }
+    type CompactNode = {
+      layout: BottomUpPanelLayout
+      children: CompactNode[]
+      packing: ReturnType<typeof packPanelGroup>
+      width: number
+      height: number
+    }
+    const roots = panels.map(measure)
+    const forest = packPanelGroup(roots, PANEL_SPACING, ROW_SPACING)
+    const place = (node: CompactNode, x: number, bottom: number) => {
+      const { layout } = node
+      applyShiftToPanelLayout(
+        layout,
+        x +
+          (node.width - layout.frame.width) / 2 +
+          (layout.supplyFrameLeftExpansion ?? 0) +
+          getManualOverrideFrameShift(layout, manualOverrides) -
+          layout.frame.x,
+        bottom - layout.frame.height - layout.frame.y
+      )
+      node.children.forEach((child, index) => {
+        const position = node.packing.positions[index]!
+        place(
+          child,
+          x + (node.width - node.packing.width) / 2 + position.x,
+          bottom - layout.frame.height - ROW_SPACING - position.y
+        )
       })
     }
-
-    let rootLeft = LAYOUT_CONSTANTS.LEFT_MARGIN
-    panels.forEach((panel) => {
-      const subtreeWidth = subtreeWidthByPanelId.get(panel.id) ?? 0
-      placeSubtree(panel, rootLeft, 0)
-      rootLeft += subtreeWidth + PANEL_SPACING
+    const top = 50
+    roots.forEach((root, index) => {
+      const position = forest.positions[index]!
+      place(root, LAYOUT_CONSTANTS.LEFT_MARGIN + position.x, top + forest.height - position.y)
     })
   } else {
     let currentX = LAYOUT_CONSTANTS.LEFT_MARGIN
-    for (const flatPanel of placementPanels) {
+    for (const flatPanel of orderedPanels) {
       const layout = panelLayoutById.get(flatPanel.panel.id)
       if (!layout) continue
       const previewFrameShift = getManualOverrideFrameShift(layout, manualOverrides)
@@ -6769,25 +7194,23 @@ function calculateBottomUpLayoutScoped(
       applyShiftToPanelLayout(layout, targetFrameX - layout.frame.x, targetFrameY - layout.frame.y)
       currentX += layout.frame.width + PANEL_SPACING
     }
-  }
 
-  if (useMultiRootForestLayout) {
-    applyPanelFrameDepthSpacing(panelLayouts, depthByPanelId, ROW_SPACING)
-
-    // Primary panels share one electrical row. Their local frame tops vary with
-    // circuit content, so align the bus anchor and carry each root's sub-panels
-    // with it instead of leaving empty roots lower than populated roots.
-    const referenceMainBusY = panelLayoutById.get(panels[0]?.id ?? '')?.mainBus.y
-    if (referenceMainBusY != null) {
-      const shiftSubtree = (panel: Panel, dy: number) => {
-        const layout = panelLayoutById.get(panel.id)
-        if (layout) applyShiftToPanelLayout(layout, 0, dy)
-        getOrderedChildren(panel).forEach((child) => shiftSubtree(child, dy))
+    if (panels.length > 1) {
+      // Primary panels share one electrical row. Their local frame tops vary with
+      // circuit content, so align the bus anchor and carry each root's sub-panels
+      // with it instead of leaving empty roots lower than populated roots.
+      const referenceMainBusY = panelLayoutById.get(panels[0]?.id ?? '')?.mainBus.y
+      if (referenceMainBusY != null) {
+        const shiftSubtree = (panel: Panel, dy: number) => {
+          const layout = panelLayoutById.get(panel.id)
+          if (layout) applyShiftToPanelLayout(layout, 0, dy)
+          getOrderedChildren(panel).forEach((child) => shiftSubtree(child, dy))
+        }
+        panels.slice(1).forEach((panel) => {
+          const layout = panelLayoutById.get(panel.id)
+          if (layout) shiftSubtree(panel, referenceMainBusY - layout.mainBus.y)
+        })
       }
-      panels.slice(1).forEach((panel) => {
-        const layout = panelLayoutById.get(panel.id)
-        if (layout) shiftSubtree(panel, referenceMainBusY - layout.mainBus.y)
-      })
     }
   }
 
@@ -6821,11 +7244,16 @@ function calculateBottomUpLayoutScoped(
     // port, label, and branch bounds may grow the frame upward, but adding one
     // of those items must not push the existing supply drawing downward.
     const targetMainBusY =
-      ownerLayout.frame.y +
-      ownerLayout.frame.height +
+      (orderedPanels.length >= COMPACT_PANEL_THRESHOLD
+        ? Math.max(...panelLayouts.map((layout) => layout.frame.y + layout.frame.height))
+        : ownerLayout.frame.y + ownerLayout.frame.height) +
       ROW_SPACING +
       DETACHED_SUPPLY_MAIN_BUS_TOP_OFFSET
     let targetFrameY = targetMainBusY - (supplyLayout.mainBus.y - supplyLayout.frame.y)
+    if (orderedPanels.length >= COMPACT_PANEL_THRESHOLD) {
+      targetFrameY = Math.max(targetFrameY,
+        ...panelLayouts.map((layout) => layout.frame.y + layout.frame.height + ROW_SPACING))
+    }
     let candidateFrame = {
       x: targetFrameX,
       y: targetFrameY,

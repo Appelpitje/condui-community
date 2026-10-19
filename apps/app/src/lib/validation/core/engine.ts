@@ -2,7 +2,17 @@
  * Validation engine: runs rules against a project and returns issues
  */
 import type { Panel } from '@/types/schema'
-import type { Issue, RulePack, Scope, CheckContext, ValidationProject } from './types'
+import type {
+  Issue,
+  RulePack,
+  Scope,
+  CheckContext,
+  ValidationProject,
+  ValidationCoverageEntry,
+  ValidationCoverageReport,
+  ValidationCoverageStatus,
+} from './types'
+import { buildValidationCoverageReport } from '../coverage'
 import { DefaultQueryAPI } from './query-api'
 import { getApplicableRulesetDate } from './date-resolver'
 import { selectRulePack } from './ruleset-resolver'
@@ -15,9 +25,16 @@ import {
   selectProjectSupplyAssemblies,
 } from '@/lib/projectV2/electrical'
 import i18n from '@/lib/validation/validationI18n'
+import { collectTerminalStripValidationIssues } from '@/lib/terminalStrip/validation'
+import { withElectricalSnapshotIndex } from '@/lib/projectV2/electricalLookupIndex'
 
 export interface ValidationOptions {
   packs?: RulePack[]
+}
+
+export interface ValidationProjectRun {
+  issues: Issue[]
+  coverage: ValidationCoverageReport
 }
 
 /**
@@ -114,7 +131,13 @@ function mergeIssuesByMergeBucket(issues: Issue[]): Issue[] {
     }
 
     const rcdRuleId = 'be.areibook1.2025.rcd-required-by-circuit-type'
-    if (base.ruleId === rcdRuleId && group.length > 1) {
+    const unknownRcdSensitivity = base.mergeBucket?.endsWith(':unknown-sensitivity') &&
+      (base.ruleId === rcdRuleId || base.ruleId === 'be.areibook1.2025.bathroom-rcd-30ma')
+    if (unknownRcdSensitivity) {
+      // Keep the missing-specification correction when several circuits share
+      // one unknown device; the generic rule text incorrectly asks for hardware.
+      combined.message = i18n.t('validation.primitives.circuitHasRcdProtection.sensitivityMissing.groupMessage')
+    } else if (base.ruleId === rcdRuleId && group.length > 1) {
       const msgKey = `validation.rules.${rcdRuleId}.message`
       const detailsKey = `validation.rules.${rcdRuleId}.details`
       const remediationKey = `validation.rules.${rcdRuleId}.remediation`
@@ -195,26 +218,84 @@ function enumerateScopes(project: ValidationProject): Scope[] {
 /**
  * Check if prerequisites are met
  */
+function getScopeEntity(scope: Scope, query: DefaultQueryAPI, project: ValidationProject): unknown {
+  switch (scope.type) {
+    case 'board': return query.getPanelById(scope.id)
+    case 'circuit': return query.getCircuitById(scope.id)
+    case 'device': return query.getEndpointById(scope.id) ?? query.getProtectionById(scope.id) ?? query.getTrunkDeviceById(scope.id)
+    case 'placement': return query.getPlacementById(scope.id)
+    case 'segment': return query.getCircuits().flatMap((circuit) => query.getCableSegments(circuit.id)).find((segment) => segment.id === scope.id)
+    case 'subgraph': return selectProjectSupplyAssemblies(project).find((assembly) => assembly.id === scope.id)
+    case 'junction': return undefined
+  }
+}
+
+function hasRequiredProperty(scope: Scope, propertyPath: string, query: DefaultQueryAPI, project: ValidationProject): boolean {
+  let value: unknown = getScopeEntity(scope, query, project)
+  for (const key of propertyPath.split('.')) {
+    if (typeof value !== 'object' || value === null || !(key in value)) return false
+    value = (value as Record<string, unknown>)[key]
+  }
+  return value != null
+}
+
+interface PrerequisiteFailure {
+  status: 'skipped' | 'unavailable' | 'missing-information'
+  reason: string
+  missingFacts?: string[]
+  checkName?: string
+}
+
 function checkPrerequisites(
-  prerequisites: RulePack['rules'][0]['prerequisites'],
+  rule: RulePack['rules'][0],
   scope: Scope,
-  query: DefaultQueryAPI
-): boolean {
-  void query
-  if (!prerequisites) return true
-
-  // Check requiresScopeType
+  query: DefaultQueryAPI,
+  project: ValidationProject
+): PrerequisiteFailure | undefined {
+  const prerequisites = rule.prerequisites
+  if (!prerequisites) return undefined
   if (prerequisites.requiresScopeType && !prerequisites.requiresScopeType.includes(scope.type)) {
-    return false
+    return { status: 'skipped', reason: 'required-scope-type-mismatch' }
   }
-
-  // Check skipIf conditions (stub for now - would need to run checks)
-  if (prerequisites.skipIf && prerequisites.skipIf.length > 0) {
-    // For now, skip if any skipIf condition exists (conservative)
-    // In a full implementation, we'd run the checks here
+  for (const propertyPath of prerequisites.requiresProperty ?? []) {
+    if (!hasRequiredProperty(scope, propertyPath, query, project)) {
+      return {
+        status: 'missing-information',
+        reason: 'required-property-absent',
+        missingFacts: [propertyPath],
+      }
+    }
   }
-
-  return true
+  for (const condition of prerequisites.skipIf ?? []) {
+    const checkFn = getPrimitive(condition.check)
+    if (!checkFn) {
+      return { status: 'unavailable', reason: 'unknown-skip-condition-primitive', checkName: condition.check }
+    }
+    const result = checkFn({ scope, query, project }, condition.params)
+    if (Array.isArray(result)) {
+      return {
+        status: 'unavailable',
+        reason: 'skip-condition-returned-issues-without-boolean-outcome',
+        checkName: condition.check,
+      }
+    }
+    if (
+      result.coverage &&
+      result.coverage.status !== 'passed' &&
+      result.coverage.status !== 'failed'
+    ) {
+      return {
+        status: result.coverage.status ?? 'missing-information',
+        reason: result.coverage.reason ?? 'prerequisite-could-not-be-evaluated',
+        missingFacts: result.coverage.missingFacts,
+        checkName: condition.check,
+      }
+    }
+    if (result.passed) {
+      return { status: 'skipped', reason: 'skip-condition-matched', checkName: condition.check }
+    }
+  }
+  return undefined
 }
 
 /**
@@ -225,17 +306,27 @@ function runRule(
   scope: Scope,
   query: DefaultQueryAPI,
   project: ValidationProject,
-  pack: RulePack
+  pack: RulePack,
+  coverageEntries?: ValidationCoverageEntry[],
+  packSelection: 'effective-date' | 'jurisdiction-fallback' = 'effective-date'
 ): Issue[] {
   const issues: Issue[] = []
+  const rulePack = { id: pack.id, version: pack.version, selection: packSelection }
 
   // Check prerequisites
-  if (!checkPrerequisites(rule.prerequisites, scope, query)) {
-    return issues
-  }
-
-  // Check if rule applies to this scope type
-  if (!rule.appliesTo.includes(scope.type)) {
+  if (!rule.appliesTo.includes(scope.type)) return issues
+  const prerequisiteFailure = checkPrerequisites(rule, scope, query, project)
+  if (prerequisiteFailure) {
+    coverageEntries?.push({
+      ruleId: rule.id,
+      ...(prerequisiteFailure.checkName ? { checkName: prerequisiteFailure.checkName } : {}),
+      rulePack,
+      scope,
+      status: prerequisiteFailure.status,
+      reason: prerequisiteFailure.reason,
+      ...(prerequisiteFailure.missingFacts ? { missingFacts: prerequisiteFailure.missingFacts } : {}),
+      issueIds: [],
+    })
     return issues
   }
 
@@ -250,11 +341,20 @@ function runRule(
   for (const checkRef of rule.checks) {
     const checkFn = getPrimitive(checkRef.name)
     if (!checkFn) {
-      // Unknown primitive - skip or log warning
+      coverageEntries?.push({
+        ruleId: rule.id,
+        checkName: checkRef.name,
+        rulePack,
+        scope,
+        status: 'unavailable',
+        reason: 'unknown-primitive',
+        issueIds: [],
+      })
       continue
     }
 
     const result = checkFn(context, checkRef.params)
+    const issueStart = issues.length
 
     // Handle CheckResult
     if ('passed' in result) {
@@ -294,9 +394,11 @@ function runRule(
             : rule.details
               ? translateMessage(rule.details, rule.details)
               : undefined,
-          remediation: rule.remediation
-            ? translateMessage(rule.remediation, rule.remediation)
-            : undefined,
+          remediation: result.remediation != null
+            ? translateMessage(result.remediation, result.remediation)
+            : rule.remediation
+              ? translateMessage(rule.remediation, rule.remediation)
+              : undefined,
           citations: rule.citations.map((citation) => ({
             ...citation,
             title: translateMessage(`validation.citations.${citation.code}.title`, citation.title),
@@ -310,6 +412,26 @@ function runRule(
       // Handle Issue[]
       issues.push(...result)
     }
+    const issueIds = issues.slice(issueStart).map((issue) => issue.id)
+    const checkStatus: ValidationCoverageStatus = Array.isArray(result)
+      ? result.length > 0 ? 'failed' : 'unavailable'
+      : result.passed
+        ? result.coverage?.status ?? 'unavailable'
+        : 'failed'
+    coverageEntries?.push({
+      ruleId: rule.id,
+      checkName: checkRef.name,
+      rulePack,
+      scope,
+      status: checkStatus,
+      ...(Array.isArray(result)
+        ? result.length > 0 ? {} : { reason: 'primitive-does-not-report-check-outcome' }
+        : result.coverage
+          ? result.coverage.reason ? { reason: result.coverage.reason } : {}
+          : result.passed ? { reason: 'primitive-does-not-report-evidence-completeness' } : {}),
+      ...(Array.isArray(result) || !result.coverage?.missingFacts ? {} : { missingFacts: result.coverage.missingFacts }),
+      issueIds,
+    })
   }
 
   return issues
@@ -322,7 +444,56 @@ export function validateProject(
   project: ValidationProject,
   options: ValidationOptions = {}
 ): Issue[] {
-  const allIssues: Issue[] = []
+  return withElectricalSnapshotIndex(getProjectElectricalPanels(project), () =>
+    validateProjectSnapshot(project, options)
+  )
+}
+
+/** Run the existing validator and retain explicit coverage for each rule/check/scope. */
+export function validateProjectWithCoverage(
+  project: ValidationProject,
+  options: ValidationOptions = {}
+): ValidationProjectRun {
+  const coverageEntries: ValidationCoverageEntry[] = []
+  // Worker inputs are plain structured clones. Share lookups only for this
+  // synchronous read pass, without freezing or retaining the caller's document.
+  const issues = withElectricalSnapshotIndex(getProjectElectricalPanels(project), () =>
+    validateProjectSnapshot(project, options, coverageEntries)
+  )
+  const reboundEntries = coverageEntries.map((entry) => {
+    if (entry.issueIds.length === 0) return entry
+    const directIds = entry.issueIds.filter((id) => issues.some((issue) => issue.id === id))
+    if (directIds.length > 0) return { ...entry, issueIds: directIds }
+    // A merge replaces the original issue id. Bind only to the group containing
+    // this entity; the same rule may have other groups with different causes.
+    const matchingRuleIssues = issues
+      .filter((issue) => issue.ruleId === entry.ruleId &&
+        ((issue.scope.type === entry.scope.type && issue.scope.id === entry.scope.id) ||
+          issue.offenders.some((offender) => offender.id === entry.scope.id)))
+      .map((issue) => issue.id)
+    return { ...entry, issueIds: matchingRuleIssues }
+  })
+  return { issues, coverage: buildValidationCoverageReport(reboundEntries) }
+}
+
+function validateProjectSnapshot(
+  project: ValidationProject,
+  options: ValidationOptions,
+  coverageEntries?: ValidationCoverageEntry[]
+): Issue[] {
+  const terminalStripIssues = collectTerminalStripValidationIssues(project, (key, options) =>
+    i18n.t(key, options)
+  )
+  const allIssues: Issue[] = [...terminalStripIssues]
+  for (const issue of terminalStripIssues) {
+    coverageEntries?.push({
+      ruleId: issue.ruleId,
+      checkName: 'terminal-strip-validation',
+      scope: issue.scope,
+      status: 'failed',
+      issueIds: [issue.id],
+    })
+  }
 
   // Log eendraad orphans immediately to the console (so they're visible even before opening validation UI)
   logOrphanReport(project)
@@ -331,13 +502,40 @@ export function validateProject(
   const jurisdiction = getValidationJurisdiction(
     getProjectElectricalInstallation(project)?.address.country
   )
-  if (jurisdiction !== 'BE') return allIssues
+  if (jurisdiction !== 'BE') {
+    const scopes = enumerateScopes(project)
+    for (const pack of options.packs ?? []) {
+      for (const scope of scopes) {
+        for (const rule of pack.rules) {
+          if (!rule.appliesTo.includes(scope.type)) continue
+        coverageEntries?.push({
+            ruleId: rule.id,
+            rulePack: { id: pack.id, version: pack.version, selection: 'unsupported-jurisdiction' },
+            scope,
+            status: 'unavailable',
+            reason: `unsupported-jurisdiction:${jurisdiction}`,
+            issueIds: [],
+          })
+        }
+      }
+    }
+    return allIssues
+  }
 
   // Get rule packs (for now, empty array - will be loaded from rules directory)
   const packs: RulePack[] = options.packs || []
 
   if (packs.length === 0) {
-    // No packs loaded - return empty issues
+    // Terminal circuit isolation is independent of jurisdiction-specific rule packs.
+    for (const scope of enumerateScopes(project)) {
+      coverageEntries?.push({
+        ruleId: 'validation.rulepack',
+        scope,
+        status: 'unavailable',
+        reason: 'no-rule-pack-loaded',
+        issueIds: [],
+      })
+    }
     return allIssues
   }
 
@@ -358,11 +556,18 @@ export function validateProject(
       // If no pack found, try to use the first pack for this jurisdiction as fallback
       const fallbackPack = packs.find((p) => p.jurisdiction === jurisdiction)
       if (!fallbackPack) {
-        continue // No pack for this jurisdiction at all
+        coverageEntries?.push({
+          ruleId: 'validation.rulepack',
+          scope,
+          status: 'unavailable',
+          reason: 'no-rule-pack-for-jurisdiction',
+          issueIds: [],
+        })
+        continue
       }
       // Use fallback pack
       for (const rule of fallbackPack.rules) {
-        const ruleIssues = runRule(rule, scope, query, project, fallbackPack)
+        const ruleIssues = runRule(rule, scope, query, project, fallbackPack, coverageEntries, 'jurisdiction-fallback')
         allIssues.push(...ruleIssues)
       }
       continue
@@ -370,7 +575,7 @@ export function validateProject(
 
     // Run each rule in the pack
     for (const rule of pack.rules) {
-      const ruleIssues = runRule(rule, scope, query, project, pack)
+      const ruleIssues = runRule(rule, scope, query, project, pack, coverageEntries)
       allIssues.push(...ruleIssues)
     }
   }

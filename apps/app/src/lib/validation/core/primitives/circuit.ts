@@ -274,7 +274,7 @@ function stoveCircuitSizingHint(
 ): CheckResult | Issue[] {
   const { scope, query } = context
   if (scope.type !== 'circuit') {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'skipped', reason: 'rule-requires-circuit-scope' } }
   }
 
   const circuit = query.getCircuitById(scope.id)
@@ -351,7 +351,9 @@ function heavyApplianceRequiresDedicatedCircuit(
   if (scope.type !== 'circuit') {
     return { passed: true }
   }
-  if (!isHouseholdInstallation(projectInstallation(project))) return { passed: true }
+  if (!isHouseholdInstallation(projectInstallation(project))) {
+    return { passed: true, coverage: { status: 'skipped', reason: 'dedicated-appliance-circuit-rule-is-household-only' } }
+  }
 
   const circuit = query.getCircuitById(scope.id)
   if (!circuit) return { passed: true }
@@ -652,13 +654,15 @@ function circuitHasTooManyEndpoints(
 ): CheckResult | Issue[] {
   const { scope, query, project } = context
   if (scope.type !== 'circuit') {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'skipped', reason: 'rule-requires-circuit-scope' } }
   }
-  if (!isHouseholdInstallation(projectInstallation(project))) return { passed: true }
+  if (!isHouseholdInstallation(projectInstallation(project))) {
+    return { passed: true, coverage: { status: 'skipped', reason: 'socket-point-limit-is-household-only' } }
+  }
 
   const circuit = query.getCircuitById(scope.id)
   if (!circuit) {
-    return { passed: true } // Circuit not found, skip
+    return { passed: true, coverage: { status: 'missing-information', reason: 'circuit-scope-not-found', missingFacts: ['circuit record'] } }
   }
 
   // Only enforce the endpoint limit on leaf circuits (circuits without subcircuits).
@@ -666,7 +670,7 @@ function circuitHasTooManyEndpoints(
   // aggregate many endpoints across the hierarchy; the AREI-style limit should
   // apply to the lowest-level circuits in that hierarchy instead.
   if (circuit.subCircuitIds && circuit.subCircuitIds.length > 0) {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'skipped', reason: 'container-circuit-is-checked-through-leaf-circuits' } }
   }
 
   // AREI 5.3.5.2 applies this numerical limit to household final circuits
@@ -674,7 +678,7 @@ function circuitHasTooManyEndpoints(
   // are outside this particular eight-point rule.
   const hasSocket = circuit.endpoints.some((endpoint) => endpoint.type === 'socket')
   if (!hasSocket) {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'skipped', reason: 'socket-point-limit-does-not-apply-without-sockets' } }
   }
 
   const {
@@ -687,7 +691,7 @@ function circuitHasTooManyEndpoints(
   const threshold = (params?.threshold as number) || 8
 
   if (endpointCount <= threshold) {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'passed' } }
   }
 
   // Development-only debug log to help understand why this rule fired.

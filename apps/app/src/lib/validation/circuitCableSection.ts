@@ -1,4 +1,3 @@
-import { selectProjectWireRuns } from '@/lib/projectV2/wireRuns'
 /**
  * Circuit cable cross-section resolution for validation (matches primitives logic).
  * Derived layout wires can differ from stored one-wire segments; validation uses derived when available.
@@ -6,13 +5,7 @@ import { selectProjectWireRuns } from '@/lib/projectV2/wireRuns'
 import type { ProtectionType, WireSegment } from '@/types/schema'
 import type { ElectricalDomain } from '@/types/schema'
 import type { InstallationQueryAPI } from '@/lib/validation/core/query-api'
-import { calculateBottomUpLayout } from '@/lib/layout/bottomUpLayout'
-import { buildLayoutTree } from '@/lib/layout/layoutTree'
-import { deriveWires } from '@/lib/layout/deriveWires'
-import {
-  getProjectElectricalInstallation,
-  getProjectElectricalPanels,
-} from '@/lib/projectV2/electrical'
+import { getDerivedWiresForValidation } from './derivedWiresForValidation'
 
 /** AREI Book 1 table 4.11: max circuit-breaker rating (A) per conductor section (mm²). */
 export const MAX_BREAKER_BY_SECTION: Record<number, number> = {
@@ -162,44 +155,11 @@ export function pickRootmostLiveCircuitWireSegmentForFocus(
   )
 }
 
-// A query represents one validation snapshot (the engine constructs a new one
-// for every run). Building the entire drawing for each circuit/check made cable
-// validation repeat layout and wire derivation hundreds of times. Keep the
-// derived wires indexed for this run only, including an empty/failed derivation.
-const derivedSegmentsByQuery = new WeakMap<InstallationQueryAPI, Map<string, WireSegment[]>>()
-
-function getDerivedSegmentsByCircuit(query: InstallationQueryAPI): Map<string, WireSegment[]> {
-  const cached = derivedSegmentsByQuery.get(query)
-  if (cached) return cached
-  const byCircuit = new Map<string, WireSegment[]>()
-  try {
-    const project = (query as { project?: import('@/types/projectV2').ProjectV2 }).project
-    if (project) {
-      const layout = calculateBottomUpLayout(project, new Map())
-      const tree = buildLayoutTree(layout)
-      const installation = getProjectElectricalInstallation(project)
-      if (installation) {
-        const segments = deriveWires(tree, getProjectElectricalPanels(project), installation, [], undefined, selectProjectWireRuns(project))
-        for (const segment of segments) {
-          if (segment.circuitId == null) continue
-          const circuitSegments = byCircuit.get(segment.circuitId)
-          if (circuitSegments) circuitSegments.push(segment)
-          else byCircuit.set(segment.circuitId, [segment])
-        }
-      }
-    }
-  } catch {
-    // Ignore derive failures and fall back to stored segments only.
-  }
-  derivedSegmentsByQuery.set(query, byCircuit)
-  return byCircuit
-}
-
 export function getCircuitSegmentsForValidation(query: InstallationQueryAPI, circuitId: string): {
   segments: WireSegment[]
   source: 'stored' | 'derived'
 } {
-  const derivedSegments = getDerivedSegmentsByCircuit(query).get(circuitId) ?? []
+  const derivedSegments = getDerivedWiresForValidation(query)?.byCircuit.get(circuitId) ?? []
   if (derivedSegments.length > 0) return { segments: derivedSegments, source: 'derived' }
   const storedSegments = (query.getCableSegments(circuitId) ?? []).filter((segment) => segment.circuitId === circuitId)
   return { segments: storedSegments, source: 'stored' }

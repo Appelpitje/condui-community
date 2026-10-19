@@ -89,6 +89,9 @@ import {
 /* @project-documents-strip-end */
 import { getPanelDiagramId } from '@/lib/layout/bottomUpLayout'
 import { buildPanelExportTargets, orderEendraadLayoutsForExport } from './exportPlan'
+import {
+  createSlicedExportPage, createSingleSceneExportPage, type PreparedExportPage,
+} from './preparedExportPage'
 
 function normalizeInstallerProfile(
   profile: InstallerProfile | ExportProjectInstallerOverride
@@ -183,32 +186,35 @@ function buildExportPlan(options: ExportOptions, context: ExportContext): Export
     }
   }
 
-  return pages
-}
-
-/** Pre-prepared eendraad full scenes for all eendraad pages. */
-interface EendraadPrepCache {
-  byPanelId: Map<string, ExportScene>
+  const focusedScene = context.focusedScene
+  if (!focusedScene) return pages
+  return pages.filter((page) => {
+    if (focusedScene.kind === 'plan')
+      return page.scene.kind === 'sitplan' && page.scene.metadata?.floorId === focusedScene.floorId
+    if (focusedScene.kind === 'panel')
+      return page.scene.kind === 'panel' && page.id === 'panel-' + focusedScene.panelId
+    if (page.scene.kind !== 'eendraad') return false
+    const diagramIds = new Set(
+      (context.eendraadLayout?.panels ?? [])
+        .filter((layout) => layout.panel.id === focusedScene.panelId)
+        .map(getPanelDiagramId)
+    )
+    return diagramIds.size > 0
+      ? diagramIds.has(page.id.slice('eendraad-'.length))
+      : page.id === 'eendraad-' + focusedScene.panelId
+  })
 }
 
 interface EendraadOverlayCache {
   byPanelId: Map<string, ReturnType<typeof collectEendraadTextOverlays>>
 }
 
-/**
- * Prepare scene for a page
- * Handles eendraad slicing and scene preparation. When eendraadCache is provided,
- * reuses the same cloned scene for all slices (consistent theme). Each panel
- * height-fits independently so every page of that panel shares one scale.
- */
+/** Prepare one board's full artwork once and acquire its render slices lazily. */
 async function prepareSceneForPage(
   page: ExportPage,
   options: ExportOptions,
   context: ExportContext,
-  eendraadCache?: EendraadPrepCache
-): Promise<ExportScene[]> {
-  const scenes: ExportScene[] = []
-
+): Promise<PreparedExportPage> {
   switch (page.scene.kind) {
     case 'eendraad': {
       const diagramId = page.scene.id.replace('eendraad-', '')
@@ -218,57 +224,21 @@ async function prepareSceneForPage(
       if (!panelLayout) {
         throw new ExportError('NO_CONTENT', `Diagram ${diagramId} not found in layout`)
       }
-
-      const fullScene = eendraadCache
-        ? eendraadCache.byPanelId.get(diagramId)
-        : await prepareEendraadScene(diagramId, 0, null, options, undefined, {
-            project: context.project,
-            panelLayout,
-            wireSegments: context.eendraadWireSegments,
-          })
-      if (!fullScene) {
-        throw new ExportError('NO_CONTENT', `Eendraad scene for diagram ${diagramId} not in cache`)
-      }
-
-      const { slices, globalScale, mainBusY } = await calculateEendraadSlices(
+      const fullScene = await prepareEendraadScene(diagramId, 0, null, options, undefined, {
+        project: context.project,
         panelLayout,
-        fullScene,
-        undefined,
-        getEendraadPaperSize(options)
-      )
-
-      for (let i = 0; i < slices.length; i++) {
-        const slice = slices[i]!
-        const rootClone = fullScene.rootNode.clone({ deep: true })
-        const overlapPx = slice.overlapPx ?? 0
-        const contentRect = {
-          x: slice.x,
-          y: slice.y,
-          width: slice.width,
-          height: slice.height,
-          space: 'scene' as const,
-        }
-        scenes.push({
-          ...fullScene,
-          rootNode: rootClone,
-          id: `eendraad-${diagramId}-slice-${i}`,
-          // Slice-local bounds (including overlap) drive scaling and placement.
-          // The core visible rect (without overlap) is enforced via contentClipRect.
-          bounds: {
-            x: slice.x - overlapPx,
-            y: slice.y,
-            width: slice.width + 2 * overlapPx,
-            height: slice.height,
-            space: 'scene',
-          },
-          contentClipRect: overlapPx > 0 ? contentRect : undefined,
-          metadata: { circuitIds: slice.circuitIds.join(',') },
-          eendraadSlice: { globalScale, mainBusY },
-        })
+        wireSegments: context.eendraadWireSegments,
+      })
+      try {
+        const slicing = await calculateEendraadSlices(
+          panelLayout, fullScene, undefined, getEendraadPaperSize(options)
+        )
+        return createSlicedExportPage(fullScene, diagramId, slicing)
+      } catch (error) {
+        fullScene.rootNode.destroy()
+        throw error
       }
-      break
     }
-
     case 'panel': {
       const panelId = page.scene.id.replace('panel-', '')
       const exportMode = page.scene.metadata?.exportMode
@@ -281,10 +251,8 @@ async function prepareSceneForPage(
             : { kind: 'panel', panelId },
         options
       )
-      scenes.push(scene)
-      break
+      return createSingleSceneExportPage(scene)
     }
-
     case 'sitplan': {
       const floorId = page.scene.metadata?.floorId ?? page.scene.id.replace('sitplan-', '')
       const panelId = page.scene.metadata?.panelId ?? null
@@ -292,15 +260,11 @@ async function prepareSceneForPage(
       if (page.scene.metadata) {
         scene.metadata = { ...(scene.metadata ?? {}), ...page.scene.metadata }
       }
-      scenes.push(scene)
-      break
+      return createSingleSceneExportPage(scene)
     }
-
     default:
       throw new ExportError('NO_CONTENT', `Unknown scene kind: ${page.scene.kind}`)
   }
-
-  return scenes
 }
 
 /**
@@ -388,13 +352,11 @@ export async function exportToPDF(
         )
       }
 
-      // Pre-pass: prepare all eendraad full scenes once. Each panel later
-      // chooses its own height-fit scale so tall notes only shrink that board.
-      let eendraadCache: EendraadPrepCache | undefined
+      // Pre-pass only compact text descriptors. Full artwork is owned by the
+      // current board's page lease and is released before preparing another.
       let eendraadOverlayCache: EendraadOverlayCache | undefined
       const eendraadPages = pages.filter((p) => p.scene.kind === 'eendraad')
       if (eendraadPages.length > 0 && context.eendraadLayout) {
-        const byPanelId = new Map<string, ExportScene>()
         const overlayByPanelId = new Map<string, ReturnType<typeof collectEendraadTextOverlays>>()
         for (const page of eendraadPages) {
           const diagramId = page.scene.id.replace('eendraad-', '')
@@ -402,15 +364,6 @@ export async function exportToPDF(
             (p) => getPanelDiagramId(p) === diagramId
           )
           if (!panelLayout) continue
-          const fullScene = await prepareEendraadScene(
-            diagramId,
-            0,
-            null,
-            { ...options, theme: exportTheme },
-            undefined,
-            { project: context.project, panelLayout, wireSegments: context.eendraadWireSegments }
-          )
-          byPanelId.set(diagramId, fullScene)
           const baseOverlays = collectEendraadTextOverlays(panelLayout, exportTheme)
           const noteOverlays =
             panelLayout.frameRole === 'supply'
@@ -428,13 +381,10 @@ export async function exportToPDF(
           )
           overlayByPanelId.set(diagramId, [...baseOverlays, ...noteOverlays, ...wireLabelOverlays])
         }
-        eendraadCache = {
-          byPanelId,
-        }
         eendraadOverlayCache = {
           byPanelId: overlayByPanelId,
         }
-        exportLog(`[Export] Eendraad pre-pass: ${byPanelId.size} panels`)
+        exportLog(`[Export] Eendraad metadata pre-pass: ${overlayByPanelId.size} diagrams`)
       }
 
       // Resolve effective installer profile and shared strings for per-page info block
@@ -514,6 +464,7 @@ export async function exportToPDF(
       // Process each page in chunks
       for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
         const page = pages[pageIndex]!
+        let preparedPage: PreparedExportPage | undefined
 
         try {
           progressCallbacks?.onPageChange?.(page.id)
@@ -523,29 +474,28 @@ export async function exportToPDF(
           await yieldToBrowser()
 
           // Prepare scenes for this page (may be multiple for eendraad slices)
-          const scenes = await prepareSceneForPage(
+          preparedPage = await prepareSceneForPage(
             page,
             { ...options, theme: exportTheme },
-            context,
-            eendraadCache
+            context
           )
           completedOperations++
           updateProgress()
 
           // Update total operations based on actual scene count
-          const additionalScenes = scenes.length - 1
+          const additionalScenes = preparedPage.sceneCount - 1
           if (additionalScenes > 0) {
             totalOperations += additionalScenes * 2 // render + compose for each additional scene
           }
 
-          exportLog(`[Export] Prepared ${scenes.length} scene(s) for page ${page.id}`)
+          exportLog(`[Export] Prepared ${preparedPage.sceneCount} scene(s) for page ${page.id}`)
 
           // Export each scene as a page
-          for (let sceneIndex = 0; sceneIndex < scenes.length; sceneIndex++) {
-            const scene = scenes[sceneIndex]!
+          for (let sceneIndex = 0; sceneIndex < preparedPage.sceneCount; sceneIndex++) {
+            const scene = preparedPage.acquireScene(sceneIndex)
 
             exportLog(
-              `[Export] Rendering scene ${sceneIndex + 1}/${scenes.length} for page ${page.id}`
+              `[Export] Rendering scene ${sceneIndex + 1}/${preparedPage.sceneCount} for page ${page.id}`
             )
 
             // Yield before rendering
@@ -650,7 +600,7 @@ export async function exportToPDF(
 
             // Create page descriptor for this scene
             const scenePage: ExportPage = {
-              id: `${page.id}${scenes.length > 1 ? `-slice-${sceneIndex}` : ''}`,
+              id: `${page.id}${preparedPage.sceneCount > 1 ? `-slice-${sceneIndex}` : ''}`,
               scene,
               pageSize: scenePaperSize,
               orientation:
@@ -768,6 +718,7 @@ export async function exportToPDF(
             updateProgress()
 
             successfulPages++
+            preparedPage.releaseScene()
             isFirstPage = false
             exportLog(`[Export] Successfully added page ${successfulPages}`)
           }
@@ -787,6 +738,9 @@ export async function exportToPDF(
           // Still count as completed operation for progress
           completedOperations += 3
           updateProgress()
+        } finally {
+          // Includes the active slice and full board on render/compose failure.
+          preparedPage?.dispose()
         }
 
         // Yield after each page

@@ -5,6 +5,7 @@ import { DEFAULT_CABLE_ROUTE_SETTINGS } from '@/lib/cableRouting/estimateCableRo
 import { cableScheduleDocument } from '@/lib/documents/projectDocuments'
 import { resolvePlanWiringVisibility } from '@/lib/plan/planWiring'
 import { selectProjectPlanWiringVisibility } from '@/lib/projectV2/planWiring'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { useProjectStore } from '@/stores/projectStore'
 import type { PlanCableRouteSettings } from '@/types/schema'
 
@@ -59,10 +60,12 @@ export function CableScheduleProperties({ readOnly = false }: { readOnly?: boole
             type="checkbox"
             checked={visibility.colorCoded === true}
             disabled={readOnly}
-            onChange={(event) => updateVisibility({ colorCoded: event.target.checked })}
+            onChange={(event) =>
+              runProjectCommand('plan.setColors', { enabled: event.target.checked })
+            }
             className="rounded border-gray-400"
           />
-          {t('sitplanVisibility.wiresColorCoded', 'Colour by group')}
+          {t('sitplanVisibility.colors')}
         </label>
         <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
           <input

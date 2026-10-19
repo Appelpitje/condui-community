@@ -1,3 +1,4 @@
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import {
   forwardRef,
   useCallback,
@@ -170,6 +171,8 @@ export const QuickPlacerPanel = forwardRef<HTMLDivElement, QuickPlacerPanelProps
     },
     forwardedRef
   ) {
+    const window = useCanvasWindow()
+    const document = window.document
     const { t } = useTranslation()
     const selectedPlacementIds = useStoreWithEqualityFn(
       useUIStore,
@@ -426,7 +429,7 @@ export const QuickPlacerPanel = forwardRef<HTMLDivElement, QuickPlacerPanelProps
         window.cancelAnimationFrame(touchDragFrameRef.current)
         touchDragFrameRef.current = null
       }
-    }, [onItemDragEnd])
+    }, [onItemDragEnd, window])
 
     useEffect(() => {
       return () => {
@@ -529,7 +532,7 @@ export const QuickPlacerPanel = forwardRef<HTMLDivElement, QuickPlacerPanelProps
           capture: true,
         })
       },
-      [cleanupTouchGesture, mode, onItemDragStart]
+      [cleanupTouchGesture, mode, onItemDragStart, window]
     )
 
     const isItemHighlighted = useCallback(

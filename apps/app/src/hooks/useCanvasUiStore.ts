@@ -13,9 +13,21 @@ export const useSetSelectionStore = () => useUIStore((s) => s.setSelection)
 
 export const useClearSelectionStore = () => useUIStore((s) => s.clearSelection)
 
+let forwardedInputCommitDepth = 0
+
+/** Forwarded lazy-canvas events already run after the native input handler. */
+export function commitForwardedCanvasInput<T>(handle: () => T): T {
+  forwardedInputCommitDepth++
+  try {
+    return handle()
+  } finally {
+    forwardedInputCommitDepth--
+  }
+}
+
 /** Defer past the current input event (microtasks still run before mouseup ends). */
 function scheduleInputCommit(callback: () => void): void {
-  if (typeof window === 'undefined') {
+  if (forwardedInputCommitDepth > 0 || typeof window === 'undefined') {
     callback()
     return
   }
@@ -46,18 +58,32 @@ export function useCommitSelection() {
   const setSelection = useUIStore((s) => s.setSelection)
   const pendingSelectionRef = useRef<Selection | null>(null)
   const flushScheduledRef = useRef(false)
+  const commitGenerationRef = useRef(0)
   useEffect(() => {
     return () => {
       pendingSelectionRef.current = null
       flushScheduledRef.current = false
+      commitGenerationRef.current++
     }
   }, [])
   return useCallback(
     (next: Selection) => {
+      if (forwardedInputCommitDepth > 0) {
+        // A previously queued native click must not keep a forwarded handler
+        // pending past the temporary diagram's lifetime or overwrite its result.
+        commitGenerationRef.current++
+        pendingSelectionRef.current = null
+        flushScheduledRef.current = false
+        setSelection(next)
+        clearStaleHoverOnSelectionChange()
+        return
+      }
       pendingSelectionRef.current = next
       if (flushScheduledRef.current) return
       flushScheduledRef.current = true
+      const generation = ++commitGenerationRef.current
       scheduleInputCommit(() => {
+        if (generation !== commitGenerationRef.current) return
         flushScheduledRef.current = false
         const pending = pendingSelectionRef.current
         pendingSelectionRef.current = null

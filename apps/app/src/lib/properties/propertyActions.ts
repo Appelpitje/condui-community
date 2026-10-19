@@ -1,5 +1,5 @@
 import type { ProjectV2 } from '@/types/projectV2'
-import type { Placement } from '@/types/schema'
+import type { Endpoint, Placement } from '@/types/schema'
 import { findEndpointById } from '@/lib/eendraad/projectElectricalDomain'
 import { deletePlacementsFromProject } from '@/lib/plan/placementMutations'
 import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
@@ -12,6 +12,8 @@ import { isModularSocket } from '@/lib/socket/modularSocket'
 import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { setSupplyDevicePanelVisibility } from '@/lib/panel/supplyPanelVisibility'
 import { syncPanelAndSituationPlanDeviceVisibility } from '@/lib/plan/panelPlanPlacementVisibility'
+import { circuitModuleRef, releaseCircuitModuleMountingInProject } from '@/lib/panel/circuitModuleMounting'
+import { listRemountableCircuitModules } from '@/lib/panel/circuitModuleMountingRules'
 
 export function getEndpointMultiplierPlacementChanges(
   placements: readonly Placement[],
@@ -75,7 +77,17 @@ export function setPanelModuleVisibilityInProject(
   moduleRefKey: string,
   visible: boolean
 ): boolean {
-  if (visible) return unhideModuleFromPanelInProject(project, panelId, moduleRefKey)
+  const mounted = listRemountableCircuitModules(getEditableProjectElectricalPanels(project)).find(
+    (occurrence) => occurrence.ownerPanel.id === panelId &&
+      occurrence.entity.panelMounting?.kind === 'auxiliary' &&
+      panelGridModuleRefKey(circuitModuleRef(occurrence)) === moduleRefKey
+  )
+  if (!visible && mounted?.form === 'endpoint' && isModularSocket(mounted.entity as Endpoint))
+    return false
+  const released = mounted
+    ? releaseCircuitModuleMountingInProject(project, circuitModuleRef(mounted))
+    : false
+  if (visible) return unhideModuleFromPanelInProject(project, panelId, moduleRefKey) || released
   const supplyDevice = getAllSupplyTrunkDevices(project).find(
     (device) => `trunkDevice:${device.id}:supply` === moduleRefKey
   )
@@ -116,7 +128,7 @@ export function setPanelModuleVisibilityInProject(
     if (panel.gridView.shownModuleKeys.length === 0) panel.gridView.shownModuleKeys = undefined
     changed = true
   }
-  if (!changed) return false
+  if (!changed && !released) return false
   syncPanelAndSituationPlanDeviceVisibility(project, { kind: 'hide', panelId, moduleRefKey })
   return true
 }

@@ -41,7 +41,15 @@ import { setAuxiliaryEnclosureShownOnPlan } from '@/lib/plan/auxiliaryEnclosureP
 import {
   setPanelFeedOrganizationInProject,
   getPanelFeedOrganization,
+  applyPanelBusFeedBoundaryInProject,
+  panelHasModularChangeover,
+  panelHasBackupOutput,
 } from '@/lib/panel/panelFeedOrganization'
+import { getMainBusOrder } from '@/lib/eendraad/mainBusOrder'
+import {
+  getChangeoverGridSourceAvailability,
+  setChangeoverGridSourceInProject,
+} from '@/lib/supplyAssembly/changeoverGridSourceEdit'
 import { editWireRunAtAnchor } from '@/lib/wires/editWireRun'
 import { findWireRunForAnchor, selectProjectWireRuns } from '@/lib/projectV2/wireRuns'
 import { buildElectricalStructureSnapshot } from '@/lib/electricalStructure/builder'
@@ -60,10 +68,26 @@ import { findEndpointById, getAllCircuits } from '@/lib/eendraad/projectElectric
 import type { CableSpec, TrunkDevice, CircuitPhaseAssignment } from '@/types/schema'
 import { getPanelBusSections, getPrimaryPanelBusSectionId } from '@/lib/panel/panelBusSections'
 import { getBusbarPhaseOrder } from '@/lib/wires/phaseAssignment'
+import { checkProjectSupplyConnection, setProjectSupplyConnectionInProject } from '@/lib/electrical/projectSupplyConnection'
 export function checkExtraElectricalAction(
   project: ProjectV2,
   action: ExtraElectricalAction
 ): CommandCheck {
+  if (action.kind === 'projectSupplyConnection') return checkProjectSupplyConnection(project)
+  if (action.kind === 'panelBusFeedBoundary') {
+    const panel = findPanelById(getProjectElectricalPanels(project), action.panelId)
+    if (!panel || panel.isMain === false || !getProjectElectricalInstallation(project))
+      return { ok: false, code: 'stale_target', message: 'Main panel no longer exists' }
+    if (action.mainBusInsertIndex >= getMainBusOrder(panel).length)
+      return { ok: false, code: 'invalid_boundary', message: 'Bus feed boundary is outside the bus' }
+    if (
+      !panel.busSections?.length &&
+      !panelHasBackupOutput(project, panel.id) &&
+      !panelHasModularChangeover(project, panel.id)
+    )
+      return { ok: false, code: 'feed_unavailable', message: 'This panel has no split feed' }
+    return { ok: true }
+  }
   if (action.kind === 'busbarPhaseOrder') {
     const panel = findPanelById(getProjectElectricalPanels(project), action.panelId)
     const validOwner =
@@ -86,6 +110,24 @@ export function checkExtraElectricalAction(
       getBusbarPhaseOrder(panel!, action.ownerId, action.busSectionId).length === 3
       ? { ok: true }
       : { ok: false, code: 'invalid_busbar', message: 'Busbar not found' }
+  }
+  if (action.kind === 'changeoverGridSource') {
+    if (!findPanelById(getProjectElectricalPanels(project), action.panelId))
+      return { ok: false, code: 'stale_target', message: 'Panel no longer exists' }
+    const availability = getChangeoverGridSourceAvailability(project, action.panelId)
+    if (!availability.changeoverId)
+      return {
+        ok: false,
+        code: 'missing_changeover',
+        message: 'This panel has no changeover switch',
+      }
+    if (action.source === 'converter-input' && !availability.available)
+      return {
+        ok: false,
+        code: 'changeover_grid_source_unavailable',
+        message: 'The changeover cannot be fed from the inverter grid input on this panel',
+      }
+    return { ok: true }
   }
   let exists = false
   if (action.kind === 'auxiliaryPlanVisibility')
@@ -169,6 +211,11 @@ export function applyExtraElectricalAction(
   action: ExtraElectricalAction,
   env: CommandEnv
 ): EntityRef[] {
+  if (action.kind === 'projectSupplyConnection') {
+    return setProjectSupplyConnectionInProject(project, action.connection, env)
+      ? [{ kind: 'installation', id: 'electrical' }]
+      : []
+  }
   if (action.kind === 'supplyUnit') {
     const device = findTrunkDeviceInProject(project, action.deviceId)!
     const key =
@@ -279,6 +326,20 @@ export function applyExtraElectricalAction(
       ? [{ kind: 'element', id: action.enclosureId }]
       : []
   }
+  if (action.kind === 'changeoverGridSource') {
+    const availability = getChangeoverGridSourceAvailability(project, action.panelId)
+    if (availability.requested === action.source) return []
+    if (!setChangeoverGridSourceInProject(project, action.panelId, action.source))
+      throw new CommandError(
+        'check_failed',
+        'The changeover grid input source cannot be changed on this panel',
+        { reason: 'changeover_grid_source_unavailable' }
+      )
+    return [
+      { kind: 'trunkDevice', id: availability.changeoverId! },
+      { kind: 'panel', id: action.panelId },
+    ]
+  }
   if (action.kind === 'panelFeedOrganization') {
     const panel = findPanelById(getProjectElectricalPanels(project), action.panelId)!
     if (getPanelFeedOrganization(project, panel) === action.organization) return []
@@ -294,6 +355,18 @@ export function applyExtraElectricalAction(
     if (
       !result &&
       JSON.stringify(findPanelById(getProjectElectricalPanels(project), action.panelId)) === before
+    )
+      return []
+    return [{ kind: 'panel', id: action.panelId }]
+  }
+  if (action.kind === 'panelBusFeedBoundary') {
+    if (
+      !applyPanelBusFeedBoundaryInProject(
+        project,
+        action.panelId,
+        action.feed,
+        action.mainBusInsertIndex
+      )
     )
       return []
     return [{ kind: 'panel', id: action.panelId }]

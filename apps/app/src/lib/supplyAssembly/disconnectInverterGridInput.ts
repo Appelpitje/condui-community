@@ -7,6 +7,7 @@ import {
 } from '@/lib/projectV2/electrical'
 import { setPanelFeedOrganizationInProject } from '@/lib/panel/panelFeedOrganization'
 import {
+  reconcileChangeoverSupplyAssembly,
   reconcileDirectConverterGridProtections,
   reconcileSupplyAssemblyBranchProtections,
 } from './editorIntegration'
@@ -107,6 +108,13 @@ export function disconnectSupplyInverterGridInputInProject(
 
   if (hasModularChangeover) {
     reconcileSupplyAssemblyBranchProtections(project, panelId)
+    // A changeover fed from this leg falls back to the grid tap: realign its switched
+    // conductors with the grid instead of the inverter.
+    const changeover = topology.rootFeeds
+      .filter((feed) => feed.panelId === panelId)
+      .flatMap((feed) => feed.trunkDevices ?? [])
+      .find((device) => device.symbol === 'source_changeover')
+    if (changeover) reconcileChangeoverSupplyAssembly(project, changeover)
   } else {
     reconcileDirectConverterGridProtections(project, panelId)
   }

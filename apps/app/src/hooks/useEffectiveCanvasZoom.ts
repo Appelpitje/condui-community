@@ -1,5 +1,5 @@
 import { ZOOM_100 } from '@/constants/canvasConstants'
-import { useUIStore } from '@/stores/uiStore'
+import { useViewportUIStore as useUIStore } from '@/components/viewport/ViewportUIStore'
 import type { CanvasType } from '@/types/ui'
 
 /**

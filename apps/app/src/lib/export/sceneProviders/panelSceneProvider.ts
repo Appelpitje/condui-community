@@ -1,3 +1,4 @@
+import { prepareIsolatedExportScene } from './isolatedExportScene'
 import { logger } from '@/lib/logger'
 /**
  * Panel scene provider
@@ -15,6 +16,7 @@ import { useCanvasRegistryStore } from '@/stores/canvasRegistryStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { exportLog } from '../exportLogger'
 import { stripInteractiveOverlaysForExport } from '../interactiveOverlayExport'
+import { acquireCanvasGroupMaterialization } from '@/lib/canvas/groupMaterialization'
 
 export type PanelSceneExportMode =
   | { kind: 'panel'; panelId: string }
@@ -59,15 +61,14 @@ export async function preparePanelScene(
   }
 
   // 2. Get stage from registry (now always returns stage if canvas is mounted)
-  const canvasRegistry = useCanvasRegistryStore.getState().registry
   const stageLookupId = exportMode.kind === 'panel' ? exportMode.panelId : (activePanelId ?? '')
-  let stage = canvasRegistry.panel?.getStage(stageLookupId)
+  let stage = useCanvasRegistryStore.getState().registry.panel?.getStage(stageLookupId)
 
   // Retry a few times in case stage isn't immediately available
   if (!stage) {
     for (let i = 0; i < 5; i++) {
       await new Promise((resolve) => requestAnimationFrame(resolve))
-      stage = canvasRegistry.panel?.getStage(stageLookupId)
+      stage = useCanvasRegistryStore.getState().registry.panel?.getStage(stageLookupId)
       if (stage) break
     }
   }
@@ -106,86 +107,99 @@ export async function preparePanelScene(
 
   exportLog(`[Export] Found canvas-content group for ${exportMode.kind}`)
 
-  // 4. Clone into isolated temporary stage
-  const tempStage = new Konva.Stage({
-    container: document.createElement('div'),
-    width: stage.width(),
-    height: stage.height(),
-  })
-
-  const tempLayer = new Konva.Layer()
-  tempStage.add(tempLayer)
-
+  // A per-board page needs only that board's offscreen artwork. The overview
+  // deliberately materializes the complete hierarchy once.
+  const materializationGroup =
+    exportMode.kind === 'hierarchy-surface'
+      ? canvasContentGroup.findOne<Konva.Group>(`.hierarchy-surface-${exportMode.surfaceId}`)
+      : canvasContentGroup
+  if (!materializationGroup) {
+    throw new ExportError(
+      'NO_CONTENT',
+      `Hierarchy surface ${exportMode.kind === 'hierarchy-surface' ? exportMode.surfaceId : ''} not found in export scene.`
+    )
+  }
   // Clone canvas-content Group (deep clone, no live references)
-  const clonedGroup = canvasContentGroup.clone({
-    // Clone all children recursively
-    deep: true,
-  })
+  const releaseMaterialization = await acquireCanvasGroupMaterialization(materializationGroup)
+  let clonedGroup: Konva.Group
+  try {
+    clonedGroup = canvasContentGroup.clone({ deep: true })
+  } finally {
+    releaseMaterialization()
+  }
+  return prepareIsolatedExportScene(clonedGroup, async (createStage) => {
+    clonedGroup.find('.panel-surface-placeholder').forEach((node) => node.destroy())
 
-  // Reset transforms to identity (scene space is canvas-content space)
-  clonedGroup.x(0)
-  clonedGroup.y(0)
-  clonedGroup.scaleX(1)
-  clonedGroup.scaleY(1)
-  clonedGroup.rotation(0)
+    // Reset transforms to identity (scene space is canvas-content space)
+    clonedGroup.x(0)
+    clonedGroup.y(0)
+    clonedGroup.scaleX(1)
+    clonedGroup.scaleY(1)
+    clonedGroup.rotation(0)
 
-  stripInteractiveOverlaysForExport(clonedGroup)
+    stripInteractiveOverlaysForExport(clonedGroup)
 
-  // Normalize symbol images (supply, domotica, etc.) to data URLs so SVG/PDF embed them
-  const sourceTheme = useSettingsStore.getState().theme.mode
-  const targetTheme = options.theme ?? 'light'
-  const symbolExports = collectAndRemoveSymbolImagesForExport(clonedGroup)
+    // Normalize symbol images (supply, domotica, etc.) to data URLs so SVG/PDF embed them
+    const sourceTheme = useSettingsStore.getState().theme.mode
+    const targetTheme = options.theme ?? 'light'
+    const symbolExports = collectAndRemoveSymbolImagesForExport(clonedGroup)
 
-  await adjustSymbolImagesForExport(clonedGroup, sourceTheme, targetTheme)
+    await adjustSymbolImagesForExport(clonedGroup, sourceTheme, targetTheme)
 
-  tempLayer.add(clonedGroup)
-  tempStage.draw()
+    // Allocate the temporary stage only after materialization and asynchronous
+    // image preparation succeeded, so a failed acquire cannot leak a stage.
+    const tempStage = createStage(stage.width(), stage.height())
+    const tempLayer = new Konva.Layer()
+    tempStage.add(tempLayer)
+    tempLayer.add(clonedGroup)
+    tempStage.draw()
 
-  // 5. Calculate bounds in scene coordinate space (fallback to stage size if invalid)
-  const fallbackBounds = {
-    x: 0,
-    y: 0,
-    width: tempStage.width(),
-    height: tempStage.height(),
-    space: 'scene',
-  } as const
-
-  let bounds = calculateSceneBounds(clonedGroup, fallbackBounds)
-
-  if (exportMode.kind === 'hierarchy-surface') {
-    const selector = `.hierarchy-surface-${exportMode.surfaceId}`
-    const surfaceNode = clonedGroup.findOne(selector)
-    if (!surfaceNode) {
-      throw new ExportError(
-        'NO_CONTENT',
-        `Hierarchy surface ${exportMode.surfaceId} not found in export scene.`
-      )
-    }
-    const rect = surfaceNode.getClientRect({ relativeTo: clonedGroup })
-    bounds = {
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height,
+    // 5. Calculate bounds in scene coordinate space (fallback to stage size if invalid)
+    const fallbackBounds = {
+      x: 0,
+      y: 0,
+      width: tempStage.width(),
+      height: tempStage.height(),
       space: 'scene',
+    } as const
+
+    let bounds = calculateSceneBounds(clonedGroup, fallbackBounds)
+
+    if (exportMode.kind === 'hierarchy-surface') {
+      const selector = `.hierarchy-surface-${exportMode.surfaceId}`
+      const surfaceNode = clonedGroup.findOne(selector)
+      if (!surfaceNode) {
+        throw new ExportError(
+          'NO_CONTENT',
+          `Hierarchy surface ${exportMode.surfaceId} not found in export scene.`
+        )
+      }
+      const rect = surfaceNode.getClientRect({ relativeTo: clonedGroup })
+      bounds = {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        space: 'scene',
+      }
     }
-  }
 
-  const sceneId =
-    exportMode.kind === 'panel'
-      ? `panel-${exportMode.panelId}`
-      : exportMode.kind === 'overview'
-        ? 'panel-overview'
-        : `panel-${exportMode.surfaceId}`
+    const sceneId =
+      exportMode.kind === 'panel'
+        ? `panel-${exportMode.panelId}`
+        : exportMode.kind === 'overview'
+          ? 'panel-overview'
+          : `panel-${exportMode.surfaceId}`
 
-  // 6. Return isolated scene
-  return {
-    id: sceneId,
-    kind: 'panel',
-    renderedTheme: sourceTheme,
-    rootNode: clonedGroup, // Isolated clone, safe to export
-    bounds,
-    preferredOrientation: exportMode.kind === 'overview' ? 'landscape' : 'portrait',
-    symbolExports: symbolExports.length > 0 ? symbolExports : undefined,
-  }
+    // 6. Return isolated scene
+    return {
+      id: sceneId,
+      kind: 'panel',
+      renderedTheme: sourceTheme,
+      rootNode: clonedGroup, // Isolated clone, safe to export
+      bounds,
+      preferredOrientation: exportMode.kind === 'overview' ? 'landscape' : 'portrait',
+      symbolExports: symbolExports.length > 0 ? symbolExports : undefined,
+    }
+  })
 }

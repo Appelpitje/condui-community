@@ -87,7 +87,7 @@ export function PdfPageCanvas({
         if (!canvas || !context) return
         canvas.width = Math.round(viewport.width)
         canvas.height = Math.round(viewport.height)
-        const task = page.render({ canvasContext: context, viewport, background: 'white' })
+        const task = page.render({ canvas, canvasContext: context, viewport, background: 'white' })
         renderTask = task as { cancel?: () => void }
         await task.promise
       } catch {

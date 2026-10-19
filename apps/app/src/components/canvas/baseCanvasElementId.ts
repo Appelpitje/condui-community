@@ -14,6 +14,7 @@ export function resolveKonvaElementId(node: Konva.Node, stage: Konva.Stage): str
       'note-',
       'frame-',
       'wire-',
+      'oneWireReference-',
     ]
     for (const p of prefixes) {
       if (name.startsWith(p)) return name.slice(p.length)

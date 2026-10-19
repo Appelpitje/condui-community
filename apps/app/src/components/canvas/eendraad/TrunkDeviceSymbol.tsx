@@ -137,6 +137,7 @@ import {
 import { clampConverterDcConnectionCount } from '@/lib/eendraad/resizeConverterDcConnections'
 import { resizeConverterDcConnections } from '@/handlers/eendraad/resizeConverterDcConnections'
 import { isVerticalSupplyDevice } from '@/lib/layout/supplyDeviceOrientation'
+import { isConverterGridLegPlacement } from '@/lib/supplyAssembly/changeoverGridSource'
 import type { SupplyTopLabelPlacement } from '@/lib/layout/supplyTopLabelLayout'
 import { ConverterResizeViewportContext } from './ConverterResizeViewportContext'
 import {
@@ -383,7 +384,10 @@ export function TrunkDeviceSymbol({
       : (switchSymbolPaths?.basePath ?? symbol?.svgPath)
   const nameLabelText = (device.label ?? '').trim()
   const junctionIdentityText = getJunctionIdentity(device)
-  const isVerticalSupplyProtection = hasInlineLabels && isVerticalSupplyDevice(device)
+  // The canvas passes the positioned orientation: in an inverter-leg-fed changeover, port-1
+  // devices are inline on the tap wire although their placement names the input leg.
+  const isVerticalSupplyProtection =
+    hasInlineLabels && isHorizontal !== true && isVerticalSupplyDevice(device)
   const showSupplyProtectionNameLabel =
     (isHorizontal === true || isVerticalSupplyProtection) &&
     (hasInlineLabels || device.symbol === 'source_changeover') &&
@@ -441,6 +445,7 @@ export function TrunkDeviceSymbol({
     )
   const hasConnectedBottomWire = isConversionSymbol && device.converterGridInputConnected !== false
   const conversionLabelParts = getVisibleConversionLabelParts(device)
+  const placeConversionLabelsOnTop = isTransformer && isHorizontal === true
   const certificationLabelParts = getVisibleCertificationLabelParts(device)
   const notesText = (device.notes ?? '').trim()
   const showNotesLabel =
@@ -538,7 +543,8 @@ export function TrunkDeviceSymbol({
   }, [domoticaMainSocketOverlayPath, isDomoticaDevice, theme?.mode])
   const stackedRightLabelItems = useMemo(
     () => [
-      ...(isConversionSymbol || device.symbol === 'solar_panel' || device.symbol === 'battery'
+      ...(!placeConversionLabelsOnTop &&
+        (isConversionSymbol || device.symbol === 'solar_panel' || device.symbol === 'battery')
         ? conversionLabelParts.map((part) => ({ key: part.key, text: part.text }))
         : []),
       ...(!placeNotesOnTop
@@ -555,6 +561,7 @@ export function TrunkDeviceSymbol({
       isConversionSymbol,
       notesText,
       placeNotesOnTop,
+      placeConversionLabelsOnTop,
       showDeviceLabelLeft,
       showNotesLabel,
     ]
@@ -568,6 +575,9 @@ export function TrunkDeviceSymbol({
   )
   const topStackLabelItems = useMemo(
     () => [
+      ...(placeConversionLabelsOnTop
+        ? conversionLabelParts.map((part) => ({ key: part.key, text: part.text }))
+        : []),
       ...certificationLabelParts.map((part) => ({ key: part.key, text: part.text })),
       ...(showNotesLabel && !showDeviceLabelLeft && !renderSupplyNotesVertically
         ? [{ key: 'trunkDeviceNotes' as const, text: notesText }]
@@ -575,6 +585,8 @@ export function TrunkDeviceSymbol({
     ],
     [
       certificationLabelParts,
+      conversionLabelParts,
+      placeConversionLabelsOnTop,
       notesText,
       renderSupplyNotesVertically,
       showDeviceLabelLeft,
@@ -610,7 +622,10 @@ export function TrunkDeviceSymbol({
   ).filter(
     ({ device: peer }) =>
       isSupplyMetadataCalloutDevice(peer) &&
-      !(peer.supplyPath === 'converter-grid' && peer.converterGridPlacement === 'input-leg')
+      !(
+        peer.supplyPath === 'converter-grid' &&
+        isConverterGridLegPlacement(peer.converterGridPlacement)
+      )
   ).length
   const metadataCalloutPlacementKind = getSupplyMetadataCalloutPlacementKind({
     symbol: device.symbol,
@@ -636,7 +651,10 @@ export function TrunkDeviceSymbol({
     const peers = peerPositions.filter(
       ({ device: peer }) =>
         isSupplyMetadataCalloutDevice(peer) &&
-        !(peer.supplyPath === 'converter-grid' && peer.converterGridPlacement === 'input-leg')
+        !(
+          peer.supplyPath === 'converter-grid' &&
+          isConverterGridLegPlacement(peer.converterGridPlacement)
+        )
     )
     const hasLongPeer = peers.some(({ device: peer }) => {
       const lines = getSupplyMetadataLinesForDevice(peer)

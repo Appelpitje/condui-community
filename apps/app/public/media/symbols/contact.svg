@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-43.2 -39.2 91.3 91.3" role="img" aria-label="Contact">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-10.4,6.0 27.7,28.0 27.7,18.0 -10.4,-4.0" fill="#f1f5f9"/>
+  <polygon points="38.1,22.0 27.7,28.0 27.7,18.0 38.1,12.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-10.0 38.1,12.0 27.7,18.0 -10.4,-4.0" fill="#ffffff"/>
+  <polygon points="-26.0,15.0 12.1,37.0 12.1,27.0 -26.0,5.0" fill="#f1f5f9"/>
+  <polygon points="22.5,31.0 12.1,37.0 12.1,27.0 22.5,21.0" fill="#cbd5e1"/>
+  <polygon points="-15.6,-1.0 22.5,21.0 12.1,27.0 -26.0,5.0" fill="#ffffff"/>
+  <path d="M-5.2 -2.0C-19.2 -2.0 -29.2 -14.0 -33.2 -24.0" fill="none" stroke-width="5"/><path d="M-5.2 -2.0C-19.2 -2.0 -29.2 -14.0 -33.2 -24.0" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+</g>
+</svg>

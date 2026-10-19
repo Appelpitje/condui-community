@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-23.1 -66.0 131.0 131.0" role="img" aria-label="Stopcontact">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-5.2,3.0 84.9,55.0 84.9,-1.0 -5.2,-53.0" fill="#283548"/>
+  <polygon points="90.1,52.0 84.9,55.0 84.9,-1.0 90.1,-4.0" fill="#1e293b"/>
+  <polygon points="0.0,-56.0 90.1,-4.0 84.9,-1.0 -5.2,-53.0" fill="#334155"/>
+  <g transform="matrix(0.8660 0.5 0 1 -5.20 3.00)"><defs><clipPath id="rim-0f172a-0"><circle cx="26" cy="-28" r="18"/></clipPath></defs>
+<circle cx="26" cy="-28" r="18" fill="#1e293b"/>
+<g clip-path="url(#rim-0f172a-0)"><g transform="translate(6 -6)">
+  <circle cx="26" cy="-28" r="18" fill="#0f172a"/>
+  <circle cx="17" cy="-25" r="2.8" fill="#64748b"/><circle cx="35" cy="-25" r="2.8" fill="#64748b"/>
+  <path d="M26 -39L23 -36" stroke-width="7.5"/>
+  <path d="M26 -39L23 -36" stroke="#64748b" stroke-width="5"/>
+  <circle cx="23" cy="-36" r="2.5" fill="#334155" stroke-width="1"/>
+</g></g>
+<circle cx="26" cy="-28" r="18" fill="none"/><defs><clipPath id="rim-0f172a-1"><circle cx="78" cy="-28" r="18"/></clipPath></defs>
+<circle cx="78" cy="-28" r="18" fill="#1e293b"/>
+<g clip-path="url(#rim-0f172a-1)"><g transform="translate(6 -6)">
+  <circle cx="78" cy="-28" r="18" fill="#0f172a"/>
+  <circle cx="69" cy="-25" r="2.8" fill="#64748b"/><circle cx="87" cy="-25" r="2.8" fill="#64748b"/>
+  <path d="M78 -39L75 -36" stroke-width="7.5"/>
+  <path d="M78 -39L75 -36" stroke="#64748b" stroke-width="5"/>
+  <circle cx="75" cy="-36" r="2.5" fill="#334155" stroke-width="1"/>
+</g></g>
+<circle cx="78" cy="-28" r="18" fill="none"/></g>
+</g>
+</svg>

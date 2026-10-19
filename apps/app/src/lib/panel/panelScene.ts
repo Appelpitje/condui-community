@@ -5,6 +5,7 @@ import { getAllCircuits, isTerminalStripDevice } from '@/lib/eendraad/projectEle
  */
 import { getAllSupplyTrunkDevices, getPanelFeedProjection } from '@/lib/feedTopology'
 import { getPanelDisplayName } from '@/utils/panelNames'
+import { packPanelGroup, type PackedPanelGroup } from '@/lib/layout/compactPanelPacking'
 import type { Panel, PanelGridModuleRef, PanelGridSlot } from '@/types/schema'
 import {
   getProjectElectricalInstallation,
@@ -145,6 +146,9 @@ export interface PanelSceneConnector {
   points: number[]
   sourceSurfaceId?: string
   targetSurfaceId?: string
+  /** Overview corridors are separate from physical supply-assembly transitions. */
+  hierarchySourceSurfaceId?: string
+  hierarchyTargetSurfaceId?: string
 }
 
 export interface ConverterBackupFeedMarkerGeometry {
@@ -256,7 +260,8 @@ export function routePanelSceneSurfaceTransition(
  */
 export function buildDirectPanelFeederConnectors(
   surfaces: PanelSceneSurface[],
-  project: ProjectWithOptionalV2Electrical
+  project: ProjectWithOptionalV2Electrical,
+  hierarchyConnectors: PanelSceneConnector[] = []
 ): PanelSceneConnector[] {
   const surfaceByPanelId = new Map(
     surfaces
@@ -297,15 +302,20 @@ export function buildDirectPanelFeederConnectors(
             PANEL_SCENE_FRAME_MARGIN
           : targetSurface.y + targetSurface.mainPanelY + PANEL_SCENE_FRAME_MARGIN
 
-        connectors.push({
-          points: routePanelSceneConnector(
+        const hierarchyPath = hierarchyConnectors.find((connector) =>
+          connector.hierarchySourceSurfaceId === sourceSurface.id && connector.hierarchyTargetSurfaceId === targetSurface.id
+        )?.points
+        const points = hierarchyPath ? [...hierarchyPath] : routePanelSceneConnector(
             sourceX,
             sourceY,
             targetX,
             targetY,
             (sourceY + targetY) / 2
-          ),
-        })
+          )
+        // Extend the overview's clear feed corridor into the two cabinets.
+        points[1] = sourceY
+        points[points.length - 1] = targetY
+        connectors.push({ points })
       }
     }
     for (const subPanel of panel.subPanels ?? []) visit(subPanel)
@@ -553,6 +563,10 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
     /** Module enclosures hanging beside this board, left to right. */
     sides: PanelSceneSurface[]
     subtreeWidth: number
+    subtreeHeight: number
+    packing: PackedPanelGroup
+    feedTrunkX?: number
+    feedBranchY?: number
     x: number
     y: number
   }
@@ -739,23 +753,28 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
 
   const getBlockWidth = (surface: { width: number }, sides: PanelSceneSurface[]) =>
     sides.reduce((width, side) => width + siblingGap + side.width, surface.width)
-  const getSubtreeWidth = (
-    surface: { width: number },
+  const measureGroup = (
+    surface: { width: number; height: number },
     children: TreeNode[],
     sides: PanelSceneSurface[] = []
   ) => {
-    const childrenWidth =
-      children.length > 0
-        ? children.reduce((sum, child) => sum + child.subtreeWidth, 0) +
-          siblingGap * Math.max(0, children.length - 1)
-        : 0
-    return Math.max(getBlockWidth(surface, sides), childrenWidth)
+    const packing = packPanelGroup(
+      children.map((child) => ({ width: child.subtreeWidth, height: child.subtreeHeight })),
+      siblingGap,
+      levelGap
+    )
+    const blockHeight = Math.max(surface.height, ...sides.map((side) => side.height))
+    return {
+      packing,
+      subtreeWidth: Math.max(getBlockWidth(surface, sides), packing.width),
+      subtreeHeight: blockHeight + (children.length ? levelGap + packing.height : 0),
+    }
   }
 
   const measureJunctionNode = (identity: string): TreeNode => {
     const surface = junctionSurfaceByIdentity.get(identity)!
     const children = (panelsFedByJunction.get(identity) ?? []).map((panel) => measureNode(panel))
-    return { panel: null, surface, children, sides: [], subtreeWidth: getSubtreeWidth(surface, children), x: 0, y: 0 }
+    return { panel: null, surface, children, sides: [], ...measureGroup(surface, children), x: 0, y: 0 }
   }
 
   function measureNode(panel: Panel): PanelTreeNode {
@@ -773,7 +792,7 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
       surface,
       children,
       sides,
-      subtreeWidth: getSubtreeWidth(surface, children, sides),
+      ...measureGroup(surface, children, sides),
       x: 0,
       y: 0,
     }
@@ -789,16 +808,17 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
       sideX += side.width + siblingGap
     }
     if (node.children.length === 0) return
-    const childrenWidth =
-      node.children.reduce((sum, child) => sum + child.subtreeWidth, 0) +
-      siblingGap * Math.max(0, node.children.length - 1)
-    let cursorX = x + (node.subtreeWidth - childrenWidth) / 2
+    const childrenX = x + (node.subtreeWidth - node.packing.width) / 2
     const childY =
       y + Math.max(node.surface.height, ...node.sides.map((side) => side.height)) + levelGap
-    for (const child of node.children) {
-      layoutNode(child, cursorX, childY)
-      cursorX += child.subtreeWidth + siblingGap
-    }
+    node.children.forEach((child, index) => {
+      const position = node.packing.positions[index]!
+      layoutNode(child, childrenX + position.x, childY + position.y)
+      if (node.packing.compact) {
+        child.feedTrunkX = childrenX + node.packing.trunkX
+        child.feedBranchY = childY + position.y - levelGap / 2
+      }
+    })
   }
 
   const auxiliaryBandHeight = bandAuxiliarySurfaces.reduce(
@@ -832,20 +852,23 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
   }
   const junctionWidth = Math.max(0, junctionCursorX - auxiliaryGap)
   const rootNodes = rootOptions.map((option) => measureNode(option.panel))
-  const rootsWidth =
-    rootNodes.reduce((sum, node) => sum + node.subtreeWidth, 0) +
-    rootGap * Math.max(0, rootNodes.length - 1)
+  const rootPacking = packPanelGroup(
+    rootNodes.map((node) => ({ width: node.subtreeWidth, height: node.subtreeHeight })),
+    rootGap,
+    levelGap
+  )
+  const rootsWidth = rootPacking.width
   const totalSceneWidth = Math.max(sharedWidth, rootsWidth, auxiliaryWidth, junctionWidth)
   const sharedX = (totalSceneWidth - sharedWidth) / 2
   const auxiliaryOffsetX = (totalSceneWidth - auxiliaryWidth) / 2
   for (const surface of bandAuxiliarySurfaces) surface.x += auxiliaryOffsetX
-  let rootCursorX = (totalSceneWidth - rootsWidth) / 2
+  const rootStartX = (totalSceneWidth - rootsWidth) / 2
   const rootY =
     sharedBandHeight + (auxiliaryBandHeight > 0 ? auxiliaryBandHeight + rootGap : 0)
-  for (const node of rootNodes) {
-    layoutNode(node, rootCursorX, rootY)
-    rootCursorX += node.subtreeWidth + rootGap
-  }
+  rootNodes.forEach((node, index) => {
+    const position = rootPacking.positions[index]!
+    layoutNode(node, rootStartX + position.x, rootY + position.y)
+  })
   const deepestRootBottom = (node: TreeNode): number =>
     Math.max(
       node.y + node.surface.height,
@@ -910,7 +933,16 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
     if (parent != null && (!node.panel || !assemblyOwnsPanelInput(currentProject, node.panel))) {
       const busY = parent.y + parent.surface.height + levelGap / 2
       connectors.push({
-        points: routePanelSceneConnector(
+        hierarchySourceSurfaceId: parent.surface.id,
+        hierarchyTargetSurfaceId: node.surface.id,
+        points: node.feedTrunkX != null ? [
+          parent.x + parent.surface.width / 2, parent.y + parent.surface.height,
+          parent.x + parent.surface.width / 2, busY,
+          node.feedTrunkX, busY,
+          node.feedTrunkX, node.feedBranchY!,
+          targetCenterX, node.feedBranchY!,
+          targetCenterX, targetTopY,
+        ] : routePanelSceneConnector(
           parent.x + parent.surface.width / 2,
           parent.y + parent.surface.height,
           targetCenterX,
@@ -949,8 +981,20 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
     const key = JSON.stringify([from.id, to.id])
     if (emittedTransitions.has(key)) return
     emittedTransitions.add(key)
+    const packedRootIndex = rootNodes.findIndex((node) => node.surface.id === to.id)
+    const rootPosition = rootPacking.positions[packedRootIndex]
+    const rootTrunkX = rootStartX + rootPacking.trunkX
+    const firstRootBranchY = rootY - levelGap / 2
+    const rootBranchY = rootY + (rootPosition?.y ?? 0) - levelGap / 2
     connectors.push({
-      points: routePanelSceneSurfaceTransition(from, to),
+      points: from.kind === 'shared_supply' && rootPacking.compact && rootPosition ? [
+        from.x + from.width / 2, from.y + from.height,
+        from.x + from.width / 2, firstRootBranchY,
+        rootTrunkX, firstRootBranchY,
+        rootTrunkX, rootBranchY,
+        to.x + to.width / 2, rootBranchY,
+        to.x + to.width / 2, to.y,
+      ] : routePanelSceneSurfaceTransition(from, to),
       sourceSurfaceId: from.id, targetSurfaceId: to.id,
     })
   }

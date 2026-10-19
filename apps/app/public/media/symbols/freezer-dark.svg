@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-63.3 -73.0 156.0 156.0" role="img" aria-label="Diepvries">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-48.5,28.0 29.4,73.0 29.4,17.0 -48.5,-28.0" fill="#283548"/>
+  <polygon points="77.9,45.0 29.4,73.0 29.4,17.0 77.9,-11.0" fill="#1e293b"/>
+  <polygon points="0.0,-56.0 77.9,-11.0 29.4,17.0 -48.5,-28.0" fill="#334155"/>
+  <polygon points="-50.2,-28.0 29.4,18.0 29.4,12.0 -50.2,-34.0" fill="#283548"/>
+  <polygon points="79.7,-11.0 29.4,18.0 29.4,12.0 79.7,-17.0" fill="#1e293b"/>
+  <polygon points="0.0,-63.0 79.7,-17.0 29.4,12.0 -50.2,-34.0" fill="#334155"/>
+  <g transform="matrix(0.8660 0.5 0 1 -49.36 28.50)"><rect x="35" y="-54" width="20" height="3" rx="1.5" fill="#64748b" stroke-width="1"/>
+<circle cx="80" cy="-46" r="2" fill="#22c55e" stroke-width="0.8"/></g>
+</g>
+</svg>

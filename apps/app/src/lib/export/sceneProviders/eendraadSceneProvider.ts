@@ -1,3 +1,4 @@
+import { prepareIsolatedExportScene } from './isolatedExportScene'
 import { logger } from '@/lib/logger'
 /**
  * Eendraad scene provider
@@ -24,6 +25,7 @@ import { createInstallDateExportNode } from '../installDateExport'
 import type { FrameSlice } from '../slicing/eendraadSlicing'
 import { exportLog } from '../exportLogger'
 import { stripInteractiveOverlaysForExport } from '../interactiveOverlayExport'
+import { acquireCanvasGroupMaterialization } from '@/lib/canvas/groupMaterialization'
 
 const EXPORT_STRIP_LABEL_NAME = 'export-strip-label'
 
@@ -43,7 +45,7 @@ function collectNodesByName(node: Konva.Node, name: string, out: Konva.Node[]): 
 export function stripEendraadOverlayLabelsForExport(root: Konva.Container): void {
   const labelNodes: Konva.Node[] = []
   collectNodesByName(root, EXPORT_STRIP_LABEL_NAME, labelNodes)
-  labelNodes.forEach((node) => node.remove())
+  labelNodes.forEach((node) => node.destroy())
 }
 
 /**
@@ -73,14 +75,13 @@ export async function prepareEendraadScene(
   const targetTheme = options.theme
 
   // 1. Get stage from registry
-  const canvasRegistry = useCanvasRegistryStore.getState().registry
-  let stage = canvasRegistry.eendraad?.getStage()
+  let stage = useCanvasRegistryStore.getState().registry.eendraad?.getStage()
 
   // Retry a few times if stage is not immediately available
   if (!stage) {
     for (let i = 0; i < 5; i++) {
       await new Promise((resolve) => requestAnimationFrame(resolve))
-      stage = canvasRegistry.eendraad?.getStage()
+      stage = useCanvasRegistryStore.getState().registry.eendraad?.getStage()
       if (stage) break
     }
   }
@@ -144,122 +145,124 @@ export async function prepareEendraadScene(
     )
   }
 
-  // 4. Clone into isolated temporary stage
-  const tempStage = new Konva.Stage({
-    container: document.createElement('div'),
-    width: stage.width(),
-    height: stage.height(),
-  })
-
-  const tempLayer = new Konva.Layer()
-  tempStage.add(tempLayer)
-
-  // Clone panel group (deep clone, no live references)
-  const clonedGroup = panelGroup.clone({
-    // Clone all children recursively
-    deep: true,
-  })
-  clonedGroup.find('.install-date-overlay').forEach((node) => node.destroy())
-  if (options.includeInstallDates && installDateSource) {
-    const installDates = createInstallDateExportNode(
-      installDateSource.project,
-      installDateSource.panelLayout,
-      useUIStore.getState().eendraadDateMarkingVisibility.installDatesMonochrome,
-      installDateSource.wireSegments
-    )
-    if (installDates) clonedGroup.add(installDates)
+  // 4. Briefly materialize only this diagram, then clone without live references.
+  const releaseMaterializedPanel = await acquireCanvasGroupMaterialization(panelGroup)
+  let clonedGroup: Konva.Group
+  try {
+    clonedGroup = panelGroup.clone({
+      // Clone all children recursively
+      deep: true,
+    })
+  } finally {
+    releaseMaterializedPanel()
   }
 
-  // Remove the info block from the clone; it will be added per-page in PDF composition
-  const INFO_BLOCK_EXPORT_NAME = 'export-info-block'
-  const findAndRemoveInfoBlock = (node: Konva.Node): boolean => {
-    if (node.getType() === 'Group' && node.name() === INFO_BLOCK_EXPORT_NAME) {
-      node.remove()
-      return true
+  return prepareIsolatedExportScene(clonedGroup, async (createStage) => {
+    const tempStage = createStage(stage.width(), stage.height())
+    const tempLayer = new Konva.Layer()
+    tempStage.add(tempLayer)
+    clonedGroup.find('.install-date-overlay').forEach((node) => node.destroy())
+    if (options.includeInstallDates && installDateSource) {
+      const installDates = createInstallDateExportNode(
+        installDateSource.project,
+        installDateSource.panelLayout,
+        useUIStore.getState().eendraadDateMarkingVisibility.installDatesMonochrome,
+        installDateSource.wireSegments
+      )
+      if (installDates) clonedGroup.add(installDates)
     }
-    const children = (node as Konva.Container).getChildren?.()
-    if (children?.length) {
-      for (let i = children.length - 1; i >= 0; i--) {
-        if (findAndRemoveInfoBlock(children[i]!)) return true
+
+    // Remove the info block from the clone; it will be added per-page in PDF composition
+    const INFO_BLOCK_EXPORT_NAME = 'export-info-block'
+    const findAndRemoveInfoBlock = (node: Konva.Node): boolean => {
+      if (node.getType() === 'Group' && node.name() === INFO_BLOCK_EXPORT_NAME) {
+        node.destroy()
+        return true
       }
+      const children = (node as Konva.Container).getChildren?.()
+      if (children?.length) {
+        for (let i = children.length - 1; i >= 0; i--) {
+          if (findAndRemoveInfoBlock(children[i]!)) return true
+        }
+      }
+      return false
     }
-    return false
-  }
-  findAndRemoveInfoBlock(clonedGroup)
+    findAndRemoveInfoBlock(clonedGroup)
 
-  // Remove frame elements (border, title, hover/selection) so they are not in the PDF; panel title is added per-page.
-  const EXPORT_STRIP_FRAME_NAME = 'export-strip-frame'
-  const frameNodes: Konva.Node[] = []
-  collectNodesByName(clonedGroup, EXPORT_STRIP_FRAME_NAME, frameNodes)
-  frameNodes.forEach((n) => n.remove())
+    // Remove frame elements (border, title, hover/selection) so they are not in the PDF; panel title is added per-page.
+    const EXPORT_STRIP_FRAME_NAME = 'export-strip-frame'
+    const frameNodes: Konva.Node[] = []
+    collectNodesByName(clonedGroup, EXPORT_STRIP_FRAME_NAME, frameNodes)
+    frameNodes.forEach((n) => n.destroy())
 
-  // Hover/selection state can be held locally by canvas components and may still be
-  // present when this clone is taken. It is never part of the exported diagram.
-  stripInteractiveOverlaysForExport(clonedGroup)
+    // Hover/selection state can be held locally by canvas components and may still be
+    // present when this clone is taken. It is never part of the exported diagram.
+    stripInteractiveOverlaysForExport(clonedGroup)
 
-  // Reset transforms to identity (scene space is canvas-content space).
-  clonedGroup.x(0)
-  clonedGroup.y(0)
-  clonedGroup.scaleX(1)
-  clonedGroup.scaleY(1)
-  clonedGroup.rotation(0)
+    // Reset transforms to identity (scene space is canvas-content space).
+    clonedGroup.x(0)
+    clonedGroup.y(0)
+    clonedGroup.scaleX(1)
+    clonedGroup.scaleY(1)
+    clonedGroup.rotation(0)
 
-  // Capture the full scene envelope before removing overlay-owned labels. The PDF pass redraws
-  // those labels later, but their painted bounds must still participate in the scene viewport;
-  // otherwise a note at an edge is outside the SVG viewBox and is clipped before it can render.
-  tempLayer.add(clonedGroup)
-  tempStage.draw()
-  const fullSceneBounds = calculateSceneBounds(clonedGroup, {
-    x: 0,
-    y: 0,
-    width: tempStage.width(),
-    height: tempStage.height(),
-    space: 'scene',
-  })
-
-  // Remove circuit/endpoint/notes labels that are wrapped in export-strip-label groups.
-  // These are redrawn in the PDF overlay pass; all other text remains in the SVG.
-  stripEendraadOverlayLabelsForExport(clonedGroup)
-
-  const symbolExports = collectAndRemoveSymbolImagesForExport(clonedGroup)
-
-  await adjustSymbolImagesForExport(clonedGroup, sourceTheme, targetTheme)
-  // Apply export theme to Konva nodes so the clone renders in target theme
-  // without switching the UI; SVG then needs no theme post-processing.
-  applyExportThemeToKonvaNodes(clonedGroup, sourceTheme, targetTheme)
-  if (targetTheme === 'light') {
-    applyLightEendraadWireExportColors(clonedGroup)
-  }
-
-  tempStage.draw()
-
-  // 4. Calculate bounds - use slice bounds if provided, otherwise use full scene
-  let bounds: ReturnType<typeof calculateSceneBounds>
-
-  if (slice) {
-    // Use slice bounds
-    bounds = {
-      x: slice.x,
-      y: slice.y,
-      width: slice.width,
-      height: slice.height,
+    // Capture the full scene envelope before removing overlay-owned labels. The PDF pass redraws
+    // those labels later, but their painted bounds must still participate in the scene viewport;
+    // otherwise a note at an edge is outside the SVG viewBox and is clipped before it can render.
+    tempLayer.add(clonedGroup)
+    tempStage.draw()
+    const fullSceneBounds = calculateSceneBounds(clonedGroup, {
+      x: 0,
+      y: 0,
+      width: tempStage.width(),
+      height: tempStage.height(),
       space: 'scene',
-    }
-  } else {
-    // Use the pre-strip bounds so overlay-owned notes/labels remain inside the viewport.
-    bounds = fullSceneBounds
-  }
+    })
 
-  // 5. Return isolated scene
-  return {
-    id: `eendraad-${panelId}-slice-${sliceIndex}`,
-    kind: 'eendraad',
-    renderedTheme: targetTheme,
-    rootNode: clonedGroup, // Isolated clone, safe to export
-    bounds,
-    preferredOrientation: 'landscape',
-    metadata: slice ? { circuitIds: slice.circuitIds.join(',') } : undefined,
-    eendraadSlice: eendraadSliceMeta,
-    symbolExports: symbolExports.length > 0 ? symbolExports : undefined,
-  }
+    // Remove circuit/endpoint/notes labels that are wrapped in export-strip-label groups.
+    // These are redrawn in the PDF overlay pass; all other text remains in the SVG.
+    stripEendraadOverlayLabelsForExport(clonedGroup)
+
+    const symbolExports = collectAndRemoveSymbolImagesForExport(clonedGroup)
+
+    await adjustSymbolImagesForExport(clonedGroup, sourceTheme, targetTheme)
+    // Apply export theme to Konva nodes so the clone renders in target theme
+    // without switching the UI; SVG then needs no theme post-processing.
+    applyExportThemeToKonvaNodes(clonedGroup, sourceTheme, targetTheme)
+    if (targetTheme === 'light') {
+      applyLightEendraadWireExportColors(clonedGroup)
+    }
+
+    tempStage.draw()
+
+    // 4. Calculate bounds - use slice bounds if provided, otherwise use full scene
+    let bounds: ReturnType<typeof calculateSceneBounds>
+
+    if (slice) {
+      // Use slice bounds
+      bounds = {
+        x: slice.x,
+        y: slice.y,
+        width: slice.width,
+        height: slice.height,
+        space: 'scene',
+      }
+    } else {
+      // Use the pre-strip bounds so overlay-owned notes/labels remain inside the viewport.
+      bounds = fullSceneBounds
+    }
+
+    // 5. Return isolated scene
+    return {
+      id: `eendraad-${panelId}-slice-${sliceIndex}`,
+      kind: 'eendraad',
+      renderedTheme: targetTheme,
+      rootNode: clonedGroup, // Isolated clone, safe to export
+      bounds,
+      preferredOrientation: 'landscape',
+      metadata: slice ? { circuitIds: slice.circuitIds.join(',') } : undefined,
+      eendraadSlice: eendraadSliceMeta,
+      symbolExports: symbolExports.length > 0 ? symbolExports : undefined,
+    }
+  })
 }

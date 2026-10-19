@@ -3,6 +3,12 @@ import type { Selection } from '@/types/ui'
 import type { Panel, PanelGridModuleRef, PanelGridSlot, TrunkDevice } from '@/types/schema'
 import type { CommandInvocation } from '../project'
 import type { CommandInputField } from './types'
+import { getFloorPaletteActions } from './floorPaletteActions'
+import { getBuildingPaletteActions } from './buildingPaletteActions'
+import { getPlacementPanelPaletteActions } from './placementPanelPaletteActions'
+import { getPlanFinishingPaletteActions } from './planFinishingPaletteActions'
+import { getElectricalTrunkDevicePaletteActions } from './electricalTrunkDevicePaletteActions'
+import { getElectricalTopologyPaletteActions } from './electricalTopologyPaletteActions'
 import { projectCommands } from '../project'
 import {
   getProjectElectricalPanels,
@@ -23,6 +29,15 @@ import {
 import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { getJunctionPanelIdentity } from '@/lib/junctionPanel/grid'
 import { getJunctionPanelModuleLayout } from '@/lib/junctionPanel/moduleLayout'
+import { getProjectDocuments } from '@/lib/documents/projectDocuments'
+import {
+  canPlaceOnOneWire,
+  getOneWireReferenceRemovalEdits,
+  getOneWireReferenceShowValue,
+} from '@/lib/documents/oneWireReferences'
+/* @vision-scan-strip-start */
+import { isElectricalVisionScanEnabled } from '@/lib/vision/availability'
+/* @vision-scan-strip-end */
 
 export interface ProjectPaletteAction {
   id: string
@@ -64,6 +79,39 @@ export function getProjectPaletteActions(
 ): ProjectPaletteAction[] {
   const actions: ProjectPaletteAction[] = []
   const panels = [...walkPanels(getProjectElectricalPanels(project))]
+  const transformerPanels = panels.filter((panel) => panel.isMain !== false)
+  if (transformerPanels.length) {
+    const invocation: ProjectPaletteAction['invocation'] = (values) => ({
+      id: 'electrical.placeSymbol',
+      input: {
+        symbolId: 'transformer',
+        target: {
+          type: 'supplyWire',
+          panelId: values.panel,
+          supplyFeedScope: 'shared',
+          supplyDeviceInsertIndex: 0,
+        },
+      },
+    })
+    const options = transformerPanels
+      .filter((panel) => valid(project, invocation({ panel: panel.id })))
+      .map((panel) => ({ value: panel.id, label: panel.name }))
+    if (options.length)
+      actions.push({
+        id: 'electrical.addSupplyTransformer',
+        labelKey: 'commandPalette.addSupplyTransformer',
+        fields: [
+          {
+            name: 'panel',
+            labelKey: 'commandPalette.fields.panel',
+            value:
+              options.find((option) => option.value === activePanelId)?.value ?? options[0]!.value,
+            options,
+          },
+        ],
+        invocation,
+      })
+  }
   const circuits = panels.flatMap((panel) =>
     collectCircuits(panel).map((circuit) => ({ panel, circuit }))
   )
@@ -533,6 +581,44 @@ export function getProjectPaletteActions(
         input: { autoArrange: { panelIds: selection.ids, feedSideDirection: values.direction } },
       }),
     })
+  /* @vision-scan-strip-start */
+  if (isElectricalVisionScanEnabled()) {
+    const documents = getProjectDocuments(project.assets)
+    const removalEdits =
+      selection.type === 'oneWireReference'
+        ? getOneWireReferenceRemovalEdits(documents, selection.ids)
+        : []
+    if (removalEdits.length)
+      actions.push({
+        id: 'document.removeFromOneWire',
+        labelKey: 'commandPalette.removeFromOneWire',
+        fields: [],
+        invocation: () => ({ id: 'properties.edit', input: { edits: removalEdits } }),
+      })
+    const hidden =
+      selection.type === 'document'
+        ? documents.filter(
+            (doc) => selection.ids.includes(doc.id) && canPlaceOnOneWire(doc) && !doc.oneWire
+          )
+        : []
+    if (hidden.length)
+      actions.push({
+        id: 'document.showOnOneWire',
+        labelKey: 'commandPalette.showOnOneWire',
+        fields: [],
+        invocation: () => ({
+          id: 'properties.edit',
+          input: {
+            edits: hidden.map((doc) => ({
+              kind: 'document',
+              ids: [doc.id],
+              set: { category: 'schematic', oneWire: getOneWireReferenceShowValue(doc) },
+            })),
+          },
+        }),
+      })
+  }
+  /* @vision-scan-strip-end */
   const floor = selectProjectBuildingFloors(project).find((floor) => floor.id === activeFloorId)
   if (floor)
     actions.push({
@@ -570,9 +656,15 @@ export function getProjectPaletteActions(
         input: { panelId: values.panel, kind: values.kind },
       }),
     })
-  return actions.filter((action) =>
-    action.fields.every((field) => !field.options || field.options.length > 0)
-  )
+  return [
+    ...actions,
+    ...getFloorPaletteActions(project, activeFloorId),
+    ...getBuildingPaletteActions(project, selection, activeFloorId),
+    ...getPlacementPanelPaletteActions(project, selection, activeFloorId, activePanelId),
+    ...getPlanFinishingPaletteActions(project, selection, activePanelId, activeFloorId),
+    ...getElectricalTrunkDevicePaletteActions(project, selection),
+    ...getElectricalTopologyPaletteActions(project, selection, activePanelId, activeFloorId),
+  ].filter((action) => action.fields.every((field) => !field.options || field.options.length > 0))
 }
 
 function moduleLabel(ref: PanelGridModuleRef, panels: Panel[], project: ProjectV2): string {

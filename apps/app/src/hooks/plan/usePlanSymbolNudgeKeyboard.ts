@@ -1,5 +1,6 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
-import { useUIStore } from '@/stores/uiStore'
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
+import { useIsActiveViewport, useViewportUIApi } from '@/components/viewport/ViewportUIStore'
 import type { Point } from '@/types/ui'
 import {
   addCanvasDeltas,
@@ -8,7 +9,6 @@ import {
   commitPlanSymbolNudge,
   computeNudgeDeltaCanvas,
   isPlanArrowKey,
-  isPlanCanvasVisibleInLayout,
   PLAN_NUDGE_COMMIT_COALESCE_MS,
   resolvePlanNudgePlacements,
   resolvePlanNudgePxPerMeter,
@@ -32,6 +32,9 @@ export type PlanSymbolNudgeKeyboardOptions = {
  * Tap: 1 cm (preview instant). Hold: 10→18 cm/s after 250 ms delay. Store commits coalesced.
  */
 export function usePlanSymbolNudgeKeyboard(options: PlanSymbolNudgeKeyboardOptions) {
+  const window = useCanvasWindow()
+  const viewportUI = useViewportUIApi()
+  const isActiveViewport = useIsActiveViewport()
   const heldArrowsRef = useRef(new Set<PlanArrowKey>())
   const keyDownTimesRef = useRef(new Map<PlanArrowKey, number>())
   const frozenLiveDeltaRef = useRef({ x: 0, y: 0 })
@@ -56,9 +59,7 @@ export function usePlanSymbolNudgeKeyboard(options: PlanSymbolNudgeKeyboardOptio
     if (disabled) return
 
     const resolvePxPerMeter = () =>
-      pxPerMeterOption !== undefined
-        ? pxPerMeterOption
-        : resolvePlanNudgePxPerMeter(activeFloorId)
+      pxPerMeterOption !== undefined ? pxPerMeterOption : resolvePlanNudgePxPerMeter(activeFloorId)
 
     const computeLiveDelta = (nowMs: number) =>
       computeNudgeDeltaCanvas({
@@ -100,7 +101,7 @@ export function usePlanSymbolNudgeKeyboard(options: PlanSymbolNudgeKeyboardOptio
 
     const stopLoop = () => {
       if (rafRef.current != null) {
-        cancelAnimationFrame(rafRef.current)
+        window.cancelAnimationFrame(rafRef.current)
         rafRef.current = null
       }
     }
@@ -147,7 +148,7 @@ export function usePlanSymbolNudgeKeyboard(options: PlanSymbolNudgeKeyboardOptio
 
     const ensureSession = () => {
       if (sessionRowsRef.current) return true
-      const { selection } = useUIStore.getState()
+      const { selection } = viewportUI.getState()
       const rows = resolvePlanNudgePlacements(selection, activeFloorId).filter((row) => !row.locked)
       if (rows.length === 0) return false
       sessionRowsRef.current = rows
@@ -168,12 +169,12 @@ export function usePlanSymbolNudgeKeyboard(options: PlanSymbolNudgeKeyboardOptio
         return
       }
       syncPreview(performance.now())
-      rafRef.current = requestAnimationFrame(tick)
+      rafRef.current = window.requestAnimationFrame(tick)
     }
 
     const startLoop = () => {
       if (rafRef.current != null) return
-      rafRef.current = requestAnimationFrame(tick)
+      rafRef.current = window.requestAnimationFrame(tick)
     }
 
     const freezeAxisForKey = (code: PlanArrowKey, nowMs: number) => {
@@ -196,13 +197,15 @@ export function usePlanSymbolNudgeKeyboard(options: PlanSymbolNudgeKeyboardOptio
 
     const canHandle = (target: EventTarget | null): boolean => {
       if (isDraggingRef?.current) return false
-      if (!isPlanCanvasVisibleInLayout()) return false
+      if (!viewportUI.getState().viewportLayout.panels.some((panel) => panel.canvas === 'plan'))
+        return false
       if (isKeyboardTypingTarget(target)) return false
-      const { selection } = useUIStore.getState()
+      const { selection } = viewportUI.getState()
       return canPlanSymbolNudgeSelection(selection)
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActiveViewport()) return
       if (!isPlanArrowKey(e.code)) return
       if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
       if (!canHandle(e.target)) return
@@ -270,5 +273,13 @@ export function usePlanSymbolNudgeKeyboard(options: PlanSymbolNudgeKeyboardOptio
         resetSession()
       }
     }
-  }, [activeFloorId, disabled, isDraggingRef, pxPerMeterOption])
+  }, [
+    activeFloorId,
+    disabled,
+    isDraggingRef,
+    pxPerMeterOption,
+    window,
+    isActiveViewport,
+    viewportUI,
+  ])
 }

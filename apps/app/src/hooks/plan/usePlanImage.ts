@@ -10,14 +10,14 @@ import {
 import { importedPlanAssetUsesSvgContent, type Floor } from '@/types/schema'
 import { logger } from '@/lib/logger'
 import { flushPendingProjectHistory } from '@/stores/slices/projectStoreHistory'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 
 export function resolvePlanImageDataUrls(activeFloor: Floor | null): {
   sourceDataUrl: string | undefined
   processedDataUrl: string | undefined
 } {
   const canonicalAsset = activeFloor?.planImportAsset
-  const processedDataUrl =
-    canonicalAsset?.processedDataUrl ?? activeFloor?.planAssetProcessed
+  const processedDataUrl = canonicalAsset?.processedDataUrl ?? activeFloor?.planAssetProcessed
 
   return {
     // Persistence may omit a redundant raster source when the processed bitmap is canonical.
@@ -38,7 +38,10 @@ export function usePlanImage(
   activeFloorIdRef.current = activeFloor?.id ?? null
 
   const [planImage, setPlanImage] = useState<HTMLImageElement | null>(null)
-  const [planImagePosition, setPlanImagePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [planImagePosition, setPlanImagePosition] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  })
 
   useEffect(() => {
     const id = activeFloor?.id
@@ -52,11 +55,10 @@ export function usePlanImage(
   }, [activeFloor?.id, activeFloor?.planImageOffset])
 
   const canonicalAsset = activeFloor?.planImportAsset
-  const {
-    sourceDataUrl: planImageDataUrl,
-    processedDataUrl: planImageProcessedDataUrl,
-  } = resolvePlanImageDataUrls(activeFloor)
-  const hasWhiteBackground = canonicalAsset?.hasWhiteBackground ?? activeFloor?.planAssetHasWhiteBackground ?? false
+  const { sourceDataUrl: planImageDataUrl, processedDataUrl: planImageProcessedDataUrl } =
+    resolvePlanImageDataUrls(activeFloor)
+  const hasWhiteBackground =
+    canonicalAsset?.hasWhiteBackground ?? activeFloor?.planAssetHasWhiteBackground ?? false
   const darkModeAware = canonicalAsset?.darkModeAware ?? hasWhiteBackground
   const rawSvgContent = importedPlanAssetUsesSvgContent(canonicalAsset?.kind)
     ? canonicalAsset?.svgContent
@@ -122,8 +124,10 @@ export function usePlanImage(
           if (!hasExistingImage) {
             // Center the image
             setPlanImagePosition({ x: 0, y: 0 })
-            if (floorId) useProjectStore.getState().updateFloor(floorId, { planImageOffset: { x: 0, y: 0 } })
-            if (floorId) useProjectStore.getState().setPlanCanvasPlanImageOffset(floorId, { x: 0, y: 0 })
+            if (floorId)
+              runProjectCommand('plan.transformBackground', { floorId, offset: { x: 0, y: 0 } })
+            if (floorId)
+              useProjectStore.getState().setPlanCanvasPlanImageOffset(floorId, { x: 0, y: 0 })
             // Auto-fit to view when image is loaded
             setTimeout(() => {
               canvasRef.current?.fitToView()
@@ -148,8 +152,10 @@ export function usePlanImage(
           const hasExistingImage = floor?.planAsset || floor?.planImportAsset
           if (!hasExistingImage) {
             setPlanImagePosition({ x: 0, y: 0 })
-            if (floorId) useProjectStore.getState().updateFloor(floorId, { planImageOffset: { x: 0, y: 0 } })
-            if (floorId) useProjectStore.getState().setPlanCanvasPlanImageOffset(floorId, { x: 0, y: 0 })
+            if (floorId)
+              runProjectCommand('plan.transformBackground', { floorId, offset: { x: 0, y: 0 } })
+            if (floorId)
+              useProjectStore.getState().setPlanCanvasPlanImageOffset(floorId, { x: 0, y: 0 })
             setTimeout(() => {
               canvasRef.current?.fitToView()
             }, 100)
@@ -176,23 +182,26 @@ export function usePlanImage(
     canvasRef,
   ])
 
-  const setPlanImagePositionPersisted = useCallback((update: React.SetStateAction<{ x: number; y: number }>) => {
-    const id = activeFloorIdRef.current
-    if (!id) return
-    const store = useProjectStore.getState()
-    const prev = store.getFloorById(id)?.planImageOffset ??
-      store.planCanvasPlanImageOffsetByFloorId[id] ?? { x: 0, y: 0 }
-    const next = typeof update === 'function' ? update(prev) : update
-    if (next.x === prev.x && next.y === prev.y) return
-    // Persist synchronously, outside React's state updater (which may run again).
-    // Leave the legacy fallback cache alone: undo may restore an undefined offset.
-    flushPendingProjectHistory()
-    store.withSingleUndoEntry(() => {
-      store.updateFloor(id, { planImageOffset: { x: next.x, y: next.y } })
-      return true
-    })
-    setPlanImagePosition(next)
-  }, [])
+  const setPlanImagePositionPersisted = useCallback(
+    (update: React.SetStateAction<{ x: number; y: number }>) => {
+      const id = activeFloorIdRef.current
+      if (!id) return
+      const store = useProjectStore.getState()
+      const prev = store.getFloorById(id)?.planImageOffset ??
+        store.planCanvasPlanImageOffsetByFloorId[id] ?? { x: 0, y: 0 }
+      const next = typeof update === 'function' ? update(prev) : update
+      if (next.x === prev.x && next.y === prev.y) return
+      // Persist synchronously, outside React's state updater (which may run again).
+      // Leave the legacy fallback cache alone: undo may restore an undefined offset.
+      flushPendingProjectHistory()
+      runProjectCommand('plan.transformBackground', {
+        floorId: id,
+        offset: { x: next.x, y: next.y },
+      })
+      setPlanImagePosition(next)
+    },
+    []
+  )
 
   return {
     planImage,

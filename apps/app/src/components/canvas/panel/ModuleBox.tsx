@@ -39,6 +39,8 @@ import {
   socketCountForModularWidth,
 } from '@/lib/socket/modularSocket'
 import { ModularSocketModuleGraphic } from './ModularSocketModuleGraphic'
+import { measureSymbolLabelTextWidth } from '@/lib/symbolLabelTextWidth'
+import { getPanelModuleLabelFontSize } from './panelModuleLabelLayout'
 
 const DRAG_THRESHOLD = 8
 const RESIZE_HANDLE_W = 10
@@ -121,7 +123,6 @@ function getSelectionForRef(ref: PanelGridModuleRef, endpoint?: Endpoint): Selec
   return { type: null, ids: [] }
 }
 
-const LABEL_FONT_SIZE = 10
 const SPEC_FONT_SIZE = 7.5
 const SPEC_LINE_HEIGHT = 8.5
 const MAX_SPEC_LINES = 3
@@ -186,7 +187,6 @@ function ModuleBox({
   opacity = 1,
   compactLabelMode = false,
 }: ModuleBoxProps) {
-  const selection = useUIStore((s) => s.selection)
   const setSelection = useUIStore((s) => s.setSelection)
   const colors = useThemeColors()
   const themeMode = useSettingsStore((s) => s.theme.mode)
@@ -269,12 +269,13 @@ function ModuleBox({
     terminalStripMemberRefs?.flatMap((ref) =>
       ref.kind === 'domotica' ? [ref.endpointId] : 'id' in ref ? [ref.id] : []
     ) ?? sel.ids
-  const isSelected =
+  const isSelected = useUIStore((state) =>
     sel.type !== null &&
     sel.ids.length > 0 &&
     sel.ids[0] != null &&
-    selectedModuleIds.some((id) => selection.ids.includes(id)) &&
-    (selection.type === sel.type || selection.ids.length > 1)
+    selectedModuleIds.some((id) => state.selection.ids.includes(id)) &&
+    (state.selection.type === sel.type || state.selection.ids.length > 1)
+  )
 
   // Promote hovered/selected module to top so its outline is never clipped by neighbours.
   // Selection wins over hover — both call moveToTop so the last selected module stays on top
@@ -311,6 +312,7 @@ function ModuleBox({
 
   const handleDragStart = useCallback(
     (e: ModuleDragEvent) => {
+      const selection = useUIStore.getState().selection
       altDuplicateDropPositionRef.current = null
       // In rewire mode, handle differently
       if (onRewireDragStart) {
@@ -358,7 +360,6 @@ function ModuleBox({
       onHoverChange,
       onRewireDragStart,
       onDragStart,
-      selection,
     ]
   )
 
@@ -423,6 +424,7 @@ function ModuleBox({
 
   const handleClick = useCallback(
     (e: ModuleClickEvent) => {
+      const selection = useUIStore.getState().selection
       if ('button' in e.evt && e.evt.button != null && e.evt.button !== 0) return
       e.cancelBubble = true
       flushStaleDragEntry()
@@ -484,7 +486,6 @@ function ModuleBox({
       setSelection,
       onAssignTargetClick,
       flushStaleDragEntry,
-      selection,
       onSelectionIntent,
     ]
   )
@@ -703,6 +704,18 @@ function ModuleBox({
     : 1
   const spdRawLabel = spdDevice?.label.trim() ?? ''
   const hasSpdLabel = spdRawLabel.length > 0 && spdRawLabel.toUpperCase() !== 'SPD'
+  const moduleLabel = compactLabelMode
+    ? info.label
+    : isSelectorSwitchModule
+      ? selectorSwitchCustomLabel
+      : isSpdModule
+        ? hasSpdLabel ? spdRawLabel : ''
+        : energyMeterCircuitLabel
+  const moduleLabelFontStyle = isEnergyMeterDevice ? 'italic bold' : 'bold'
+  const moduleLabelFontSize = getPanelModuleLabelFontSize(
+    moduleLabel, textWidth, topTextHeight,
+    (text, size) => measureSymbolLabelTextWidth(text, fontFamily, size, moduleLabelFontStyle),
+  )
   const spdSymbolPath = spdDevice
     ? getSurgeProtectionSymbolPath(spdDevice.surgeProtectionKind)
     : null
@@ -1374,24 +1387,15 @@ function ModuleBox({
       {/* Label - prominent, bold */}
       {!isTerminalStripModule && (
         <Text
+          name="panel-module-label"
           ref={labelTextRef}
           x={textSidePadding}
           y={topTextY}
           width={textWidth}
           height={topTextHeight}
-          text={
-            compactLabelMode
-              ? info.label
-              : isSelectorSwitchModule
-              ? selectorSwitchCustomLabel
-              : isSpdModule
-                ? hasSpdLabel
-                  ? spdRawLabel
-                  : ''
-                : energyMeterCircuitLabel
-          }
-          fontSize={LABEL_FONT_SIZE}
-          fontStyle={isEnergyMeterDevice ? 'italic bold' : 'bold'}
+          text={moduleLabel}
+          fontSize={moduleLabelFontSize}
+          fontStyle={moduleLabelFontStyle}
           fontFamily={fontFamily}
           fill={textColor}
           perfectDrawEnabled={false}
@@ -1655,6 +1659,13 @@ function ModuleBox({
                   ? snapModularSocketModuleWidthWithin(rawCols, maxWidthCols ?? 4)
                   : Math.max(1, Math.min(maxWidthCols ?? 999, Math.round(rawCols)))
               const snapped = newCols * CELL_W
+              // The handle itself moves on every event; module geometry changes only at a new width.
+              if (resizeWidthRef.current === snapped) {
+                const thin = isTerminalStripModule && snapped < CELL_W * 0.5
+                node.x(snapped - (thin ? 0 : RESIZE_HANDLE_W / 2))
+                node.y(0)
+                return
+              }
               const invalid = isResizeWidthValid ? !isResizeWidthValid(moduleRef, newCols) : false
               const nextTextPadding = Math.min(4, Math.max(2, snapped * 0.08))
               const nextTextWidth = Math.max(1, snapped - nextTextPadding * 2)

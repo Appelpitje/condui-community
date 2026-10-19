@@ -7,6 +7,7 @@ import {
   supplyCableConductorsForSystem,
 } from '@/constants/nominalVoltage'
 import { NominalVoltageSystemPicker } from '@/components/properties/NominalVoltageSystemPicker'
+import { ConnectionCurrentField } from '@/components/properties/ConnectionCurrentField'
 import { DEFAULT_EENDRAAD_INSTALLATION_OPTIONS } from '@/utils/project'
 import { DEFAULT_INSTALLATION_PROFILE } from '@/lib/installationProfile'
 import {
@@ -37,7 +38,7 @@ export default function CommunityNewProjectDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const skipNextDraftWriteRef = useRef(false)
-  const { projectName, yearOfConstruction, meterEanCode, address, voltageSystem } = draft
+  const { projectName, yearOfConstruction, meterEanCode, address, voltageSystem, connectionCurrentA } = draft
 
   useEffect(() => {
     if (skipNextDraftWriteRef.current) {
@@ -73,6 +74,7 @@ export default function CommunityNewProjectDialog({
       ...DEFAULT_EENDRAAD_INSTALLATION_OPTIONS,
       installationProfile: DEFAULT_INSTALLATION_PROFILE,
       address,
+      connectionCurrentA,
       nominalVoltage: applyNominalVoltageSystem(
         { system: DEFAULT_SUPPLY_VOLTAGE_SYSTEM, uLineToNeutral: 230, uLineToLine: 230 },
         voltageSystem,
@@ -150,6 +152,9 @@ export default function CommunityNewProjectDialog({
               <div className="mt-4">
                 <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{t('installation.voltage')} *</label>
                 <NominalVoltageSystemPicker value={voltageSystem} onChange={(next) => setDraft((current) => ({ ...current, voltageSystem: next }))} />
+              </div>
+              <div className="mt-4">
+                <ConnectionCurrentField value={connectionCurrentA} onChange={(connectionCurrentA) => setDraft((current) => ({ ...current, connectionCurrentA }))} />
               </div>
             </div>
           </div>

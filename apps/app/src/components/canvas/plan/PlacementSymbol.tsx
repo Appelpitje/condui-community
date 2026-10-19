@@ -8,6 +8,8 @@ import type { ProjectState } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import { usePlanDragPosition, usePlanDragRotation } from '@/stores/planDragVisualStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { planSymbolColor } from '@/lib/plan/planColors'
+import { selectProjectPlanWiringVisibility } from '@/lib/projectV2/planWiring'
 import { useThemeColors } from '@/lib/theme/hooks'
 import { logger } from '@/lib/logger'
 import {
@@ -52,7 +54,7 @@ import {
   HVAC_FUNCTION_OFFSET_X_FACTOR,
   HVAC_HEAT_EXCHANGE_TYPE_OFFSET_Y,
 } from '../eendraad/canvasSymbols'
-import type { Endpoint, Panel, Placement, TrunkDevice } from '@/types/schema'
+import type { SymbolKey, Endpoint, Panel, Placement, TrunkDevice } from '@/types/schema'
 import type { Point, Selection } from '@/types/ui'
 import { countPanelCircuits } from '@/utils/plan/placementHelpers'
 import { TRANSFORMER_OVERLAY_PATHS } from '@/lib/symbols'
@@ -89,6 +91,7 @@ import {
 import { getPlanPanelBodyGeometry } from './panelPlanSymbolGeometry'
 import { ImpulseSwitchCountMarker } from '../shared/ImpulseSwitchCountMarker'
 import { INTERACTIVE_OVERLAY_EXPORT_NAME } from '@/lib/export/interactiveOverlayExport'
+import { usePlanSymbolElectricalProject } from '@/hooks/plan/usePlanSymbolElectricalProject'
 
 /** Avoid flooding the console when many placements fail the same asset fetch (e.g. bad imports). */
 const loggedSitplanSymbolFailures = new Set<string>()
@@ -184,11 +187,13 @@ function isPlanPlacementSymbolSelected(
 
 function isPlanPlacementBreadcrumbHovered(
   hover: Selection,
+  placementId: string,
   endpoint: Endpoint | null | undefined,
   isJunctionPanel: boolean,
   panelId: string | null | undefined,
   trunkDeviceId?: string
 ): boolean {
+  if (hover.planPlacementIds?.includes(placementId)) return true
   if (trunkDeviceId && hover.type === 'trunkDevice' && hover.ids.includes(trunkDeviceId))
     return true
   if (isJunctionPanel || !endpoint) return false
@@ -415,6 +420,16 @@ function PlacementSymbolInner({
       : endpoint?.symbol
         ? getSymbolById(endpoint.symbol)
         : null
+  const colorOverride = useProjectStore((state) =>
+    planSymbolColor(
+      isEarthing
+        ? ('earthing' as SymbolKey)
+        : isJunctionPanel
+          ? 'junction_panel'
+          : endpoint?.symbol,
+      state.currentProject ? selectProjectPlanWiringVisibility(state.currentProject) : undefined
+    )
+  )
   const isSocket = endpoint?.type === 'socket'
   const isVectorSocketSymbol =
     endpoint?.symbol === 'socket' ||
@@ -435,8 +450,8 @@ function PlacementSymbolInner({
   const isLightFluorescent =
     endpoint?.type === 'light_point' && endpoint?.symbol === 'light_fluorescent'
   const tubeCount = isLightFluorescent ? (lightFluorescentProps?.tubeCount ?? 1) : 1
-  const currentProject = useProjectStore((state: ProjectState) =>
-    isJunctionPanel || endpoint?.symbol === 'panel_distribution' ? state.currentProject : null
+  const currentProject = usePlanSymbolElectricalProject(
+    isJunctionPanel || endpoint?.symbol === 'panel_distribution'
   )
 
   const resolvedPanelForSymbol = useMemo(() => {
@@ -480,6 +495,7 @@ function PlacementSymbolInner({
     (s) =>
       isPlanPlacementBreadcrumbHovered(
         s.hover,
+        placement.id,
         endpoint,
         isJunctionPanel,
         resolvedPanelId,
@@ -536,7 +552,7 @@ function PlacementSymbolInner({
       return
     }
     const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(baseSvgPath, isDark)
+    loadProcessedSymbol(baseSvgPath, isDark, colorOverride)
       .then(setProcessedImage)
       .catch(() => {
         if (!loggedSitplanSymbolFailures.has(baseSvgPath)) {
@@ -545,7 +561,7 @@ function PlacementSymbolInner({
         }
         setProcessedImage(null)
       })
-  }, [baseSvgPath, theme.mode])
+  }, [baseSvgPath, theme.mode, colorOverride])
 
   // Directional converters are composed from the shared base, diagonal, and
   // domain artwork so the situation plan uses the same symbol as the other
@@ -558,16 +574,16 @@ function PlacementSymbolInner({
       return
     }
     const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.diagonal, isDark)
+    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.diagonal, isDark, colorOverride)
       .then(setConverterDiagonalImage)
       .catch(() => setConverterDiagonalImage(null))
-    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.AC, isDark)
+    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.AC, isDark, colorOverride)
       .then(setConverterAcImage)
       .catch(() => setConverterAcImage(null))
-    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.DC, isDark)
+    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.DC, isDark, colorOverride)
       .then(setConverterDcImage)
       .catch(() => setConverterDcImage(null))
-  }, [isDirectionalConverter, theme.mode])
+  }, [isDirectionalConverter, theme.mode, colorOverride])
 
   // Load socket overlay images when socketProps request them (sitplan)
   useEffect(() => {
@@ -578,20 +594,20 @@ function PlacementSymbolInner({
     }
     const isDark = theme.mode === 'dark'
     if (showSwitchOverlay) {
-      loadProcessedSymbol(SOCKET_OVERLAY_PATHS.switchOverlay, isDark)
+      loadProcessedSymbol(SOCKET_OVERLAY_PATHS.switchOverlay, isDark, colorOverride)
         .then(setOverlaySwitchImage)
         .catch(() => setOverlaySwitchImage(null))
     } else {
       setOverlaySwitchImage(null)
     }
     if (showSwitchOverlayLock) {
-      loadProcessedSymbol(SOCKET_OVERLAY_PATHS.switchOverlayLock, isDark)
+      loadProcessedSymbol(SOCKET_OVERLAY_PATHS.switchOverlayLock, isDark, colorOverride)
         .then(setOverlaySwitchLockImage)
         .catch(() => setOverlaySwitchLockImage(null))
     } else {
       setOverlaySwitchLockImage(null)
     }
-  }, [showSwitchOverlay, showSwitchOverlayLock, theme.mode])
+  }, [showSwitchOverlay, showSwitchOverlayLock, theme.mode, colorOverride])
 
   // Load switch verklikkerlamp overlay (sitplan)
   useEffect(() => {
@@ -600,10 +616,10 @@ function PlacementSymbolInner({
       return
     }
     const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(switchOverlayPath, isDark)
+    loadProcessedSymbol(switchOverlayPath, isDark, colorOverride)
       .then(setSwitchOverlayImage)
       .catch(() => setSwitchOverlayImage(null))
-  }, [switchOverlayPath, theme.mode])
+  }, [switchOverlayPath, theme.mode, colorOverride])
 
   // Load light point overlays (safety, decentral, switch 1p) – sitplan: no onWall line
   useEffect(() => {
@@ -615,21 +631,21 @@ function PlacementSymbolInner({
     }
     const isDark = theme.mode === 'dark'
     if (showLightPointSafetyOverlay(lightPointProps)) {
-      loadProcessedSymbol(LIGHT_POINT_OVERLAY_PATHS.safety, isDark)
+      loadProcessedSymbol(LIGHT_POINT_OVERLAY_PATHS.safety, isDark, colorOverride)
         .then(setLightPointSafetyImage)
         .catch(() => setLightPointSafetyImage(null))
     } else {
       setLightPointSafetyImage(null)
     }
     if (showLightPointDecentralOverlay(lightPointProps)) {
-      loadProcessedSymbol(LIGHT_POINT_OVERLAY_PATHS.decentral, isDark)
+      loadProcessedSymbol(LIGHT_POINT_OVERLAY_PATHS.decentral, isDark, colorOverride)
         .then(setLightPointDecentralImage)
         .catch(() => setLightPointDecentralImage(null))
     } else {
       setLightPointDecentralImage(null)
     }
     if (lightPointProps.switch1p) {
-      loadProcessedSymbol(LIGHT_POINT_OVERLAY_PATHS.switch1p, isDark)
+      loadProcessedSymbol(LIGHT_POINT_OVERLAY_PATHS.switch1p, isDark, colorOverride)
         .then(setLightPointSwitchImage)
         .catch(() => setLightPointSwitchImage(null))
     } else {
@@ -643,6 +659,7 @@ function PlacementSymbolInner({
     lightPointProps?.autonomous,
     lightPointProps?.switch1p,
     theme.mode,
+    colorOverride,
   ])
 
   // Load transformer overlays (safety type, short‑circuit, protection) – sitplan
@@ -657,11 +674,11 @@ function PlacementSymbolInner({
     const safetyType = conversionProps?.transformerSafetyType ?? 'none'
 
     if (safetyType === 'safety_closed') {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.safetyClosed, isDark)
+      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.safetyClosed, isDark, colorOverride)
         .then(setTransformerSafetyImage)
         .catch(() => setTransformerSafetyImage(null))
     } else if (safetyType === 'safety_open') {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.safetyOpen, isDark)
+      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.safetyOpen, isDark, colorOverride)
         .then(setTransformerSafetyImage)
         .catch(() => setTransformerSafetyImage(null))
     } else {
@@ -669,7 +686,7 @@ function PlacementSymbolInner({
     }
 
     if (conversionProps?.transformerShortCircuitProtected) {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.shortcircuit, isDark)
+      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.shortcircuit, isDark, colorOverride)
         .then(setTransformerShortcircuitImage)
         .catch(() => setTransformerShortcircuitImage(null))
     } else {
@@ -677,7 +694,7 @@ function PlacementSymbolInner({
     }
 
     if (conversionProps?.transformerProtected) {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.protection, isDark)
+      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.protection, isDark, colorOverride)
         .then(setTransformerProtectionImage)
         .catch(() => setTransformerProtectionImage(null))
     } else {
@@ -689,6 +706,7 @@ function PlacementSymbolInner({
     conversionProps?.transformerShortCircuitProtected,
     conversionProps?.transformerProtected,
     theme.mode,
+    colorOverride,
   ])
 
   // Load light spot beam overlay (sitplan)
@@ -702,10 +720,10 @@ function PlacementSymbolInner({
         ? LIGHT_SPOT_OVERLAY_PATHS.straight
         : LIGHT_SPOT_OVERLAY_PATHS.diverging
     const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark)
+    loadProcessedSymbol(path, isDark, colorOverride)
       .then(setLightSpotBeamImage)
       .catch(() => setLightSpotBeamImage(null))
-  }, [isLightSpot, lightSpotProps?.beamType, theme.mode])
+  }, [isLightSpot, lightSpotProps?.beamType, theme.mode, colorOverride])
 
   // Load HVAC energy source overlays (sitplan)
   useEffect(() => {
@@ -719,10 +737,10 @@ function PlacementSymbolInner({
       return
     }
     const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark)
+    loadProcessedSymbol(path, isDark, colorOverride)
       .then(setHvacEnergyImage)
       .catch(() => setHvacEnergyImage(null))
-  }, [isHvac, hvacEnergyKey, theme.mode])
+  }, [isHvac, hvacEnergyKey, theme.mode, colorOverride])
 
   // Load HVAC type overlays (sitplan)
   useEffect(() => {
@@ -736,10 +754,10 @@ function PlacementSymbolInner({
       return
     }
     const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark)
+    loadProcessedSymbol(path, isDark, colorOverride)
       .then(setHvacTypeImage)
       .catch(() => setHvacTypeImage(null))
-  }, [isHvac, hvacTypeKey, theme.mode])
+  }, [isHvac, hvacTypeKey, theme.mode, colorOverride])
 
   // Load relay control overlay (sitplan)
   useEffect(() => {
@@ -754,10 +772,10 @@ function PlacementSymbolInner({
       return
     }
     const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark)
+    loadProcessedSymbol(path, isDark, colorOverride)
       .then(setRelayOverlayImage)
       .catch(() => setRelayOverlayImage(null))
-  }, [endpoint?.symbol, relayProps?.control, theme.mode])
+  }, [endpoint?.symbol, relayProps?.control, theme.mode, colorOverride])
 
   // Load smoke / fire detector overlay (sitplan)
   useEffect(() => {
@@ -772,10 +790,10 @@ function PlacementSymbolInner({
       return
     }
     const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark)
+    loadProcessedSymbol(path, isDark, colorOverride)
       .then(setSmokeDetectorOverlayImage)
       .catch(() => setSmokeDetectorOverlayImage(null))
-  }, [endpoint?.symbol, smokeDetectorProps?.type, theme.mode])
+  }, [endpoint?.symbol, smokeDetectorProps?.type, theme.mode, colorOverride])
 
   /** Same selection rules as click; used from onClick and from mouse drag-start when the symbol was not yet selected. */
   const applyPlanSymbolPointerSelection = useCallback(
@@ -1111,7 +1129,7 @@ function PlacementSymbolInner({
   const lineEndY = PANEL_CIRCUIT_LINE_END_Y * sitplanScale
   const lineSpacing = PANEL_CIRCUIT_LINE_SPACING * sitplanScale
   const lineStrokeWidth = PANEL_CIRCUIT_LINE_STROKE_WIDTH * sitplanScale
-  const symbolColor = colors.symbolColor
+  const symbolColor = colorOverride ?? colors.symbolColor
   const panelBodyX = -symbolWidth / 2 + symbolWidth * (4.4 / 88.2)
   const panelBodyY = -symbolHeight / 2 + symbolHeight * (15.6 / 48)
   const panelBodyWidth = symbolWidth * (79.4 / 88.2)

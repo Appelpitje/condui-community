@@ -1,4 +1,125 @@
 {
+  "findPanel": {
+    "title": "Rechercher un tableau",
+    "placeholder": "Rechercher des tableaux…",
+    "empty": "Aucun tableau trouvé",
+    "oneWire": "Schéma unifilaire",
+    "panelView": "Disposition du tableau",
+    "planView": "Plan de position",
+    "unplaced": "Non placé sur un plan"
+  },
+  "nativeRoomScan": {
+    "title": "Scan de l’étage",
+    "description": "Scannez les murs, portes et fenêtres de cet étage.",
+    "start": "Scanner l’étage",
+    "scanning": "Scan en cours…",
+    "unsupported": "Le scan de pièce n’est pas disponible sur cet appareil.",
+    "failed": "Impossible de scanner cet étage.",
+    "cancelled": "Scan de l’étage annulé.",
+    "result": "Résultat du scan",
+    "walls": "Murs",
+    "doors": "Portes",
+    "windows": "Fenêtres",
+    "openings": "Ouvertures",
+    "scanAgain": "Scanner à nouveau",
+    "preview": "Aperçu du plan",
+    "rotateLeft": "Tourner de 90° à gauche",
+    "rotateRight": "Tourner de 90° à droite",
+    "addToFloor": "Ajouter à {{floor}}",
+    "unmatched": "Ouvertures non rattachées",
+    "skippedWalls": "Murs ignorés",
+    "checkCenters": "Vérifier les axes des murs",
+    "noWalls": "Aucun mur trouvé.",
+    "importFailed": "Impossible d’ajouter le scan.",
+    "floorUnavailable": "L’étage sélectionné n’est plus disponible.",
+    "stale": "Le projet a changé. Actualisez l’aperçu pour continuer.",
+    "refresh": "Actualiser l’aperçu",
+    "search": "LiDAR RoomPlan pièce murs portes fenêtres",
+    "roomNameDefault": "Pièce",
+    "roomName": "Nom de la pièce",
+    "targetPanel": "Tableau",
+    "includePlacements": "Repérer les prises, luminaires et interrupteurs",
+    "existingInstallation": "Le placement est désactivé car ce projet contient déjà des points terminaux.",
+    "reviewHint": "Les circuits du scan sont provisoires. Vérifiez les protections, câbles et commandes des luminaires.",
+    "modelDocument": "Modèle de l’étage",
+    "placementsDocument": "Repérages du scan",
+    "toReview": "À vérifier",
+    "zoomIn": "Agrandir",
+    "zoomOut": "Réduire",
+    "resetView": "Réinitialiser la vue",
+    "orbitHint": "Glissez pour tourner · pincez pour zoomer",
+    "reviewCircuit": "Vérifier le circuit",
+    "markReviewed": "Marquer comme vérifié",
+    "capturedHeight": "Hauteur relevée",
+    "noPhoto": "Aucune photo de référence",
+    "elementRemoved": "L’élément lié a été supprimé. La photo est conservée.",
+    "showOnPlan": "Voir sur le plan",
+    "showOnOneWire": "Voir sur l’unifilaire",
+    "downloadScan": "Télécharger le scan",
+    "documentFailed": "Impossible d’ouvrir ce document de scan.",
+    "group": {
+      "sockets": "prises",
+      "lighting": "éclairage",
+      "equipment": "appareils"
+    },
+    "capture": {
+      "cancel": "Annuler",
+      "undo": "Annuler l’ajout",
+      "finish": "Terminer",
+      "center": "Centre",
+      "review": "Vérifier",
+      "back": "Retour",
+      "more": "Autres types",
+      "placements": "Positions",
+      "processing": "Traitement…",
+      "locked": "Point verrouillé",
+      "centerAim": "Visez au centre · touchez pour verrouiller",
+      "markFixtures": "Repérer les éléments",
+      "tracking": "Suivi",
+      "trackingPaused": "Suivi incertain",
+      "offscreen": "hors champ",
+      "noMarks": "Étage scanné · aucun appareil marqué",
+      "finishRoom": "Terminer l’étage",
+      "fewerSockets": "Moins de prises",
+      "moreSockets": "Plus de prises",
+      "variantHint": "Glissez pour choisir · relâchez pour placer",
+      "variants": {
+        "socket": "Prise",
+        "light": "Lampe",
+        "switch": "Interr.",
+        "twoWay": "Va-et-vient",
+        "cross": "Permut.",
+        "push": "Poussoir",
+        "dimmer": "Variateur",
+        "led": "LED",
+        "fluorescent": "TL",
+        "spot": "Spot"
+      },
+      "surfaceNeeded": "Visez un mur, sol ou plafond scanné"
+    },
+    "documentBudget": "Les références du scan dépassent l’espace documentaire du projet. Supprimez ou réduisez des documents, puis réessayez.",
+    "noClosedRooms": "Aucune pièce fermée détectée. Scannez les limites complètes pour identifier les pièces.",
+    "roomTypes": {
+      "bedroom": "Chambre",
+      "bathroom": "Salle de bains",
+      "kitchen": "Cuisine",
+      "livingRoom": "Salon",
+      "diningRoom": "Salle à manger",
+      "laundry": "Buanderie",
+      "office": "Bureau"
+    },
+    "modelLayers": {
+      "object": "Mobilier",
+      "wall": "Murs",
+      "openings": "Portes et fenêtres",
+      "floor": "Sol"
+    },
+    "assignCircuit": "Affecter à un circuit",
+    "newCircuit": "Nouveau circuit",
+    "assignmentFailed": "Impossible d’affecter ces emplacements.",
+    "selectPlacement": "Sélectionner l’emplacement",
+    "clearSelection": "Effacer la sélection"
+  },
   "junctionIdentity": {
     "label": "Identification de connexion",
     "pickExisting": "Réutiliser une identification existante",
@@ -9,9 +130,11 @@
     "toggleVisibility": "Afficher ou masquer le label sur le schéma"
   },
   "terminalStrip": {
-    "pin": "Borne",
+    "pin": "Numéro de circuit",
     "incomingPin": "Entrée",
-    "outgoingPin": "Sortie"
+    "outgoingPin": "Sortie",
+    "circuitConflict": "{{label}} est attribué à plusieurs circuits.",
+    "circuitConflictRemediation": "Utilisez un numéro de groupe de bornes distinct pour chaque circuit."
   },
   "appUpdate": {
     "banner": "Une nouvelle version de l’application est disponible.",
@@ -35,6 +158,7 @@
     "importFallbackProjectName": "Projet importé ({{idShort}})"
   },
   "common": {
+    "more": "En savoir plus",
     "save": "Enregistrer",
     "cancel": "Annuler",
     "delete": "Supprimer",
@@ -155,6 +279,7 @@
     "zoom": "Zoomer"
   },
   "commandPalette": {
+    "addSupplyTransformer": "Ajouter un transformateur d’alimentation",
     "placeholder": "Rechercher une commande",
     "empty": "Aucune commande trouvée",
     "moveToCircuit": "Déplacer vers un circuit",
@@ -187,14 +312,98 @@
       "kind": "Type de circuit",
       "direction": "Côté alimentation",
       "left": "Gauche",
-      "right": "Droite"
+      "right": "Droite",
+      "x": "X",
+      "y": "Y",
+      "startX": "Début X",
+      "startY": "Début Y",
+      "endX": "Fin X",
+      "endY": "Fin Y",
+      "thickness": "Épaisseur",
+      "wall": "Mur",
+      "planWidth": "Largeur",
+      "height": "Hauteur",
+      "stepDepth": "Profondeur de marche",
+      "asset": "Symbole",
+      "offsetX": "Décalage X",
+      "offsetY": "Décalage Y",
+      "rotationDeg": "Rotation (°)",
+      "opacity": "Opacité (%)",
+      "segment": "Segment",
+      "text": "Texte",
+      "title": "Titre",
+      "fontSize": "Taille du texte",
+      "titlePosition": "Position du titre",
+      "route": "Tracé du fil",
+      "index": "Indice du point",
+      "placement": "Symbole du plan",
+      "destination": "Destination",
+      "organization": "Organisation des alimentations",
+      "connection": "Connexion"
     },
     "kinds": {
       "lighting": "Éclairage",
       "sockets": "Prises",
       "fixed_appliance": "Appareil fixe",
       "other": "Autre"
-    }
+    },
+    "removeFromOneWire": "Retirer du schéma unifilaire",
+    "showOnOneWire": "Afficher sur le schéma unifilaire",
+    "addFloor": "Ajouter un étage",
+    "deleteFloor": "Supprimer l’étage",
+    "transformBackground": "Ajuster le fond du plan",
+    "addPlanWall": "Ajouter un mur",
+    "addPlanDoor": "Ajouter une porte",
+    "addPlanWindow": "Ajouter une fenêtre",
+    "addPlanStair": "Ajouter un escalier",
+    "addPlanGraphic": "Ajouter un symbole au plan",
+    "placeExistingOnPlan": "Placer sur le plan",
+    "hideAllPanelModules": "Masquer tous les modules du tableau",
+    "showAllPanelModules": "Afficher tous les modules du tableau",
+    "showAuxiliaryEnclosures": "Afficher les coffrets auxiliaires sur le plan",
+    "hideAuxiliaryEnclosures": "Masquer les coffrets auxiliaires sur le plan",
+    "importPlanBackground": "Importer un fond de plan",
+    "calibratePlan": "Définir l’échelle du plan",
+    "removeBackground": "Supprimer le fond du plan",
+    "splitWall": "Diviser le mur",
+    "planAddNote": "Ajouter une note au plan",
+    "eendraadAddNote": "Ajouter une note au schéma",
+    "eendraadCreateFrame": "Encadrer les éléments sélectionnés",
+    "planInsertWireWaypoint": "Ajouter un point au fil",
+    "planMoveWireWaypoint": "Déplacer un point du fil",
+    "planRemoveWireWaypoint": "Supprimer un point du fil",
+    "planMoveWireRiser": "Déplacer la traversée de plancher",
+    "planDisconnectOutgoingWires": "Déconnecter les fils sortants du plan",
+    "cableAcceptLengthEstimates": "Accepter les longueurs de câble estimées",
+    "moveSupplyDevice": "Déplacer un appareil d’alimentation",
+    "moveCircuitTrunkDevice": "Déplacer un appareil du circuit",
+    "values": {
+      "inside": "À l’intérieur",
+      "outside": "À l’extérieur",
+      "sharedSupply": "Alimentation commune",
+      "supplyWire": "Fil d’alimentation",
+      "backupWire": "Fil de secours",
+      "backupOutput": "Sortie de secours",
+      "changeoverGrid": "Entrée réseau du commutateur",
+      "converterGrid": "Entrée réseau du convertisseur",
+      "converterDc": "Côté CC du convertisseur",
+      "supplyDestination": "{{panel}} · {{lane}}",
+      "destinationAtPosition": "{{destination}} · position {{position}}",
+      "circuitDestinationAtPosition": "{{panel}} · {{circuit}} · position {{position}}",
+      "defaultNote": "Nouvelle note",
+      "defaultFrame": "Cadre",
+      "singleFeed": "Alimentation unique",
+      "splitBackupFeed": "Alimentation de secours séparée",
+      "splitSwitchableFeed": "Alimentation commutable séparée",
+      "installationSupply": "Alimentation de l’installation"
+    },
+    "setPanelFeedOrganization": "Modifier les alimentations du tableau",
+    "setGridFeedBoundary": "Déplacer la limite du réseau",
+    "setBackupFeedBoundary": "Déplacer la limite de secours",
+    "movePanelSupply": "Déplacer l’alimentation du tableau",
+    "disconnectInverterGridInput": "Déconnecter l’entrée réseau de l’onduleur",
+    "ejectSecondaryBusProtections": "Déplacer le jeu de barres secondaire vers un nouveau tableau",
+    "ensureSecondaryPanelEarthingStem": "Ajouter la liaison de terre du tableau"
   },
   "shortcuts": {
     "title": "Raccourcis",
@@ -224,6 +433,7 @@
       "ctrlCmdP": "Ctrl / Cmd + P",
       "ctrlCmdD": "Ctrl / Cmd + D",
       "ctrlCmdK": "Ctrl / Cmd + K",
+      "ctrlCmdF": "Ctrl / Cmd + F",
       "tab": "Tab",
       "esc": "Échap",
       "space": "Espace",
@@ -716,6 +926,12 @@
     }
   },
   "installation": {
+    "supplyConnectionLabel": "Raccordement réseau",
+    "supplyDirect": "Basse tension directe",
+    "supplyTransformer": "Transformateur privé",
+    "connectionCurrent": "Intensité du raccordement (A)",
+    "connectionUnspecified": "Non précisée",
+    "connectionCustom": "Personnalisé",
     "defaultCable": "Câble par défaut",
     "title": "Installation",
     "profile": "Profil",
@@ -794,6 +1010,7 @@
     "type": "Type",
     "rating": "Courant nominal",
     "curve": "Courbe de déclenchement",
+    "specialistCurveWarning": "Inhabituelle dans les installations domestiques. Vérifiez la protection contre les courts-circuits.",
     "sensitivity": "Courant diff. résiduel IΔn",
     "poles": "Pôles",
     "polesConfig": "Configuration des pôles",
@@ -1097,6 +1314,10 @@
       "options": "Options"
     },
     "transformer": {
+      "primaryVoltage": "Tension primaire (V)",
+      "secondaryVoltage": "Tension secondaire (V)",
+      "ratedPower": "Puissance nominale (kVA)",
+      "shortCircuitVoltage": "Tension de court-circuit uk (%)",
       "safetyType": "Transformateur de sécurité",
       "safety_none": "Aucun",
       "safety_closed_short": "Fermé",
@@ -1252,6 +1473,9 @@
     "syncWithPanelView": "Synchroniser avec la vue Tableau"
   },
   "canvas": {
+    "detachView": "Détacher la vue",
+    "dockView": "Rattacher la vue",
+    "popupBlocked": "Autorisez les fenêtres contextuelles pour Condui, puis réessayez.",
     "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Grille",
     "snap": "Aligner",
@@ -1555,6 +1779,8 @@
     }
   },
   "sitplanVisibility": {
+    "colors": "Couleurs du plan",
+    "symbolColor": "Couleur : {{category}}",
     "title": "Visibilité",
     "showAll": "Tout afficher",
     "groundPlans": "Plans de sol",
@@ -1637,6 +1863,7 @@
     "horn": "Corne",
     "siren": "Sirène",
     "panel_distribution": "Tableau de distribution",
+    "junction_box": "Boîte de dérivation",
     "relay": "Relais",
     "domotica": "Domotique / appareil domotique",
     "energy_meter": "Compteur d'énergie",
@@ -2264,6 +2491,11 @@
         "message": "Pouvoir de coupure de l'alimentation trop faible : {{list}}",
         "details": "Le dispositif de raccordement avant le compteur doit avoir au moins 6000 A. Les dispositifs de surintensité après celui-ci doivent avoir au moins 3000 A."
       },
+      "circuitShortCircuitProtectionVerifiable": {
+        "message": "Circuit {{circuitCode}} : protection contre les courts-circuits non vérifiée avec la courbe {{curve}}",
+        "missingData": "Renseignez le calibre du disjoncteur, les sections et toutes les longueurs de câble pour vérifier la protection contre les courts-circuits. Des données manquantes ne confirment pas une protection adéquate.",
+        "unsupportedCurve": "Condui ne dispose pas de seuil de déclenchement fiable pour cette caractéristique. Vérifiez la protection à l'aide de la courbe du fabricant et du courant de court-circuit minimal."
+      },
       "circuitWithinMaximumProtectedLength": {
         "message": "Circuit {{circuitCode}} : {{lengthM}} m de câble dépasse la longueur protégée de {{maxLengthM}} m",
         "details": "Un court-circuit à l'extrémité doit encore déclencher le {{curve}}{{ratingA}} instantanément ({{tripCurrentA}} A). Avec {{sectionMm2}} mm², cela permet au maximum {{maxLengthM}} m. Choisissez une section plus grande, un trajet plus court ou un calibre ou une courbe inférieurs."
@@ -2305,6 +2537,10 @@
         "details": "Les appareils fixes sont souvent alimentés par leur propre circuit afin que la section du câble et le calibre de protection soient adaptés à l'appareil et aux remplacements futurs possibles. Envisagez de placer ces appareils sur leur propre circuit, sans prises, points lumineux ou autres récepteurs supplémentaires."
       },
       "mainRcdCompliance": {
+        "sensitivityMissing": {
+          "message": "La sensibilité du différentiel principal est inconnue",
+          "details": "Renseignez la sensibilité différentielle (mA) de l’appareil existant pour vérifier la protection principale. Utilisez les caractéristiques confirmées de l’appareil."
+        },
         "missing": {
           "message": "L'alimentation principale ne possède pas de disjoncteur différentiel ou de disjoncteur différentiel combiné en amont",
           "details": "Le RGIE impose un dispositif de protection à courant différentiel-résiduel principal à l'origine de l'installation. Ajoutez un disjoncteur différentiel principal ou un disjoncteur différentiel combiné sur la ligne d'alimentation en amont du tableau principal."
@@ -2336,6 +2572,12 @@
         "details": "Le tableau peut être isolé via un dispositif amont, mais il n'y a pas d'interrupteur-sectionneur local dans ce tableau. Une coupure locale améliore la sécurité et la maintenabilité."
       },
       "circuitHasRcdProtection": {
+        "sensitivityMissing": {
+          "groupMessage": "Des circuits ont une protection différentielle en amont de sensibilité inconnue",
+          "remediation": "Renseignez la sensibilité (mA) du différentiel existant en amont à partir des caractéristiques confirmées de l’appareil.",
+          "message": "Le circuit {{circuitCode}} a une protection différentielle en amont de sensibilité inconnue",
+          "details": "Renseignez la sensibilité (mA) du différentiel existant en amont pour vérifier la protection de 30 mA. Utilisez les caractéristiques confirmées de l’appareil."
+        },
         "missing": {
           "message": "Le circuit {{circuitCode}} nécessite une protection par disjoncteur différentiel ou disjoncteur différentiel combiné (30 mA), mais aucun appareil en amont n'a été trouvé",
           "details": "L’éclairage, les prises à usage général, les lave-linge, sèche-linge, lave-vaisselle et circuits de recharge VE nécessitent une protection différentielle de 30 mA. Ajoutez un différentiel en amont ou raccordez ce circuit à un appareil de 30 mA existant."
@@ -2694,6 +2936,7 @@
   },
   "plan": {
     "doorProperties": "Porte",
+    "gatePreset": "Portail",
     "windowProperties": "Fenêtre",
     "openingWidth": "Largeur",
     "cm": "cm",
@@ -2777,7 +3020,11 @@
     "backupFeed": "Alimentation de secours",
     "gridMarker": "Réseau",
     "backupMarker": "Secours",
-    "switchableBackupMarker": "Secours/Réseau"
+    "switchableBackupMarker": "Secours/Réseau",
+    "changeoverInput1": "Entrée 1",
+    "changeoverInputGrid": "Réseau",
+    "changeoverInputConverter": "Alimentation onduleur",
+    "inverterGridInputDisconnected": "Entrée réseau de l’onduleur non raccordée"
   },
   "wallProperties": {
     "title": "Propriétés du mur",
@@ -3264,7 +3511,11 @@
     "shape": {
       "phase": "Phase",
       "neutral": "Neutre",
-      "earth": "Terre"
+      "earth": "Terre",
+      "deck2": "Double étage",
+      "deck3": "Triple étage PE/N/L",
+      "install": "Installation L/N/PE",
+      "single": "Simple étage"
     },
     "addJumper": "Ajouter un pont",
     "removeJumper": "Supprimer le pont",
@@ -3299,6 +3550,22 @@
         "unknown-connector": "La borne de connexion n’existe plus",
         "pe-without-bonded-rail": "Bornes de terre sur un rail non relié à la terre"
       }
-    }
+    },
+    "tool": {
+      "select": "Sélectionner",
+      "bridge": "Dessiner un pont"
+    },
+    "bridgeThroughRail": "La terre est déjà reliée par le rail",
+    "shapeOf": "Forme"
+  },
+  "oneWireReference": {
+    "title": "Page scannée",
+    "blend": "Fondre dans le canevas",
+    "opacity": "Opacité",
+    "openDocument": "Ouvrir le document",
+    "remove": "Retirer du schéma unifilaire",
+    "showOnOneWire": "Afficher sur le schéma unifilaire",
+    "pageName": "Page du schéma unifilaire {{page}}",
+    "documentPage": "{{name}} · page {{page}}"
   }
 }

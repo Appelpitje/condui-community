@@ -1,5 +1,8 @@
 import type { GeneralProjectPropertyPatch } from '@/lib/properties/generalPropertyFamilies'
-import type { InstallationPropertyPatch } from '@/handlers/properties/editProperties'
+import { editProperties, type InstallationPropertyPatch } from '@/handlers/properties/editProperties'
+import { getInstallationSupplyTransformer } from '@/lib/electrical/supplyTransformer'
+import CustomDropdown from '@/components/common/CustomDropdown'
+import { TransformerNameplateFields } from '../shared/TransformerNameplateFields'
 import { updateInstallationAddressAndSite } from '@/handlers/properties/editGeneralProperties'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -28,6 +31,7 @@ import {
 } from '@/constants/nominalVoltage'
 import { InspectionAgencyPicker } from '../InspectionAgencyPicker'
 import { NominalVoltageSystemPicker } from '../NominalVoltageSystemPicker'
+import { ConnectionCurrentField } from '../ConnectionCurrentField'
 import { useEditionFeatureAvailability } from '@/hooks/useEditionFeatureAvailability'
 import { resolveInstallationProfile } from '@/lib/installationProfile'
 
@@ -203,6 +207,7 @@ export function ProjectProperties({
     },
     [applyInstallationUpdate, readOnly]
   )
+  const supplyTransformer = installation ? getInstallationSupplyTransformer(installation) : undefined
   const googleMapsUrl =
     typeof siteLocation?.latitude === 'number' && typeof siteLocation?.longitude === 'number'
       ? `https://www.google.com/maps/search/?api=1&query=${siteLocation.latitude},${siteLocation.longitude}`
@@ -518,6 +523,7 @@ export function ProjectProperties({
                   {t('installation.profile', 'Profile')}
                 </label>
                 <select
+                  aria-label={t('installation.profile', 'Profile')}
                   value={resolveInstallationProfile(installation)}
                   disabled={readOnly}
                   onChange={(event) =>
@@ -535,6 +541,38 @@ export function ProjectProperties({
                     {t('installation.profileNonHousehold', 'Non-domestic')}
                   </option>
                 </select>
+              </div>
+            )}
+            {project && resolveInstallationProfile(installation) === 'non_household' && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                  {t('installation.supplyConnectionLabel', 'Grid connection')}
+                </label>
+                <CustomDropdown
+                  ariaLabel={t('installation.supplyConnectionLabel', 'Grid connection')}
+                  value={supplyTransformer ? 'transformer' : 'direct'}
+                  disabled={readOnly}
+                  menuPortal
+                  options={[
+                    { value: 'direct', label: t('installation.supplyDirect', 'Direct low voltage') },
+                    { value: 'transformer', label: t('installation.supplyTransformer', 'Own transformer') },
+                  ]}
+                  onChange={(connection) => editProperties({ actions: [{
+                    kind: 'projectSupplyConnection',
+                    connection: connection === 'transformer' ? 'transformer' : 'direct',
+                  }] })}
+                />
+              </div>
+            )}
+            {supplyTransformer && (
+              <div data-testid="project-supply-transformer-properties">
+                <TransformerNameplateFields
+                  value={supplyTransformer.conversionProps ?? {}}
+                  readOnly={readOnly}
+                  onChange={(conversionProps) => editProperties({ edits: [{
+                    kind: 'trunkDevice', ids: [supplyTransformer.id], set: { conversionProps },
+                  }] })}
+                />
               </div>
             )}
             <div>
@@ -592,6 +630,11 @@ export function ProjectProperties({
                 </div>
               </div>
             </div>
+            <ConnectionCurrentField
+              value={installation.connectionCurrentA}
+              readOnly={readOnly}
+              onChange={(connectionCurrentA) => updateInstallation({ connectionCurrentA })}
+            />
             <div>
               <label
                 htmlFor="project-default-cable"

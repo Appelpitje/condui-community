@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-46.5 -82.0 102.5 102.5" role="img" aria-label="Elektrisch deurslot">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-4.3,2.5 9.5,10.5 9.5,-61.5 -4.3,-69.5" fill="#1e293b"/>
+  <polygon points="13.9,8.0 9.5,10.5 9.5,-61.5 13.9,-64.0" fill="#020617"/>
+  <polygon points="0.0,-72.0 13.9,-64.0 9.5,-61.5 -4.3,-69.5" fill="#64748b"/>
+  <g transform="matrix(0.8660 0.5 0 1 -4.33 2.50)"><rect x="3.5" y="-50" width="9" height="26" rx="1" fill="#020617"/>
+<circle cx="8" cy="-64" r="2.2" fill="#0f172a" stroke-width="0.8"/>
+<circle cx="8" cy="-9" r="2.2" fill="#0f172a" stroke-width="0.8"/></g>
+</g>
+</svg>

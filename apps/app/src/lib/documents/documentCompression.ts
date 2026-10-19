@@ -155,6 +155,7 @@ export async function compressPdf(
       context.fillRect(0, 0, width, height)
       // Print intent renders without requestAnimationFrame, so a background tab keeps going.
       await page.render({
+        canvas,
         canvasContext: context as CanvasRenderingContext2D,
         viewport,
         background: 'white',

@@ -6,6 +6,7 @@ import { TouchPanIcon, TouchZoomIcon } from '@/components/icons/TouchGestureIcon
 type ShortcutEntry = {
   id: string
   keys: ShortcutKeyId[]
+  labelKey?: string
   note?: boolean
 }
 
@@ -17,6 +18,7 @@ type ShortcutKeyId =
   | 'ctrlCmdP'
   | 'ctrlCmdD'
   | 'ctrlCmdK'
+  | 'ctrlCmdF'
   | 'tab'
   | 'esc'
   | 'space'
@@ -77,6 +79,7 @@ const BASE_SHORTCUT_GROUPS: ShortcutGroup[] = [
         id: 'projectPanels',
         entries: [
           { id: 'openCommandPalette', keys: ['ctrlCmdK'] },
+          { id: 'findPanel', keys: ['ctrlCmdF'], labelKey: 'findPanel.title' },
           { id: 'undo', keys: ['ctrlCmdZ'] },
           { id: 'redo', keys: ['ctrlCmdShiftZ', 'ctrlCmdY'] },
           { id: 'toggleLibrary', keys: ['ctrlCmdL'] },
@@ -275,7 +278,7 @@ export function ShortcutsDialog() {
                       >
                         <div className="min-w-0">
                           <div className="font-medium text-gray-800 dark:text-gray-100">
-                            {t(`shortcuts.entries.${entry.id}.description`)}
+                            {t(entry.labelKey ?? `shortcuts.entries.${entry.id}.description`)}
                           </div>
                           {entry.note && (
                             <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">

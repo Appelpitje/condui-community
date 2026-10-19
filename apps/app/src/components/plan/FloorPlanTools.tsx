@@ -18,6 +18,7 @@ import {
 } from '@/components/icons/UiIcons'
 import type { ToolMode } from './PlanImageTools'
 import { PLAN_GRAPHIC_ELEMENT_ASSETS } from '@/lib/plan/graphicElements'
+import RoomPlanScanControl from './RoomPlanScanControl'
 
 interface FloorPlanToolsProps {
   onToolChange: (mode: ToolMode) => void
@@ -356,6 +357,7 @@ function FloorPlanTools({
               onClick={control.onClick}
             />
           ))}
+          <RoomPlanScanControl />
           {selectedGraphicAsset && (
             <div
               ref={graphicToolRef}

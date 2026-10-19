@@ -378,7 +378,7 @@ export function getModuleDisplayInfo(
         label: `X${stripId}`,
         specLines: [],
         terminalStrip: { stripId, incomingPin: pin, outgoingPin, maxPin, connectedPins },
-        tooltipText: `X${stripId}-${pin}/${outgoingPin}`,
+        tooltipText: outgoingPin === pin ? `X${stripId}-${pin}` : `X${stripId}-${pin}/${outgoingPin}`,
         kind: 'trunkDevice',
       }
     }

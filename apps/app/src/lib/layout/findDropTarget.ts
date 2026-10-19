@@ -27,10 +27,12 @@ import {
   DOMOTICA_MIN_ENDPOINT_OUTPUTS,
 } from '@/lib/domoticaLayout'
 import { isVerticalSupplyDevice } from './supplyDeviceOrientation'
-import { findCircuitTrunkBranchSlot } from './circuitTrunkBranchSlots'
+import { findCircuitTrunkBranchSlot, type CircuitTrunkBranchSlot } from './circuitTrunkBranchSlots'
 
 /** Options for findDropTarget / findDropTargetWithDebug (all optional). */
 export interface FindDropTargetOptions {
+  /** Reuse a trunk-only slot index during a synchronous batch of hit tests. */
+  trunkBranchSlotAt?: (position: Point) => CircuitTrunkBranchSlot | null
   /**
    * Accept any direct-converter AC wire as the single canonical modular-changeover slot.
    * This is deliberately opt-in so other symbols retain their normal wire semantics.
@@ -114,7 +116,7 @@ export interface DropTarget {
   /** Existing branch on the supply DC bus under the pointer. */
   supplyDcBusBranchId?: string
   /** Geometry selected on the converter grid-input path. */
-  converterGridPlacement?: 'inline' | 'input-leg'
+  converterGridPlacement?: 'inline' | 'input-leg' | 'converter-leg'
   /** Geometry selected on the modular changeover grid-input path. */
   changeoverGridPlacement?: 'inline' | 'input-leg'
   /** True only on the direct converter's load-side junction slot. */
@@ -187,6 +189,8 @@ interface WalkContext {
   secondaryBusNode?: LayoutNode
   /** Immediate circuit node whose children are currently being traversed. */
   currentCircuitNode?: LayoutNode
+  /** Panel node holding the supply drawing, for the gap slots around a hovered supply device. */
+  supplyPanelNode?: LayoutNode
 }
 
 // ─── Node types that use center-based positioning ────────────────────────────
@@ -663,7 +667,7 @@ export function findDropTarget(
   position: Point,
   options?: FindDropTargetOptions
 ): DropTarget {
-  return withCircuitTrunkBranchSlot(tree, position, findDropTargetBySegment(tree, position, options))
+  return withCircuitTrunkBranchSlot(tree, position, findDropTargetBySegment(tree, position, options), options?.trunkBranchSlotAt)
 }
 
 function findDropTargetBySegment(
@@ -794,7 +798,11 @@ function findDropTargetBySegment(
   if (secondaryBusResult) return secondaryBusResult.target
 
   // Nothing matched
-  return { type: null, panelId: panelNode.domainId }
+  return {
+    type: null,
+    panelId: panelNode.domainId,
+    ...(ctx.diagramId ? { diagramId: ctx.diagramId } : {}),
+  }
 }
 
 /**
@@ -806,11 +814,14 @@ export function findDropTargetWithDebug(
   options?: FindDropTargetOptions
 ): { target: DropTarget; debug: DebugInfo } {
   const result = findDropTargetWithDebugBySegment(tree, position, options)
-  return { ...result, target: withCircuitTrunkBranchSlot(tree, position, result.target) }
+  return { ...result, target: withCircuitTrunkBranchSlot(tree, position, result.target, options?.trunkBranchSlotAt) }
 }
 
 /** Attach the branch gap under the pointer to a circuit-trunk wire target. */
-function withCircuitTrunkBranchSlot(tree: LayoutTree, position: Point, target: DropTarget): DropTarget {
+function withCircuitTrunkBranchSlot(
+  tree: LayoutTree, position: Point, target: DropTarget,
+  trunkBranchSlotAt?: FindDropTargetOptions['trunkBranchSlotAt']
+): DropTarget {
   if (
     target.type !== 'circuit' ||
     !target.circuitId ||
@@ -819,7 +830,8 @@ function withCircuitTrunkBranchSlot(tree: LayoutTree, position: Point, target: D
   ) {
     return target
   }
-  const slot = findCircuitTrunkBranchSlot(tree, position, { includeBranchRows: false })
+  const slot = trunkBranchSlotAt ? trunkBranchSlotAt(position)
+    : findCircuitTrunkBranchSlot(tree, position, { includeBranchRows: false })
   if (!slot || slot.circuitId !== target.circuitId) return target
   return { ...target, circuitTrunkBranchSlot: slot.insertIndex }
 }
@@ -1041,7 +1053,11 @@ function findDropTargetWithDebugBySegment(
 
   // Nothing matched
   return {
-    target: { type: null, panelId: panelNode.domainId },
+    target: {
+      type: null,
+      panelId: panelNode.domainId,
+      ...(ctx.diagramId ? { diagramId: ctx.diagramId } : {}),
+    },
     debug: {
       panelId: panelNode.domainId,
       path: debugPath,
@@ -1469,6 +1485,7 @@ function accumulateContext(node: LayoutNode, ctx: WalkContext): WalkContext {
     if (mainBusNode || supplyDevicePositions.length > 0 || groundDevicePositions.length > 0) {
       return {
         ...ctx,
+        supplyPanelNode: node,
         ...(mainBusNode ? { mainBusNode } : {}),
         ...(supplyDevicePositions.length > 0 ? { supplyDevicePositions } : {}),
         ...(groundDevicePositions.length > 0 ? { groundDevicePositions } : {}),
@@ -1799,15 +1816,24 @@ function buildDropTarget(node: LayoutNode, ctx: WalkContext, position?: Point): 
     target.supplyConverterChangeoverSlot = node.hitZone?.supplyConverterChangeoverSlot
     if (node.type === 'trunkDevice' && typeof node.hitZone?.supplyInsertIndex === 'number') {
       const isVerticalStub = node.id.includes('--feed-stub-') || isVerticalSupplyDevice(
-        node.domainRef as import('@/types/schema').TrunkDevice
+        node.domainRef as import('@/types/schema').TrunkDevice,
+        { changeoverGridSource: node.hitZone?.changeoverGridSource }
       )
+      const hoveredDevice = node.domainRef as import('@/types/schema').TrunkDevice | undefined
+      // The converter grid-input leg is drawn in stored order from the converter downwards,
+      // unlike risers that grow upwards from their source.
+      const storedTopDown =
+        hoveredDevice?.supplyPath === 'converter-grid' &&
+        (hoveredDevice.converterGridPlacement === 'input-leg' ||
+          hoveredDevice.converterGridPlacement === 'converter-leg')
       target.supplyDeviceInsertIndex = isVerticalStub
-        ? position.y < node.bounds.y
+        ? (position.y < node.bounds.y) !== storedTopDown
           ? node.hitZone.supplyInsertIndex + 1
           : node.hitZone.supplyInsertIndex
-        : position.x < node.bounds.x
-          ? node.hitZone.supplyInsertIndex + 1
-          : node.hitZone.supplyInsertIndex
+        : (horizontalSupplyDeviceInsertIndex(node, position, ctx) ??
+          (position.x < node.bounds.x
+            ? node.hitZone.supplyInsertIndex + 1
+            : node.hitZone.supplyInsertIndex))
     } else if (typeof node.hitZone?.supplyInsertIndex === 'number') {
       target.supplyDeviceInsertIndex = node.hitZone.supplyInsertIndex
     } else {
@@ -1844,6 +1870,47 @@ function buildDropTarget(node: LayoutNode, ctx: WalkContext, position?: Point): 
   }
 
   return target
+}
+
+/**
+ * Insert index for a cursor over a horizontal supply device: the index of the gap slot on the
+ * hovered side. Lanes store their devices in either direction and mirrored frames flip the
+ * drawing, so the neighbouring slots, not the x axis, say which side is before the device.
+ */
+function horizontalSupplyDeviceInsertIndex(
+  node: LayoutNode,
+  position: Point,
+  ctx: WalkContext
+): number | undefined {
+  const index = node.hitZone?.supplyInsertIndex
+  if (!ctx.supplyPanelNode || typeof index !== 'number') return undefined
+  const sideOf = (x: number) => Math.sign(x - node.bounds.x)
+  const hoveredSide = sideOf(position.x) || -1
+  const slots: LayoutNode[] = []
+  const collect = (candidate: LayoutNode) => {
+    if (
+      candidate !== node &&
+      candidate.type === 'wire' &&
+      candidate.hitZone?.type === node.hitZone?.type &&
+      (candidate.hitZone?.supplyInsertIndex === index ||
+        candidate.hitZone?.supplyInsertIndex === index + 1) &&
+      candidate.bounds.width > candidate.bounds.height &&
+      Math.abs(candidate.bounds.y + candidate.bounds.height / 2 - node.bounds.y) <= 2 &&
+      candidate.bounds.x <= node.bounds.x + candidate.bounds.width &&
+      candidate.bounds.x + candidate.bounds.width >= node.bounds.x - candidate.bounds.width
+    ) {
+      slots.push(candidate)
+    }
+    candidate.children.forEach(collect)
+  }
+  collect(ctx.supplyPanelNode)
+  for (const slot of slots) {
+    const side = sideOf(slot.bounds.x + slot.bounds.width / 2)
+    if (side === 0) continue
+    const slotIndex = slot.hitZone!.supplyInsertIndex!
+    return side === hoveredSide ? slotIndex : slotIndex === index ? index + 1 : index
+  }
+  return undefined
 }
 
 /**

@@ -88,11 +88,35 @@ export function createLiveProjectSession(env?: CommandEnv): ProjectCommandSessio
         historyBefore.undoStack.at(-1) === groupedCommit.snapshot &&
         historyBefore.redoStack.length === 0
       const circuitId = lastTouchedCircuitId(results)
+      const removedFloors = new Set(
+        results.flatMap((result) =>
+          result.removed.filter((ref) => ref.kind === 'floor').map((ref) => ref.id)
+        )
+      )
+      const floorViewCleanup = removedFloors.size
+        ? {
+            planFloorOverlayVisibleByBaseFloorId: Object.fromEntries(
+              Object.entries(historyBefore.planFloorOverlayVisibleByBaseFloorId)
+                .filter(([id]) => !removedFloors.has(id))
+                .map(
+                  ([id, overlays]) =>
+                    [id, overlays.filter((floorId) => !removedFloors.has(floorId))] as const
+                )
+                .filter(([, overlays]) => overlays.length > 0)
+            ),
+            planCanvasPlanImageOffsetByFloorId: Object.fromEntries(
+              Object.entries(historyBefore.planCanvasPlanImageOffsetByFloorId).filter(
+                ([id]) => !removedFloors.has(id)
+              )
+            ),
+          }
+        : {}
       projectHistory.runWithoutRecording(() => {
         useProjectStore.setState({
           currentProject: next,
           isDirty: true,
           ...(circuitId ? { lastWorkedCircuitId: circuitId } : {}),
+          ...floorViewCleanup,
         })
       })
       if (!continuesGroup) appendUndoSnapshotInStore(() => {}, captureProjectForHistory(before))
@@ -118,7 +142,7 @@ export function createLiveProjectSession(env?: CommandEnv): ProjectCommandSessio
         }
         try {
           trackGoogleAnalyticsEvent('command_run', {
-            id: invocation.id,
+            command_id: invocation.id,
             source: options?.source ?? 'ui',
           })
         } catch (error) {

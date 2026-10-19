@@ -1,6 +1,6 @@
 import { getAllCircuits } from '@/lib/eendraad/projectElectricalDomain'
 import { collectAllGroundTrunkDevices } from '@/lib/eendraad/panelGround'
-import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { getJunctionIdentity } from '@/lib/junctionIdentity'
 import {
   selectProjectElectricalInstallation,
@@ -111,7 +111,7 @@ export function collectSharedJunctions(
     }
   }
   const installation = selectProjectElectricalInstallation(project)
-  for (const device of getAllSupplyTrunkDevices(project)) visit({ kind: 'trunkDevice', entity: device })
+  for (const device of queryAllSupplyTrunkDevices(project)) visit({ kind: 'trunkDevice', entity: device })
   for (const device of collectAllGroundTrunkDevices(panels, installation)) {
     visit({ kind: 'trunkDevice', entity: device })
   }

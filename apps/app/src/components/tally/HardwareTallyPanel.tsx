@@ -8,7 +8,7 @@ import { formatWireLengthMeters, type WireTranslateFn } from '@/lib/wires/wireFi
 import { useDraggableFloatingWindow } from '@/hooks/useDraggableFloatingWindow'
 import { DockablePanelShell } from '@/components/panels/DockablePanelShell'
 import { trackGoogleAnalyticsEvent } from '@/lib/analytics/googleAnalytics'
-import { focusSelectionOnCanvas } from '@/lib/ui/focusSelectionOnCanvas'
+import { useFocusSelectionOnCanvas } from '@/hooks/useFocusSelectionOnCanvas'
 import type { Selection } from '@/types/ui'
 import { useCableRouteEstimation } from '@/components/cableRouting/useCableRouteEstimation'
 import { isCableRoutesEnabled } from '@/lib/cableRouting/availability'
@@ -262,6 +262,7 @@ function ExportCsvButton({ data }: { data: TallyData }) {
 }
 
 export function HardwareTallyPanelContent() {
+  const focusSelectionOnCanvas = useFocusSelectionOnCanvas()
   const { t } = useTranslation()
   const setSelection = useUIStore((s) => s.setSelection)
   const data = useTallyData()
@@ -283,7 +284,7 @@ export function HardwareTallyPanelContent() {
         preferredCanvas: detail.selection.type === 'protection' ? 'eendraad' : undefined,
       })
     },
-    [setSelection]
+    [setSelection, focusSelectionOnCanvas]
   )
 
   return (

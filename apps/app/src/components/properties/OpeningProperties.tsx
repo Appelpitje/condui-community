@@ -2,6 +2,7 @@ import { updateDoorProperties, updateWindowProperties } from '@/handlers/propert
 import { useTranslation } from 'react-i18next'
 import { DebouncedNumberInput } from '@/components/forms'
 import CustomDropdown from '@/components/common/CustomDropdown'
+import { InsertDoorIcon, SectionalGateIcon } from '@/components/icons/UiIcons'
 import { useUIStore, type UIState } from '@/stores/uiStore'
 import { usePlanGrid, resolvePlanCanvasPxPerMeter } from '@/hooks/plan'
 import type { Door, Window, Floor } from '@/types/schema'
@@ -61,6 +62,33 @@ export function OpeningProperties({ opening, kind, floor }: OpeningPropertiesPro
           ? (t('plan.doorProperties', 'Door') as string)
           : (t('plan.windowProperties', 'Window') as string)}
       </h3>
+      {kind === 'door' && (
+        <div className="grid grid-cols-2 gap-2">
+          {(['door', 'gate'] as const).map((preset) => {
+            const isGate = (opening as Door).swing === 'none'
+            const selected = preset === 'gate' ? isGate : !isGate
+            const Icon = preset === 'door' ? InsertDoorIcon : SectionalGateIcon
+            return (
+              <button
+                key={preset}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => {
+                  if (!selected) handleSwingChange(preset === 'gate' ? 'none' : 'right')
+                }}
+                className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-md border-2 px-2 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900 ${
+                  selected
+                    ? 'border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300'
+                    : 'border-gray-300 text-gray-700 hover:border-sky-300 dark:border-gray-600 dark:text-gray-300'
+                }`}
+              >
+                <Icon className="h-8 w-8" />
+                {preset === 'door' ? t('plan.doorProperties', 'Door') : t('plan.gatePreset', 'Gate')}
+              </button>
+            )
+          })}
+        </div>
+      )}
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
           {t('plan.openingWidth', 'Width')}

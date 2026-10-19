@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-39.4 -55.6 78.8 78.8" role="img" aria-label="Spot">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M-18.4 -22.0V0.0A18.4 10.6 0 0 0 18.4 0.0V-22.0Z" fill="#f1f5f9"/>
+  <ellipse cx="0.0" cy="-22.0" rx="18.4" ry="10.6" fill="#f1f5f9"/>
+  <path d="M-29.4 -26.0V-22.0A29.4 17.0 0 0 0 29.4 -22.0V-26.0Z" fill="#cbd5e1"/>
+  <ellipse cx="0.0" cy="-26.0" rx="29.4" ry="17.0" fill="#ffffff"/>
+  <ellipse cx="0.0" cy="-26.0" rx="19.1" ry="11.0" fill="#1e293b"/>
+  <ellipse cx="0.0" cy="-24.5" rx="8.8" ry="5.1" fill="#fde68a" stroke-width="1"/>
+</g>
+</svg>

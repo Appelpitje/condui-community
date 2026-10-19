@@ -1,3 +1,4 @@
+import type { CommandContext } from '@/lib/commands/ui/types'
 import { createElement } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useProjectStore } from '@/stores/projectStore'
@@ -6,6 +7,7 @@ import HiddenItemsDialog, { type HiddenItem } from '@/components/common/HiddenIt
 import { getSymbolById } from '@/lib/symbols'
 import { buildAutoSitplanPlacement } from '@/lib/plan/autoSitplanPlacement'
 import { generateId } from '@/utils/project'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import i18n from '@/i18n'
 import { restoreHiddenSituationPlanPlacementsToActiveView } from '@/lib/plan/restoreHiddenSituationPlanPlacements'
 import { hasCustomPlacement } from '@/lib/plan/customPlacement'
@@ -43,14 +45,28 @@ function revealHiddenSelectedPlacement(): boolean {
       ) {
         const circuitId = store.findCircuitForEndpoint(endpointId)?.circuit.id
         if (circuitId) {
-          placement =
-            buildAutoSitplanPlacement(store.currentProject, {
-              circuitId,
-              floorId,
-              placementId: generateId(),
-            }) ?? undefined
-          if (placement) {
-            store.addPlacement(endpointId, placement)
+          const suggested = buildAutoSitplanPlacement(store.currentProject, {
+            circuitId,
+            floorId,
+            placementId: generateId(),
+          })
+          if (
+            suggested &&
+            runProjectCommand(
+              'plan.placeExisting',
+              {
+                target: { kind: 'endpoint', id: endpointId },
+                floorId,
+                layer: suggested.layer,
+                pos: suggested.pos,
+              },
+              { label: 'place existing plan item', source: 'plan' }
+            )
+          ) {
+            placement = useProjectStore
+              .getState()
+              .getEndpointById(endpointId)
+              ?.placements.find((candidate) => candidate.floorId === floorId)
           }
         }
       }
@@ -66,16 +82,28 @@ function revealHiddenSelectedPlacement(): boolean {
         resolved?.circuit &&
         store.currentProject
       ) {
-        placement =
-          buildAutoSitplanPlacement(store.currentProject, {
-            circuitId: resolved.circuit.id,
-            floorId,
-            placementId: generateId(),
-          }) ?? undefined
-        if (placement) {
-          store.updateTrunkDevice(resolved.circuit.id, deviceId, {
-            placements: [...(device.placements ?? []), placement],
-          })
+        const suggested = buildAutoSitplanPlacement(store.currentProject, {
+          circuitId: resolved.circuit.id,
+          floorId,
+          placementId: generateId(),
+        })
+        if (
+          suggested &&
+          runProjectCommand(
+            'plan.placeExisting',
+            {
+              target: { kind: 'trunkDevice', id: deviceId },
+              floorId,
+              layer: suggested.layer,
+              pos: suggested.pos,
+            },
+            { label: 'place existing plan item', source: 'plan' }
+          )
+        ) {
+          placement = useProjectStore
+            .getState()
+            .getTrunkDeviceById(deviceId)
+            ?.device.placements?.find((candidate) => candidate.floorId === floorId)
         }
       }
       targetPlacementId = placement?.id
@@ -152,15 +180,18 @@ function revealHiddenSelectedPlacement(): boolean {
  * showing again instead.
  */
 export function fitView({
+  viewport,
   panelIndex,
   pointerPanelIndex,
   canEditProject,
 }: {
+  viewport?: CommandContext['viewport']
   panelIndex: number | null
   pointerPanelIndex: number | null
   canEditProject: boolean
 }): void {
-  const layout = useUIStore.getState().viewportLayout
+  const ui = viewport?.ui ?? useUIStore
+  const layout = ui.getState().viewportLayout
   const targetPanel =
     panelIndex != null
       ? layout.panels[panelIndex]
@@ -172,5 +203,11 @@ export function fitView({
     targetPanel && (layout.panels.length === 1 || pointerPanelIndex != null)
       ? [targetPanel.canvas]
       : Array.from(new Set(layout.panels.map((panel) => panel.canvas)))
-  useUIStore.getState().requestFitToView(canvasesToFit)
+  if (viewport) {
+    layout.panels.forEach((panel, index) => {
+      if (canvasesToFit.includes(panel.canvas) && (targetPanel == null || panelIndex == null || index === panelIndex)) {
+        viewport.getPanelUI(index)?.getState().requestFitToView([panel.canvas])
+      }
+    })
+  } else ui.getState().requestFitToView(canvasesToFit)
 }

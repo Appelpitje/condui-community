@@ -145,26 +145,43 @@ function getPhaseCompatibilityReason(
   return undefined
 }
 
-function protectionPhaseCompatibility(context: CheckContext): Issue[] {
+function protectionPhaseCompatibility(context: CheckContext): Issue[] | CheckResult {
   const { scope, query, project } = context
-  if (scope.type !== 'board') return []
+  if (scope.type !== 'board') {
+    return { passed: true, coverage: { status: 'skipped', reason: 'rule-requires-board-scope' } }
+  }
   const panel = query.getPanelById(scope.id)
   const installation = projectInstallation(project)
   const system = installation?.nominalVoltage.system
-  if (!panel || !installation || !supportsExplicitPhaseSelection(system)) return []
+  if (!panel) {
+    return { passed: true, coverage: { status: 'missing-information', reason: 'board-scope-not-found', missingFacts: ['panel record'] } }
+  }
+  if (!installation || !system) {
+    return { passed: true, coverage: { status: 'missing-information', reason: 'nominal-voltage-system-not-entered', missingFacts: ['nominal voltage system'] } }
+  }
+  if (!supportsExplicitPhaseSelection(system)) {
+    return { passed: true, coverage: { status: 'unavailable', reason: 'phase-system-not-supported-by-compatibility-check', missingFacts: ['supported explicit phase system'] } }
+  }
 
   const panels = projectPanels(project)
   const fullAssignment = getFullInstallationPhaseAssignment(system)
   const panelIncoming = getPanelIncomingPhaseState(installation, panels, panel)
   const candidates: PhaseCompatibilityCandidate[] = []
   const seen = new Set<string>()
+  let hasIncompleteEvidence = false
   const addCandidate = (
     device: PhaseProtectionDevice,
     assignment: CircuitPhaseAssignment | undefined,
     offenderKind: 'protection' | 'device'
   ) => {
-    if (!assignment) return
+    if (!assignment) {
+      hasIncompleteEvidence = true
+      return
+    }
     const reason = getPhaseCompatibilityReason(device, assignment)
+    if (poleCountFromDevice(device) == null || getActiveConductorCount(assignment) == null) {
+      hasIncompleteEvidence = true
+    }
     if (!reason) return
     const assignmentKey = phaseAssignmentGroupKey(assignment)
     const key = `${device.id}:${reason}:${assignmentKey}`
@@ -237,7 +254,7 @@ function protectionPhaseCompatibility(context: CheckContext): Issue[] {
     },
   }
 
-  return Array.from(grouped.entries()).map(([assignmentKey, group]): Issue => {
+  const issues = Array.from(grouped.entries()).map(([assignmentKey, group]): Issue => {
     const first = group[0]!
     const isGrouped = group.length > 1
     const genericLabel = i18n.t('validation.primitives.protectionPhaseCompatibility.deviceLabel', {
@@ -289,6 +306,17 @@ function protectionPhaseCompatibility(context: CheckContext): Issue[] {
       tags: ['phase', 'protection', 'consistency'],
     }
   })
+  if (issues.length > 0) return issues
+  return hasIncompleteEvidence
+    ? {
+        passed: true,
+        coverage: {
+          status: 'missing-information',
+          reason: 'phase-protection-compatibility-has-incomplete-device-or-feed-facts',
+          missingFacts: ['protection pole configuration or incoming phase assignment'],
+        },
+      }
+    : { passed: true, coverage: { status: 'passed' } }
 }
 
 function canDisconnectAllActiveConductors(
@@ -559,9 +587,9 @@ function nonHouseholdPanelNumberingIsShown(
 function checkDuplicatePanelProtectionLabels(
   context: CheckContext,
   _params?: Record<string, unknown>
-): Issue[] {
+): Issue[] | CheckResult {
   const { scope, project } = context
-  if (scope.type !== 'board') return []
+  if (scope.type !== 'board') return { passed: true, coverage: { status: 'skipped', reason: 'rule-requires-board-scope' } }
 
   let panel: Panel | undefined
   const visit = (panels: Panel[]) => {
@@ -575,7 +603,7 @@ function checkDuplicatePanelProtectionLabels(
     }
   }
   visit(projectPanels(project))
-  if (!panel) return []
+  if (!panel) return { passed: true, coverage: { status: 'missing-information', reason: 'board-scope-not-found', missingFacts: ['panel record'] } }
 
   const pack = {
     jurisdiction: projectInstallation(project)?.address?.country ?? 'BE',
@@ -611,15 +639,15 @@ function checkDuplicatePanelProtectionLabels(
       tags: ['naming', 'panel', 'consistency'],
     })
   }
-  return issues
+  return issues.length > 0 ? issues : { passed: true, coverage: { status: 'passed' } }
 }
 
 function checkConverterBackupLabels(
   context: CheckContext,
   _params?: Record<string, unknown>
-): Issue[] {
+): Issue[] | CheckResult {
   const { scope, project } = context
-  if (scope.type !== 'board') return []
+  if (scope.type !== 'board') return { passed: true, coverage: { status: 'skipped', reason: 'rule-requires-board-scope' } }
 
   let panel: Panel | undefined
   const visit = (panels: Panel[]) => {
@@ -633,7 +661,7 @@ function checkConverterBackupLabels(
     }
   }
   visit(projectPanels(project))
-  if (!panel) return []
+  if (!panel) return { passed: true, coverage: { status: 'missing-information', reason: 'board-scope-not-found', missingFacts: ['panel record'] } }
 
   const issues: Issue[] = []
   const pushIssue = (kind: 'protection' | 'endpoint', id: string, protection: ProtectionDevice) => {
@@ -681,7 +709,7 @@ function checkConverterBackupLabels(
     }
   }
 
-  return issues
+  return issues.length > 0 ? issues : { passed: true, coverage: { status: 'passed' } }
 }
 
 function checkEendraadOrphans(context: CheckContext, _params?: Record<string, unknown>): Issue[] {

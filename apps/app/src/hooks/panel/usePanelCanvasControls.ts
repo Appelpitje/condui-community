@@ -1,17 +1,20 @@
 import { useCallback, useState } from 'react'
-import { ZOOM_MAX, ZOOM_MIN } from '@/constants/canvasConstants'
+import { ZOOM_MAX } from '@/constants/canvasConstants'
+import { useProjectStore } from '@/stores/projectStore'
+import { getPanelCanvasZoomMinimum } from '@/lib/panel/panelCanvasZoom'
 import { clamp } from '@/lib/geometry'
-import { useUIStore } from '@/stores/uiStore'
+import { useViewportUIStore as useUIStore } from '@/components/viewport/ViewportUIStore'
 import type { Point } from '@/types/ui'
 
 export function usePanelViewportHandlers() {
   const setPanelView = useUIStore((s) => s.setPanelView)
+  const minZoom = useProjectStore((state) => getPanelCanvasZoomMinimum(state.currentProject))
 
   const handleZoomChange = useCallback(
     (zoom: number) => {
-      setPanelView({ zoom: clamp(zoom, ZOOM_MIN, ZOOM_MAX) })
+      setPanelView({ zoom: clamp(zoom, minZoom, ZOOM_MAX) })
     },
-    [setPanelView]
+    [setPanelView, minZoom]
   )
 
   const handlePanChange = useCallback(
@@ -25,11 +28,11 @@ export function usePanelViewportHandlers() {
     (patch: { pan?: Point; zoom?: number }) => {
       const next: { pan?: Point; zoom?: number } = { ...patch }
       if (typeof next.zoom === 'number') {
-        next.zoom = clamp(next.zoom, ZOOM_MIN, ZOOM_MAX)
+        next.zoom = clamp(next.zoom, minZoom, ZOOM_MAX)
       }
       setPanelView(next)
     },
-    [setPanelView]
+    [setPanelView, minZoom]
   )
 
   return {

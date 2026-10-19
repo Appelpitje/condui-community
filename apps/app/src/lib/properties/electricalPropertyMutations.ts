@@ -9,13 +9,13 @@ import { cascadeMainEarthingToPanels } from '@/lib/panel/panelEarthingSync'
 import {
   syncManualChronologyForInstallDateUpdate,
   clearStaleAutoModuleWidthForModuleRef,
-  ensureRcboSensitivityOnTrunkDevice,
   maybeApplyAutomaticEendraadNamingForPanel,
   findCircuitById,
 } from '@/lib/eendraad/projectElectricalDomain'
 import { getModuleWidthInCols } from '@/lib/panel/panelGridLayout'
 import { resolveUniqueSupplyProtectionLabelOnPanel } from '@/lib/eendraad/automaticMainBusNaming'
 import { findGroundTrunkDeviceOwner } from '@/lib/eendraad/panelGround'
+import { normalizeProtectionCapacityUpdates } from '@/lib/protectionDefaults'
 export function updatePanelPropertiesInProject(
   project: ProjectV2,
   id: string,
@@ -88,6 +88,7 @@ export function updateCircuitTrunkPropertiesInProject(
           ?.flatMap((branch) => branch.branchDevices ?? [])
           .find((d) => d.id === deviceId)
       if (device) {
+        updates = normalizeProtectionCapacityUpdates(updates, device)
         const trunkRef: PanelGridModuleRef = {
           kind: 'trunkDevice',
           id: deviceId,
@@ -117,7 +118,6 @@ export function updateCircuitTrunkPropertiesInProject(
           { id: deviceId, type: 'trunkDevice' },
           nextUpdates
         )
-        ensureRcboSensitivityOnTrunkDevice(device)
         const newPoleWidth = getModuleWidthInCols(trunkRef, project)
         if (oldPoleWidth !== newPoleWidth) {
           clearStaleAutoModuleWidthForModuleRef(panels, trunkRef, oldPoleWidth)
@@ -150,6 +150,7 @@ export function updateGroundTrunkPropertiesInProject(
   )
   const device = owner?.devices[owner.index]
   if (!device) return false
+  updates = normalizeProtectionCapacityUpdates(updates, device)
   Object.assign(device, updates)
   syncManualChronologyForInstallDateUpdate(project, { id: deviceId, type: 'trunkDevice' }, updates)
   return true

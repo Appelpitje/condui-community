@@ -81,7 +81,6 @@ export function usePlanContextMenu(
         currentProject,
         updatePlacement,
         addPlacement,
-        addSitplanNote,
         getEndpointById: getEndpointByIdFromSnapshot,
         getAllEndpoints,
         getFloorById,
@@ -717,18 +716,12 @@ export function usePlanContextMenu(
           label: t('contextMenu.addNote'),
           icon: getContextMenuIcon('addNote'),
           onClick: () => {
-            // Add a note at the click position
-            const noteId = `note-${Date.now()}`
-            if (activeFloorId) {
-              addSitplanNote({
-                id: noteId,
-                text: 'New note',
-                fontSize: 14,
-                pos: position,
-                floorId: activeFloorId,
-              })
-              setSelection({ type: 'note', ids: [noteId] })
-            }
+            if (!activeFloorId) return
+            const outcome = runProjectCommand('annotation.createNote', {
+              scope: 'sitplan', floorId: activeFloorId, pos: position,
+            }, { source: 'plan-context-menu' })
+            const noteId = outcome?.results[0]?.created[0]?.id
+            if (noteId) setSelection({ type: 'note', ids: [noteId] })
           },
         })
 

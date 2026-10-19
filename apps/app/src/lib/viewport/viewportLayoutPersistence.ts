@@ -48,11 +48,16 @@ export function sanitizeViewportLayoutSnapshot(raw: unknown): ViewportLayout | n
   if (typeof presetRaw !== 'string' || !isLayoutPreset(presetRaw)) return null
   const panels = parsePanels(o.panels)
   if (!panels) return null
-  const need = expectedPanelCount(presetRaw)
+  const customGrid = presetRaw === 'grid' && (o.rows !== undefined || o.columns !== undefined)
+  const rows = o.rows ?? 2
+  const columns = o.columns ?? 2
+  if (customGrid && ![rows, columns].every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 4)) return null
+  const need = customGrid ? (rows as number) * (columns as number) : expectedPanelCount(presetRaw)
   if (panels.length < need) return null
   const trimmed = panels.slice(0, need)
   return {
     preset: presetRaw,
+    ...(customGrid ? { rows: rows as number, columns: columns as number } : {}),
     panels: trimmed,
     primaryRatio: normalizeRatio(o.primaryRatio, 0.5),
     secondaryRatio: normalizeRatio(o.secondaryRatio, 0.5),
@@ -83,6 +88,8 @@ export function viewportLayoutForPersistence(layout: ViewportLayout): ViewportLa
   const source = layout.focusReturnLayout ?? layout
   const snapshot = sanitizeViewportLayoutSnapshot({
     preset: source.preset,
+    rows: source.rows,
+    columns: source.columns,
     panels: source.panels,
     primaryRatio: source.primaryRatio,
     secondaryRatio: source.secondaryRatio,

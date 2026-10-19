@@ -6,7 +6,7 @@ import { useDialogStore } from '@/stores/dialogStore'
 import { useProjectStore } from '@/stores/projectStore'
 import CustomDropdown from '@/components/common/CustomDropdown'
 import { MULTI_SOCKET_OFFSET, SYMBOL_SIZE } from '@/components/canvas/eendraad/canvasSymbols'
-import { getSymbolById } from '@/lib/symbols'
+import { getSymbolById, getSymbolIconPath } from '@/lib/symbols'
 import { getEndpointMultiplier } from '@/utils/endpointMultipliers'
 import {
   createSyncEndpointMultiplierDeps,
@@ -40,7 +40,7 @@ function getEndpointPreviewSrc(endpoint: Endpoint): string {
     return `/symbols/outlets/${sym}.svg`
   }
   const symbol = getSymbolById(endpoint.symbol ?? '')
-  return symbol?.svgPath ?? '/symbols/lighting/light_point.svg'
+  return symbol ? getSymbolIconPath(symbol) : '/symbols/lighting/light_point.svg'
 }
 
 function SocketCountPreview({ previewSrc, count }: { previewSrc: string; count: number }) {
@@ -355,7 +355,8 @@ export function openSupplyInverterAddMoreDialog(device: TrunkDevice, t: TFunctio
 
 export function openSupplyDeviceAddMoreDialog(device: TrunkDevice, t: TFunction) {
   const { openDialog, closeDialog } = useDialogStore.getState()
-  const previewSrc = getSymbolById(device.symbol)?.svgPath ?? '/symbols/energy/inverter.svg'
+  const deviceSymbol = getSymbolById(device.symbol)
+  const previewSrc = deviceSymbol ? getSymbolIconPath(deviceSymbol) : '/symbols/energy/inverter.svg'
   const isInverter = device.symbol === 'inverter'
 
   openDialog({

@@ -23,14 +23,14 @@ function hasUpstreamOvercurrent(
   // the board symbol and local supply trunk, not a downstream final circuit
   // that needs another owning MCB/RCBO/fuse.
   if (circuit.code === 'PANEL') {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'skipped', reason: 'panel-terminal-circuit-does-not-need-final-circuit-overcurrent-check' } }
   }
 
   // RCD grouping uses a no-load "container" circuit with subCircuitIds pointing at each MCB leaf.
   // Upstream is only an RCD (not counted as overcurrent here); each child has its own MCB and is
   // validated separately — flagging the container produces false positives (same letter as first child).
   if (circuit.subCircuitIds && circuit.subCircuitIds.length > 0) {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'skipped', reason: 'container-circuit-checked-through-leaf-circuits' } }
   }
 
   // An RCD may temporarily own an empty circuit row while it has no connected
@@ -63,7 +63,7 @@ function hasUpstreamOvercurrent(
     !hasConnectedLoad &&
     (directProtection?.type === 'RCD' || hasStandaloneSurgeProtection)
   ) {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'skipped', reason: 'no-connected-load-requires-overcurrent-review' } }
   }
 
   const upstream = query.getUpstream(scope.id)
@@ -79,7 +79,7 @@ function hasUpstreamOvercurrent(
   })
 
   if (hasOvercurrent) {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'passed' } }
   }
 
   return {
@@ -113,11 +113,11 @@ function countUnderThreshold(
   const count = params?.count as number | undefined
 
   if (threshold == null || count == null) {
-    return { passed: true } // Invalid params, skip
+    return { passed: true, coverage: { status: 'unavailable', reason: 'threshold-check-parameters-incomplete' } }
   }
 
   if (count <= threshold) {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'passed' } }
   }
 
   return {
@@ -143,7 +143,7 @@ function hasValue(_context: CheckContext, params?: Record<string, unknown>): Che
   const fieldName = (params?.fieldName as string) || 'value'
 
   if (value != null) {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'passed' } }
   }
 
   return {

@@ -1,3 +1,4 @@
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { clamp } from '@/lib/geometry'
 import { logger } from '@/lib/logger'
@@ -62,6 +63,7 @@ export function useDraggableFloatingWindow({
   minHeight = 220,
   maxHeight = Number.POSITIVE_INFINITY,
 }: UseDraggableFloatingWindowOptions) {
+  const window = useCanvasWindow()
   const dragDebugEnabled = import.meta.env.DEV
   const containerRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<DragState | null>(null)
@@ -153,7 +155,7 @@ export function useDraggableFloatingWindow({
       setPosition({ left: nextLeft, top: nextTop })
       setDockPreviewActive(nextLeft <= dockLeftThreshold)
     },
-    [dockLeftThreshold, logDrag, margin, maxHeight, maxWidth, minHeight, minWidth, setDockPreviewActive]
+    [dockLeftThreshold, logDrag, margin, maxHeight, maxWidth, minHeight, minWidth, setDockPreviewActive, window]
   )
 
   const onMouseMove = useCallback(
@@ -173,13 +175,13 @@ export function useDraggableFloatingWindow({
       setPosition({ left: nextLeft, top: nextTop })
       setDockPreviewActive(nextLeft <= dockLeftThreshold)
     },
-    [dockLeftThreshold, margin, setDockPreviewActive]
+    [dockLeftThreshold, margin, setDockPreviewActive, window]
   )
 
   const stopDragging = useCallback((event?: PointerEvent | MouseEvent) => {
     const dragSnapshot = dragRef.current
     if (
-      event instanceof PointerEvent &&
+      event && 'pointerId' in event &&
       dragSnapshot &&
       event.pointerId !== dragSnapshot.pointerId
     ) {
@@ -231,7 +233,7 @@ export function useDraggableFloatingWindow({
     window.removeEventListener('pointercancel', stopDragging)
     window.removeEventListener('mousemove', onMouseMove)
     window.removeEventListener('mouseup', stopDragging)
-  }, [dockLeftThreshold, logDrag, onMouseMove, onPointerMove, setDockPreviewActive])
+  }, [dockLeftThreshold, logDrag, onMouseMove, onPointerMove, setDockPreviewActive, window])
 
   const startDragging = useCallback(
     (
@@ -269,7 +271,7 @@ export function useDraggableFloatingWindow({
       window.addEventListener('mousemove', onMouseMove)
       window.addEventListener('mouseup', stopDragging)
     },
-    [dockLeftThreshold, logDrag, onMouseMove, onPointerMove, setDockPreviewActive, stopDragging]
+    [dockLeftThreshold, logDrag, onMouseMove, onPointerMove, setDockPreviewActive, stopDragging, window]
   )
 
   const onResizeHandlePointerDown = useCallback(
@@ -296,7 +298,7 @@ export function useDraggableFloatingWindow({
         window.addEventListener('pointerup', stopDragging)
         window.addEventListener('pointercancel', stopDragging)
       },
-    [onPointerMove, stopDragging]
+    [onPointerMove, stopDragging, window]
   )
 
   const onHeaderPointerDown = useCallback(
@@ -400,7 +402,7 @@ export function useDraggableFloatingWindow({
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', stopDragging)
     }
-  }, [logDrag, onMouseMove, onPointerMove, setDockPreviewActive, stopDragging])
+  }, [logDrag, onMouseMove, onPointerMove, setDockPreviewActive, stopDragging, window])
 
   return {
     containerRef,

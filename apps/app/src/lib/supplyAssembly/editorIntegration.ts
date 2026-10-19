@@ -33,6 +33,12 @@ import {
   resolveAssemblyPanelInput,
 } from './electricalTopology'
 import { getSupplyConverterDcConnectionIndex } from './converterDcConnections'
+import {
+  converterInputSplitNodeId,
+  isConverterGridLegPlacement,
+  partitionConverterGridLegDevices,
+  resolveEffectiveChangeoverGridSource,
+} from './changeoverGridSource'
 
 /** Pull extra trunk devices into the assembly graph for this reconcile pass only. */
 export type SupplyAssemblyReconcileOptions = {
@@ -494,6 +500,34 @@ export function reconcileSupplyAssemblyAcConductorFlow(
       })
     }
 
+    // A converter grid-input leg carries only the conductors its converter units use,
+    // from the split onward. This matters where the leg also feeds a changeover grid
+    // input through a tap: that port receives the leg's conductors, not the grid's.
+    const inverterLegCapabilities = new Map<string, AcPhase[]>()
+    const legCapabilityFrom = (nodeId: string, visited: ReadonlySet<string>): AcPhase[] | undefined => {
+      const node = nodesById.get(nodeId)
+      if (!node || visited.has(nodeId)) return undefined
+      if (node.kind === 'inverter-unit') return inverterCapabilities.get(node.id)
+      const downstream = assembly.connections.filter(
+        (candidate) =>
+          candidate.domain === 'AC' &&
+          candidate.pathRole === 'inverter-grid-ac' &&
+          candidate.endpoints[0].nodeId === nodeId
+      )
+      if (downstream.length === 0) return undefined
+      const nextVisited = new Set([...visited, nodeId])
+      const capabilities = downstream.map((candidate) =>
+        legCapabilityFrom(candidate.endpoints[1].nodeId, nextVisited)
+      )
+      if (capabilities.some((capability) => !capability)) return undefined
+      return orderedAcConductors(capabilities.flatMap((capability) => capability ?? []))
+    }
+    for (const candidate of assembly.connections) {
+      if (candidate.domain !== 'AC' || candidate.pathRole !== 'inverter-grid-ac') continue
+      const capability = legCapabilityFrom(candidate.endpoints[1].nodeId, new Set())
+      if (capability) inverterLegCapabilities.set(candidate.id, capability)
+    }
+
     const utilityConductors = getAssemblyUtilityConductors(project, ownerPanelId)
     for (const utility of assembly.nodes.filter((node) => node.kind === 'utility-source')) {
       for (const utilityPort of utility.ports.filter((candidate) => candidate.domain === 'AC')) {
@@ -584,6 +618,8 @@ export function reconcileSupplyAssemblyAcConductorFlow(
         if (!available?.length) continue
         const targetNode = nodesById.get(to.nodeId)
         let delivered = available
+        const legCapability = inverterLegCapabilities.get(candidate.id)
+        if (legCapability) delivered = intersectAcConductors(delivered, legCapability)
         if (targetNode?.kind === 'inverter-unit') {
           const capability = inverterCapabilities.get(targetNode.id)
           if (capability) delivered = intersectAcConductors(available, capability)
@@ -619,6 +655,41 @@ export function reconcileSupplyAssemblyAcConductorFlow(
   return changed
 }
 
+/**
+ * Conductors that can reach a changeover's inputs. Fed from the converter's grid-input leg,
+ * both inputs carry only the converter's conductors; otherwise the grid's.
+ */
+function getChangeoverAvailableConductors(
+  project: ProjectWithOptionalV2Electrical,
+  assembly: OffGridSupplyAssembly,
+  changeover: TrunkDevice
+): AcPhase[] {
+  const available = acConductors(project)
+  const installation = getProjectElectricalInstallation(project)
+  const panelId = getAssemblyPanelId(assembly, project)
+  if (!installation || !panelId || changeover.changeoverGridSource !== 'converter-input') {
+    return available
+  }
+  const devices = (installation.feedTopology?.rootFeeds ?? [])
+    .filter((feed) => feed.panelId === panelId)
+    .flatMap((feed) => feed.trunkDevices ?? [])
+  const converter = devices.find(
+    (device) => device.supplyPath === 'backup' && device.type === 'conversion'
+  )
+  const panel = getProjectElectricalPanels(project).find((candidate) => candidate.id === panelId)
+  if (
+    !converter ||
+    resolveEffectiveChangeoverGridSource({ changeover, converter, panel }) !== 'converter-input'
+  ) {
+    return available
+  }
+  const converterConductors = getSupplyConverterAcConductors(
+    converter,
+    installation.nominalVoltage.system
+  ).filter((conductor) => available.includes(conductor))
+  return converterConductors.length > 0 ? converterConductors : available
+}
+
 /** Keep a persisted modular-switch graph aligned with its live voltage system and pole setting. */
 export function reconcileChangeoverSupplyAssembly(
   project: ProjectWithOptionalV2Electrical,
@@ -632,8 +703,10 @@ export function reconcileChangeoverSupplyAssembly(
   )
   if (!assembly || !node) return false
   const previous = JSON.stringify(assembly)
-  const available = acConductors(project)
-  const switched = changeoverConductors(changeover, available)
+  const switched = changeoverConductors(
+    changeover,
+    getChangeoverAvailableConductors(project, assembly, changeover)
+  )
   node.label = changeover.label
   node.properties = {
     ...node.properties,
@@ -2162,14 +2235,26 @@ export function reconcileSupplyAssemblyBranchProtections(
     (device) =>
       gridInputConnected &&
       device.supplyPath === 'converter-grid' &&
-      device.converterGridPlacement !== 'input-leg'
+      !isConverterGridLegPlacement(device.converterGridPlacement)
   )
-  const inverterInputDevices = rootDevices.filter(
-    (device) =>
-      gridInputConnected &&
-      device.supplyPath === 'converter-grid' &&
-      device.converterGridPlacement === 'input-leg'
-  )
+  const panel = getProjectElectricalPanels(project).find((candidate) => candidate.id === panelId)
+  // Port 1 may be tapped part-way up the converter's grid-input leg. Devices below
+  // that tap protect both the converter and port 1; `converter-leg` devices above it
+  // feed only the converter. With the grid tap they simply continue up the leg.
+  const converterInputTap =
+    gridInputConnected &&
+    resolveEffectiveChangeoverGridSource({ changeover, converter, panel }) === 'converter-input'
+  const { shared: sharedInputLegDevices, converterOnly: converterLegDevices } =
+    partitionConverterGridLegDevices(
+      rootDevices.filter(
+        (device) =>
+          gridInputConnected &&
+          device.supplyPath === 'converter-grid' &&
+          isConverterGridLegPlacement(device.converterGridPlacement)
+      ),
+      converterInputTap ? 'converter-input' : 'grid'
+    )
+  const inverterInputDevices = [...sharedInputLegDevices, ...converterLegDevices]
   const backupDevices = rootDevices.filter((device) => device.supplyPath === 'backup-output')
   const changeoverGridDevices = rootDevices.filter(
     (device) => device.supplyPath === 'changeover-grid'
@@ -2197,7 +2282,7 @@ export function reconcileSupplyAssemblyBranchProtections(
   const inverterGridSplitId = `${assembly.id}-inverter-grid-distribution`
   const normalHandoffId = `${assembly.id}-normal-handoff-record`
   const normalHandoffNodeId = `${assembly.id}-normal-handoff`
-  const panel = getProjectElectricalPanels(project).find((candidate) => candidate.id === panelId)
+  const converterInputSplitId = converterInputSplitNodeId(assembly.id)
   const normalSection = panel?.busSections?.find((section) => section.role === 'normal')
   const backupSection = panel?.busSections?.find((section) => section.role === 'backup')
   const primaryHandoff = assembly.loadHandoffs.find(({ target }) => {
@@ -2228,7 +2313,14 @@ export function reconcileSupplyAssemblyBranchProtections(
       candidate.endpoints.some((endpoint) => multipliedUnitIds.has(endpoint.nodeId))
     )
   )
-  const fixedNodeIds = new Set([utility.id, converter.id, changeover.id, gridDistributionId, inverterGridSplitId])
+  const fixedNodeIds = new Set([
+    utility.id,
+    converter.id,
+    changeover.id,
+    gridDistributionId,
+    inverterGridSplitId,
+    converterInputSplitId,
+  ])
   // A role labels an electrical path, not ownership. Follow each generated
   // terminal backwards so private branches with the same role survive intact.
   let unsafeGeneratedPath = false
@@ -2274,6 +2366,7 @@ export function reconcileSupplyAssemblyBranchProtections(
     ...tracePath(inverterGridSplitId, 'in', 'grid-ac'),
     ...tracePath(changeover.id, 'grid', 'grid-ac'),
     ...tracePath(converter.id, 'grid', 'inverter-grid-ac'),
+    ...tracePath(converterInputSplitId, 'in', 'inverter-grid-ac'),
     ...tracePath(changeover.id, 'backup', 'inverter-backup-ac'),
     ...tracePath(normalHandoffNodeId, 'in', 'grid-only-bypass-ac'),
     ...oldLoadPath,
@@ -2387,7 +2480,14 @@ export function reconcileSupplyAssemblyBranchProtections(
   const branchNodes = [
     ...gridDevices.map((device) => supplyAcBranchNode(device, converterConductors)),
     ...backupDevices.map((device) => supplyAcBranchNode(device, converterConductors)),
-    ...changeoverGridDevices.map((device) => supplyAcBranchNode(device, conductors)),
+    ...changeoverGridDevices.map((device) =>
+      supplyAcBranchNode(
+        device,
+        converterInputTap && device.changeoverGridPlacement === 'input-leg'
+          ? converterConductors
+          : conductors
+      )
+    ),
     ...loadDevices.map((device) => supplyAcBranchNode(device, conductors)),
   ]
   for (const node of branchNodes) {
@@ -2422,6 +2522,16 @@ export function reconcileSupplyAssemblyBranchProtections(
       conductors: [...candidate.conductors],
     })),
   }
+  // The port-1 tap on the converter grid-input leg carries the converter's conductors.
+  const converterInputSplit: SupplyNode = {
+    ...gridDistribution,
+    id: converterInputSplitId,
+    label: 'Converter input split',
+    ports: [
+      port('in', 'grid-distribution-ac', converterConductors, 'sink'),
+      port('out', 'grid-distribution-ac', converterConductors, 'source', 'many'),
+    ],
+  }
   converterNode.ports
     .filter((candidate) => candidate.domain === 'AC')
     .forEach((candidate) => {
@@ -2435,6 +2545,7 @@ export function reconcileSupplyAssemblyBranchProtections(
       (node) =>
         node.id !== gridDistributionId &&
         node.id !== inverterGridSplitId &&
+        node.id !== converterInputSplitId &&
         node.id !== normalHandoffNodeId &&
         !obsoleteNodeIds.has(node.id) &&
         !branchDeviceIds.has(node.id)
@@ -2442,6 +2553,7 @@ export function reconcileSupplyAssemblyBranchProtections(
     ...branchNodes,
     gridDistribution,
     ...(hasSecondGridSplit ? [inverterGridSplit] : []),
+    ...(converterInputTap ? [converterInputSplit] : []),
   ]
   assembly.connections = retainedConnections
 
@@ -2492,27 +2604,80 @@ export function reconcileSupplyAssemblyBranchProtections(
   const changeoverInputDevices = normalSection
     ? changeoverGridInputLegDevices
     : [...inlineGridDevices, ...changeoverGridInlineDevices, ...changeoverGridInputLegDevices]
+  // Port 1 keeps its connection ids whichever tap feeds it, so cable properties
+  // on the changeover grid-input path survive switching the source back and forth.
+  const changeoverGridTap: [string, string] = converterInputTap
+    ? [converterInputSplitId, 'out']
+    : [gridDistributionId, 'out']
   if (changeoverInputDevices.length > 0) {
     appendSerialPath(
       `${gridDistributionId}-to-${changeover.id}-grid`,
-      [gridDistributionId, 'out'],
+      changeoverGridTap,
       changeoverInputDevices,
       [changeover.id, 'grid'],
       'grid-ac',
-      conductors
+      converterInputTap ? converterConductors : conductors
     )
   } else {
     assembly.connections.push(
       connection(
         `${gridDistributionId}-to-${changeover.id}-grid`,
-        [gridDistributionId, 'out'],
+        changeoverGridTap,
         [changeover.id, 'grid'],
         'grid-ac',
-        conductors
+        converterInputTap ? converterConductors : conductors
       )
     )
   }
-  if (gridInputConnected) {
+  if (converterInputTap) {
+    // Shared devices below the tap, then the tap, then converter-only devices. Device
+    // edges keep the ids they have on the uninterrupted grid-tap leg.
+    const legPathId = `${utility.id}-to-${converter.id}`
+    let previous: [string, string] = [firstGridSplitId, 'out']
+    sharedInputLegDevices.forEach((device, index) => {
+      assembly.connections.push(
+        connection(
+          `${legPathId}-${index}-in`,
+          previous,
+          [device.id, 'source'],
+          'inverter-grid-ac',
+          converterConductors
+        )
+      )
+      previous = [device.id, 'load']
+    })
+    assembly.connections.push(
+      connection(
+        `${converterInputSplitId}-in`,
+        previous,
+        [converterInputSplitId, 'in'],
+        'inverter-grid-ac',
+        converterConductors
+      )
+    )
+    previous = [converterInputSplitId, 'out']
+    converterLegDevices.forEach((device, index) => {
+      assembly.connections.push(
+        connection(
+          `${legPathId}-${sharedInputLegDevices.length + index}-in`,
+          previous,
+          [device.id, 'source'],
+          'inverter-grid-ac',
+          converterConductors
+        )
+      )
+      previous = [device.id, 'load']
+    })
+    assembly.connections.push(
+      connection(
+        `${legPathId}-out`,
+        previous,
+        [converter.id, 'grid'],
+        'inverter-grid-ac',
+        converterConductors
+      )
+    )
+  } else if (gridInputConnected) {
     appendSerialPath(
       `${utility.id}-to-${converter.id}`,
       [firstGridSplitId, 'out'],

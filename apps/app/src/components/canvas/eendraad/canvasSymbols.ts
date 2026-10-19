@@ -58,6 +58,13 @@ export const SELECTION_STROKE_WIDTH = 1.5
 export const HOVER_STROKE_WIDTH = 1
 export const PREVIEW_STROKE_WIDTH = 1
 
+// Drag artwork stays finer than the committed wiring. These are paint widths only;
+// drop zones and wire hit areas keep their existing, more forgiving dimensions.
+export const DRAG_PREVIEW_WIRE_WIDTH = 1.6
+export const DRAG_PREVIEW_BUS_WIDTH = 3.2
+export const DRAG_PREVIEW_HIGHLIGHT_WIDTH = 4
+export const DRAG_PREVIEW_DASH = [5, 3]
+
 // Dash patterns
 export const HOVER_DASH_PATTERN = [4, 4]
 export const PREVIEW_DASH_PATTERN = [4, 4]

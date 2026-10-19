@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { Floor } from '@/types/schema'
-import { useUIStore } from '@/stores/uiStore'
+import { useViewportUIStore as useUIStore } from '@/components/viewport/ViewportUIStore'
 import { clamp } from '@/lib/geometry'
 import { isPositiveFinite, resolvePlanPxPerMeter } from '@/lib/plan/planScale'
 import {

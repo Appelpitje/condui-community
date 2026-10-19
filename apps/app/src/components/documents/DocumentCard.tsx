@@ -1,10 +1,11 @@
 import { memo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileText, Library, Lock, Paperclip } from 'lucide-react'
+import { Box, Images, FileText, Library, Lock, Paperclip } from 'lucide-react'
 import {
   canExportProjectDocument,
   canRemoveProjectDocument,
   getProjectDocumentSizeBytes,
+  PROJECT_DOCUMENT_DRAG_TYPE,
   type ProjectDocument,
 } from '@/lib/documents/projectDocuments'
 import { DomoticaIcon, WiringIcon } from '@/components/icons/UiIcons'
@@ -43,6 +44,10 @@ function SheetThumbnail({ badge, badgeShape = 'circle' }: { badge?: ReactNode; b
 
 function DocumentThumbnail({ document }: { document: ProjectDocument }) {
   const [failed, setFailed] = useState(false)
+  if (document.kind === 'roomScanModel' || document.kind === 'roomScanPlacements') {
+    const Icon = document.kind === 'roomScanModel' ? Box : Images
+    return <SheetThumbnail badge={<Icon className="h-8 w-8" />} />
+  }
   if (document.kind === 'junctionOverview') {
     return (
       <SheetThumbnail
@@ -127,7 +132,7 @@ export const DocumentCard = memo(function DocumentCard({
       draggable={movable}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('application/x-condui-document', document.id)
+        event.dataTransfer.setData(PROJECT_DOCUMENT_DRAG_TYPE, document.id)
         // Changing the page during dragstart makes Chrome cancel the drag; reveal targets next tick.
         window.setTimeout(() => onDragStart?.(document.id), 0)
       }}
@@ -145,6 +150,9 @@ export const DocumentCard = memo(function DocumentCard({
       <button
         type="button"
         aria-pressed={selected}
+        data-testid={
+          document.origin === 'builtIn' ? `project-document-open-${document.kind}` : undefined
+        }
         onClick={() => onOpen(document.id)}
         className="flex flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500"
       >

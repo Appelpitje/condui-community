@@ -432,6 +432,8 @@ export function getPropertiesPanelTitle({
       return pt('notes.title', 'Note / Label')
     case 'document':
       return pt('projectDocuments.propertiesTitle', 'Document')
+    case 'oneWireReference':
+      return pt('oneWireReference.title', 'Scanned page')
     case 'frame':
       return pt('frames.title', 'Frame')
     case 'stair':

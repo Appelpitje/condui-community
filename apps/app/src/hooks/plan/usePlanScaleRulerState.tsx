@@ -5,8 +5,8 @@ import type { ProjectState } from '@/stores/projectStore'
 import type { Floor, Point2 } from '@/types/schema'
 import { calculatePxPerMeter } from './usePlanScale'
 import { createPlanScaleReference, resolvePlanPxPerMeter } from '@/lib/plan/planScale'
-import { rescaleFloorPlan } from '@/lib/plan/rescalePlan'
 import { scenePointToPlanImageLocal } from '@/lib/plan/planImageRotation'
+import { liveProjectSession, runProjectCommand } from '@/stores/liveProjectCommandSession'
 
 export function usePlanScaleRulerState() {
   const [isResettingScale, setIsResettingScale] = useState(false)
@@ -49,14 +49,11 @@ type UsePlanScaleResetControllerOptions = {
 export function usePlanScaleResetController({
   activeFloorId,
   activeTool,
-  applyPlanRescale,
   cancelResetScaleTrigger,
   getFloorById,
-  getPlacementsByFloor,
   openDialog,
   setActiveTool,
   t,
-  updateFloor,
 }: UsePlanScaleResetControllerOptions) {
   const state = usePlanScaleRulerState()
   const {
@@ -71,10 +68,7 @@ export function usePlanScaleResetController({
   const lastSeenCancelResetScaleTriggerRef = useRef(cancelResetScaleTrigger)
 
   const tempPxPerMeter =
-    isResettingScale &&
-    scaleRulerPoints.p1 &&
-    scaleRulerPoints.p2 &&
-    scaleRulerMeters != null
+    isResettingScale && scaleRulerPoints.p1 && scaleRulerPoints.p2 && scaleRulerMeters != null
       ? (() => {
           const { p1, p2 } = scaleRulerPoints
           const meters = scaleRulerMeters!
@@ -86,7 +80,10 @@ export function usePlanScaleResetController({
   const handleResetScaleStart = useCallback(() => {
     const floor = activeFloorId ? getFloorById(activeFloorId) : null
     const reference = floor?.scale?.reference
-    const ownsReference = reference && !floor?.planScaleNeedsCalibration && (!reference.floorId || reference.floorId === activeFloorId)
+    const ownsReference =
+      reference &&
+      !floor?.planScaleNeedsCalibration &&
+      (!reference.floorId || reference.floorId === activeFloorId)
     const initialMeters = scaleRulerMeters ?? (ownsReference ? reference.meters : 1)
     const startCalibration = () => {
       setIsResettingScale(true)
@@ -155,11 +152,19 @@ export function usePlanScaleResetController({
       const hasPlanImage = Boolean(floorBefore.planAsset || floorBefore.planImportAsset)
       // References on an imported plan are asset-local; drawn-only floors use scene points.
       const rotationDeg = floorBefore.planImageRotationDeg ?? 0
-      const localP1 = hasPlanImage ? scenePointToPlanImageLocal(p1World, currentPlanImagePosition, rotationDeg) : p1World
-      const localP2 = hasPlanImage ? scenePointToPlanImageLocal(p2World, currentPlanImagePosition, rotationDeg) : p2World
+      const localP1 = hasPlanImage
+        ? scenePointToPlanImageLocal(p1World, currentPlanImagePosition, rotationDeg)
+        : p1World
+      const localP2 = hasPlanImage
+        ? scenePointToPlanImageLocal(p2World, currentPlanImagePosition, rotationDeg)
+        : p2World
       const newScaleReference = createPlanScaleReference(localP1, localP2, meters, activeFloorId)!
       if (!hasPlanImage) {
-        applyPlanRescale(activeFloorId, { scale: { reference: newScaleReference } }, [], { scaleScope: 'building' })
+        runProjectCommand('plan.calibrateScale', {
+          floorId: activeFloorId,
+          reference: newScaleReference,
+          scaleScope: 'building',
+        })
         return
       }
       const floorPlan = floorBefore.floorPlan
@@ -178,20 +183,28 @@ export function usePlanScaleResetController({
         newPxPerMeter > 0
 
       if (!shouldAttemptWallRescale) {
-        updateFloor(activeFloorId, { scale: { reference: newScaleReference } })
+        runProjectCommand('plan.calibrateScale', {
+          floorId: activeFloorId,
+          reference: newScaleReference,
+        })
         return
       }
 
       const scaleFactor = newPxPerMeter! / oldPxPerMeter!
       if (!Number.isFinite(scaleFactor) || Math.abs(scaleFactor - 1) < 1e-3) {
-        updateFloor(activeFloorId, { scale: { reference: newScaleReference } })
+        runProjectCommand('plan.calibrateScale', {
+          floorId: activeFloorId,
+          reference: newScaleReference,
+        })
         return
       }
 
-      const allPoints: Point2[] = []
-      for (const wall of floorPlan!.walls) allPoints.push(...wall.points)
+      const allPoints = floorPlan!.walls.flatMap((wall) => wall.points)
       if (allPoints.length === 0) {
-        updateFloor(activeFloorId, { scale: { reference: newScaleReference } })
+        runProjectCommand('plan.calibrateScale', {
+          floorId: activeFloorId,
+          reference: newScaleReference,
+        })
         setIsResettingScale(false)
         setScaleRulerPoints({ p1: null, p2: null })
         setScaleRulerMeters(null)
@@ -199,23 +212,11 @@ export function usePlanScaleResetController({
         return
       }
 
-      let sumX = 0
-      let sumY = 0
-      for (const point of allPoints) {
-        sumX += point.x
-        sumY += point.y
-      }
-      const center = { x: sumX / allPoints.length, y: sumY / allPoints.length }
-      const placementsOnFloor = getPlacementsByFloor(activeFloorId)
-      const placementsToRescale: Array<{ id: string; pos: Point2 }> = []
-      for (const placement of placementsOnFloor) {
-        const pos = placement.pos ?? null
-        if (!pos) continue
-        placementsToRescale.push({ id: placement.id, pos })
-      }
-
       const title = t('plan.resetScale.confirmRescaleTitle')
-      const intro = t('plan.resetScale.confirmRescaleIntro', { factor: (1 / scaleFactor).toFixed(2) })
+      const intro = t('plan.resetScale.confirmRescaleIntro', {
+        factor: (1 / scaleFactor).toFixed(2),
+      })
+      const expectedRevision = liveProjectSession.revision
 
       openDialog({
         type: 'custom',
@@ -242,35 +243,28 @@ export function usePlanScaleResetController({
             variant: 'primary',
             autoFocus: true,
             onClick: () => {
-              const latestFloor = getFloorById(activeFloorId)
-              if (latestFloor) {
-                applyPlanRescale(activeFloorId, { scale: { reference: newScaleReference } }, [])
-              }
+              runProjectCommand(
+                'plan.calibrateScale',
+                {
+                  floorId: activeFloorId,
+                  reference: newScaleReference,
+                },
+                { expectedRevision }
+              )
             },
           },
           {
             label: t('plan.resetScale.confirmRescaleConfirm'),
             variant: 'secondary',
             onClick: () => {
-              const latestFloor = getFloorById(activeFloorId)
-              const latestPlan = latestFloor?.floorPlan
-              if (!latestFloor || !latestPlan) return
-
-              const placementUpdates = placementsToRescale.map(({ id, pos }) => ({
-                id,
-                pos: {
-                  x: center.x + (pos.x - center.x) * scaleFactor,
-                  y: center.y + (pos.y - center.y) * scaleFactor,
-                },
-              }))
-
-              applyPlanRescale(
-                activeFloorId,
+              runProjectCommand(
+                'plan.calibrateScale',
                 {
-                  scale: { reference: newScaleReference },
-                  floorPlan: rescaleFloorPlan(latestPlan, scaleFactor, center),
+                  floorId: activeFloorId,
+                  reference: newScaleReference,
+                  rescaleGeometry: true,
                 },
-                placementUpdates,
+                { expectedRevision }
               )
             },
           },
@@ -279,9 +273,7 @@ export function usePlanScaleResetController({
     },
     [
       activeFloorId,
-      applyPlanRescale,
       getFloorById,
-      getPlacementsByFloor,
       openDialog,
       setActiveTool,
       setIsResettingScale,
@@ -289,8 +281,7 @@ export function usePlanScaleResetController({
       setScaleRulerMetersInput,
       setScaleRulerPoints,
       t,
-      updateFloor,
-    ],
+    ]
   )
 
   useEffect(() => {

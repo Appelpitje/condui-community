@@ -15,6 +15,7 @@ import type { Panel, PanelGridModuleRef, PanelGridSlot, Point2, TrunkDevice } fr
 import type { AuxiliaryElectricalEnclosure, ElectricalEnclosureRef } from '@/types/supplyAssembly'
 import { MIN_PANEL_GRID_MODULE_WIDTH } from '@/lib/panel/panelGridUnits'
 import { releaseCircuitModulesFromEnclosure } from '@/lib/panel/circuitModuleMounting'
+import { isSupplyTransformer } from '@/lib/electrical/supplyTransformer'
 
 export const MIN_AUXILIARY_COLUMNS = 12
 const DEFAULT_AUXILIARY_COLUMNS = 18
@@ -160,7 +161,7 @@ export function isAuxiliaryMountableSupplyDevice(
   project: ProjectWithOptionalV2Electrical,
   deviceId: string
 ): boolean {
-  return getKnownSupplyDevices(project).some((device) => device.id === deviceId)
+  return getKnownSupplyDevices(project).some((device) => device.id === deviceId && !isSupplyTransformer(device))
 }
 
 export function getAuxiliaryEnclosureSupplyDeviceIds(
@@ -191,7 +192,7 @@ export function setSupplyDeviceMounting(
   enclosure: ElectricalEnclosureRef
 ): boolean {
   const device = getKnownSupplyDevices(project).find((candidate) => candidate.id === deviceId)
-  if (!device) return false
+  if (!device || isSupplyTransformer(device)) return false
   device.panelMounting = enclosure
   // The shared-feed projection may hold a separate copy after hydration/Immer.
   // Persist the physical device's mounting consistently on every stored carrier.
@@ -237,6 +238,7 @@ export function moveSupplyDeviceToEnclosureAutomatically(
   enclosure: ElectricalEnclosureRef,
   ownerPanelId: string
 ): boolean {
+  if (!isAuxiliaryMountableSupplyDevice(project, deviceId)) return false
   if (enclosureRefsEqual(resolveSupplyDeviceMounting(project, deviceId), enclosure)) return true
   const panel = findPanel(getProjectElectricalPanels(project), ownerPanelId)
   const auxiliary =

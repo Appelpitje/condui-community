@@ -8,6 +8,7 @@
 import { generateId } from './project'
 import type { Panel, Endpoint, Placement } from '@/types/schema'
 import type { Point } from '@/types/ui'
+import { createPanelDistributionEndpoint } from '@/lib/plan/panelPlacementMutations'
 import {
   selectProjectBuildingFloors,
   type ProjectWithOptionalV2Building,
@@ -23,6 +24,8 @@ const COLLISION_BASE_HALF = 42
 
 type EnsurePanelPlacementOptions = {
   preferredPlanPos?: Point
+  /** Prefer the currently active plan floor when a drop explicitly supplies one. */
+  preferredFloorId?: string
 }
 
 type PanelPlacementProject = ProjectWithOptionalV2Building & ProjectWithOptionalV2Electrical
@@ -85,14 +88,7 @@ export function getPanelEndpoint(project: PanelPlacementProject, panelId: string
  * Create an endpoint that represents a panel on the plan
  */
 export function createPanelEndpoint(panel: Panel): Endpoint {
-  return {
-    id: generateId(),
-    type: 'fixed_appliance', // Use fixed_appliance as the type for panels
-    label: panel.name,
-    panelId: panel.id,
-    symbol: 'panel_distribution',
-    placements: [],
-  }
+  return createPanelDistributionEndpoint(panel)
 }
 
 /**
@@ -211,10 +207,14 @@ export function ensurePanelPlacement(
 ): { endpoint: Endpoint; placement: Placement } | null {
   // Get ground floor (first floor)
   const floors = selectProjectBuildingFloors(project)
-  const groundFloor = floors.find(f =>
-    f.name.toLowerCase().includes('ground') || 
-    f.name.toLowerCase().includes('grond')
-  ) || floors[0]
+  const preferredFloor = options?.preferredFloorId
+    ? floors.find((floor) => floor.id === options.preferredFloorId)
+    : undefined
+  const groundFloor =
+    preferredFloor ??
+    (floors.find(
+      (f) => f.name.toLowerCase().includes('ground') || f.name.toLowerCase().includes('grond')
+    ) || floors[0])
   if (!groundFloor) return null
   
   // Get or create the panel endpoint

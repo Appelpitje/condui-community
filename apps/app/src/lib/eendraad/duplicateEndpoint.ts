@@ -61,6 +61,7 @@ export interface DuplicateEndpointOnCircuitParams {
 }
 
 export interface DuplicateEndpointDeps {
+  newId?: () => string
   getCircuitById: (id: string) => Circuit | undefined
   getEndpointById: (id: string) => Endpoint | undefined
   addEndpoint: (
@@ -116,16 +117,18 @@ export function endpointSymbolCanBeDuplicated(
 
 function cloneEndpointForDuplicate(
   source: Endpoint,
-  options?: { keepPlacements?: boolean },
+  options?: { keepPlacements?: boolean; newId?: () => string },
 ): Endpoint {
   const clone: Endpoint = JSON.parse(JSON.stringify(source))
-  clone.id = generateId()
+  const newId = options?.newId ?? generateId
+  clone.id = newId()
   clone.label = ''
   clone.placements =
     options?.keepPlacements && endpointSupportsMultiplier(source) && source.placements?.length
       ? clonePlacementsForDuplicate(
           source.placements,
           clonePlacementsOptionsForEndpoint(source),
+          newId,
         )
       : []
   clone.controlledEndpointIds = undefined
@@ -155,7 +158,7 @@ function repairNewBranch(
   }
   const clamped = clamp(insertIndex, 0, next.length)
   const newBranch: Branch = {
-    id: generateId(),
+    id: deps.newId?.() ?? generateId(),
     label: '',
     endpointIds: [newEndpointId],
     ...(dcBusId ? { dcBusId } : {}),
@@ -204,8 +207,8 @@ export function duplicateBranchAboveOnCircuit(
   for (const eid of orderedIds) {
     const source = deps.getEndpointById(eid)
     if (!source) continue
-    const clone = cloneEndpointForDuplicate(source)
-    clone.placements = sitplanPlacementsForDuplicateClone(source)
+    const clone = cloneEndpointForDuplicate(source, { newId: deps.newId })
+    clone.placements = sitplanPlacementsForDuplicateClone(source, deps.newId)
     clones.push(clone)
   }
   if (clones.length === 0) return { ok: false, reason: 'invalid_source' }
@@ -213,7 +216,7 @@ export function duplicateBranchAboveOnCircuit(
   const newEndpointIds = clones.map((c) => c.id)
   const nextBranches = copyBranches(circuit)
   const newBranch: Branch = {
-    id: generateId(),
+    id: deps.newId?.() ?? generateId(),
     label: '',
     endpointIds: newEndpointIds,
     ...(sourceBranch?.dcBusId ? { dcBusId: sourceBranch.dcBusId } : {}),
@@ -259,7 +262,7 @@ export function duplicateEndpointOnCircuit(
   }
 
   const placement = placementOverride ?? resolveDefaultEndpointDuplicatePlacement(source, context)
-  const clone = cloneEndpointForDuplicate(source)
+  const clone = cloneEndpointForDuplicate(source, { newId: deps.newId })
 
   if (placement.mode === 'same_branch_after_anchor') {
     deps.addEndpoint(circuitId, clone, placement.anchorEndpointId)
@@ -274,7 +277,7 @@ export function duplicateEndpointOnCircuit(
     return { ok: false, reason: 'source_not_in_branch' }
   }
 
-  clone.placements = sitplanPlacementsForDuplicateClone(source)
+  clone.placements = sitplanPlacementsForDuplicateClone(source, deps.newId)
 
   if (order === 'append') {
     const lastBranch = branchesBefore[branchesBefore.length - 1]
@@ -291,7 +294,7 @@ export function duplicateEndpointOnCircuit(
     const nextBranches = copyBranches(circuit)
     const sourceBranch = nextBranches[sourceBranchIdx]
     const newBranch: Branch = {
-      id: generateId(),
+      id: deps.newId?.() ?? generateId(),
       label: '',
       endpointIds: [clone.id],
       ...(sourceBranch?.dcBusId ? { dcBusId: sourceBranch.dcBusId } : {}),

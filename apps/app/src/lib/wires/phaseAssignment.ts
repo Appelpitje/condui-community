@@ -13,8 +13,10 @@ import type {
 import type { OffGridSupplyAssembly } from '@/types/supplyAssembly'
 import { polesFromConfig } from '@/constants/poleConfig'
 import { findParentCircuitInfo } from '@/lib/eendraad/findParentCircuitInfo'
+import { getElectricalSnapshotIndex } from '@/lib/projectV2/electricalLookupIndex'
 import { walkPanels } from '@/lib/panel/panelTree'
 import { getMainBusOrder } from '@/lib/eendraad/mainBusOrder'
+import { isImmutableMainBusPanel } from '@/lib/panel/mainBusOrder'
 import { collectRootPanels, ensureInstallationFeedTopology } from '@/lib/feedTopology'
 import {
   getCircuitBusSectionId,
@@ -67,12 +69,14 @@ function sanitizeBusbarPhaseOrder(
   allowPartial = false
 ): AcLinePhase[] {
   if (!order?.length) return DEFAULT_BUSBAR_PHASE_ORDER
-  const unique = order.filter(
-    (phase, index): phase is AcLinePhase =>
-      DEFAULT_BUSBAR_PHASE_ORDER.includes(phase) && order.indexOf(phase) === index
+  const validPhases = order.every((phase) => DEFAULT_BUSBAR_PHASE_ORDER.includes(phase))
+  if (
+    validPhases &&
+    (order.length === 3 ||
+      (allowPartial && order.length < 3 && new Set(order).size === order.length))
   )
-  if (allowPartial && unique.length === order.length) return unique
-  return unique.length === 3 ? unique : DEFAULT_BUSBAR_PHASE_ORDER
+    return order
+  return DEFAULT_BUSBAR_PHASE_ORDER
 }
 
 export function getBusbarPhaseOrder(
@@ -172,6 +176,8 @@ function findCircuitContext(
   circuitId: string,
   panels: Panel[]
 ): { panel: Panel; protection?: ProtectionDevice } | undefined {
+  const index = getElectricalSnapshotIndex(panels)
+  if (index) return index.circuitContextsById.get(circuitId)
   for (const panel of walkPanels(panels)) {
     if (panel.circuits.some((circuit) => circuit.id === circuitId)) return { panel }
     const protection = panel.protections.find((candidate) =>
@@ -188,9 +194,73 @@ function getBusbarPhaseAdvance(
 ): number {
   if (!protection) return 0
   const poles = getProtectionPoles(protection) ?? 2
-  if (!supportsExplicitPhaseSelection(system)) return 0
-  if (normalizeNominalVoltageSystem(system ?? '2~') === '3~') return Math.max(1, poles)
+  const normalized = normalizeNominalVoltageSystem(system ?? '2~')
+  if (normalized !== '3~' && normalized !== '3N~') return 0
+  if (normalized === '3~') return Math.max(1, poles)
   return poles <= 2 ? 1 : 0
+}
+
+type MainBusPhaseSlots = {
+  circuits: Map<string, number>
+  protections: Map<string, number>
+  totalsBySection: Map<string, number>
+  circuitSections: Map<string, string>
+  protectionSections: Map<string, string>
+  primarySectionId: string
+}
+
+const mainBusPhaseSlotsByPanel = new WeakMap<Panel, Map<string, MainBusPhaseSlots>>()
+
+function getMainBusPhaseSlots(panel: Panel, system: VoltageSystem): MainBusPhaseSlots {
+  const normalized = normalizeNominalVoltageSystem(system ?? '2~')
+  const cacheable = isImmutableMainBusPanel(panel)
+  const cached = cacheable ? mainBusPhaseSlotsByPanel.get(panel)?.get(normalized) : undefined
+  if (cached) return cached
+
+  // Array.find historically chose the first owner for a duplicate ID. Retain
+  // that order while avoiding a fresh linear owner search for every bus item.
+  const protections = new Map<string, ProtectionDevice>()
+  const circuits = new Map<string, Circuit>()
+  for (const protection of panel.protections) {
+    if (!protections.has(protection.id)) protections.set(protection.id, protection)
+  }
+  for (const circuit of panel.circuits) {
+    if (!circuits.has(circuit.id)) circuits.set(circuit.id, circuit)
+  }
+  const primarySectionId = getPrimaryPanelBusSectionId(panel)
+  const slots: MainBusPhaseSlots = {
+    circuits: new Map(),
+    protections: new Map(),
+    totalsBySection: new Map(),
+    circuitSections: new Map(),
+    protectionSections: new Map(),
+    primarySectionId,
+  }
+  for (const [id, circuit] of circuits) {
+    slots.circuitSections.set(id, circuit.busSectionId ?? primarySectionId)
+  }
+  for (const [id, protection] of protections) {
+    slots.protectionSections.set(id, protection.busSectionId ?? primarySectionId)
+  }
+  for (const candidate of getMainBusOrder(panel)) {
+    const protection = candidate.type === 'protection' ? protections.get(candidate.id) : undefined
+    const sectionId = protection
+      ? slots.protectionSections.get(candidate.id)!
+      : (slots.circuitSections.get(candidate.id) ?? primarySectionId)
+    const slot = slots.totalsBySection.get(sectionId) ?? 0
+    const targetSlots = candidate.type === 'protection' ? slots.protections : slots.circuits
+    if (!targetSlots.has(candidate.id)) targetSlots.set(candidate.id, slot)
+    slots.totalsBySection.set(sectionId, slot + getBusbarPhaseAdvance(protection, normalized))
+  }
+  if (cacheable) {
+    let bySystem = mainBusPhaseSlotsByPanel.get(panel)
+    if (!bySystem) {
+      bySystem = new Map()
+      mainBusPhaseSlotsByPanel.set(panel, bySystem)
+    }
+    bySystem.set(normalized, slots)
+  }
+  return slots
 }
 
 function getMainBusSlotIndex(
@@ -198,33 +268,13 @@ function getMainBusSlotIndex(
   item: { type: 'circuit' | 'protection'; id: string },
   system: VoltageSystem
 ): number {
-  const targetBusSectionId =
-    item.type === 'protection'
-      ? getProtectionBusSectionId(
-          panel,
-          panel.protections.find((protection) => protection.id === item.id) ?? {}
-        )
-      : getCircuitBusSectionId(
-          panel,
-          panel.circuits.find((circuit) => circuit.id === item.id) ?? {}
-        )
-  let slot = 0
-  for (const candidate of getMainBusOrder(panel)) {
-    if (candidate.type === item.type && candidate.id === item.id) return slot
-    const candidateProtection =
-      candidate.type === 'protection'
-        ? panel.protections.find((protection) => protection.id === candidate.id)
-        : undefined
-    const candidateBusSectionId = candidateProtection
-      ? getProtectionBusSectionId(panel, candidateProtection)
-      : getCircuitBusSectionId(
-          panel,
-          panel.circuits.find((circuit) => circuit.id === candidate.id) ?? {}
-        )
-    if (candidateBusSectionId !== targetBusSectionId) continue
-    slot += getBusbarPhaseAdvance(candidateProtection, system)
-  }
-  return slot
+  const slots = getMainBusPhaseSlots(panel, system)
+  const targetSlots = item.type === 'protection' ? slots.protections : slots.circuits
+  const slot = targetSlots.get(item.id)
+  if (slot !== undefined) return slot
+  const sections = item.type === 'protection' ? slots.protectionSections : slots.circuitSections
+  const targetSectionId = sections.get(item.id) ?? slots.primarySectionId
+  return slots.totalsBySection.get(targetSectionId) ?? 0
 }
 
 export function getMainBusProtectionPhaseAssignment(
@@ -731,21 +781,13 @@ type PanelFeedInfo = {
 }
 
 function findPanelForCircuit(circuitId: string, panels: Panel[]): Panel | undefined {
-  for (const panel of walkPanels(panels)) {
-    if (
-      panel.circuits.some((candidate) => candidate.id === circuitId) ||
-      panel.protections.some((protection) =>
-        protection.circuits?.some((candidate) => candidate.id === circuitId)
-      )
-    ) {
-      return panel
-    }
-  }
-  return undefined
+  return findCircuitContext(circuitId, panels)?.panel
 }
 
 /** Find the circuit carrying a panel's incoming feeder from its parent panel. */
 function findPanelFeed(panelId: string, panels: Panel[]): PanelFeedInfo | undefined {
+  const index = getElectricalSnapshotIndex(panels)
+  if (index) return index.panelFeedersByPanelId.get(panelId)
   for (const parentPanel of walkPanels(panels)) {
     const feederProtection = parentPanel.protections.find(
       (protection) => protection.subPanelId === panelId

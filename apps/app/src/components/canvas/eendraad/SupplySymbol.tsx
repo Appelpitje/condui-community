@@ -10,7 +10,9 @@ import {
 } from '@/editions/community/communityHooks'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
-import { getVoltageSummaryLabel } from '@/utils/voltageLabel'
+import { getSupplySourceSummaryLabel } from '@/lib/electrical/supplyConnection'
+import { getInstallationSupplyTransformer } from '@/lib/electrical/supplyTransformer'
+import { measureSymbolLabelTextWidth } from '@/lib/symbolLabelTextWidth'
 import { SYMBOL_SIZE, getSymbolColor, getTextColor, GROUND_OUTLINE_SIZE, getSelectionOutlineProps, getHoverOutlineProps, getTouchAwareHitAreaProps } from './canvasSymbols'
 import { useTouchPrimaryDevice } from '@/editions/community/communityHooks'
 import { getProjectElectricalInstallation } from '@/lib/projectV2/electrical'
@@ -47,13 +49,15 @@ export function SupplySymbol({ x, y, panelId }: SupplySymbolProps) {
   const isSelected = isSelectedByType && (!panelId || selectedSupplyPanelId === panelId)
 
   const voltageLabel = installation?.nominalVoltage
-    ? getVoltageSummaryLabel(installation.nominalVoltage)
+    ? getSupplySourceSummaryLabel(installation)
     : ''
+  const voltageLabelWidth = Math.max(120, measureSymbolLabelTextWidth(voltageLabel, fontFamily, 12) + 6)
   
   // Phase indicator for supply/sitplan symbol: 1, 2, or 3
   const system = installation?.nominalVoltage?.system
   const phaseIndicator =
-    system === '1~' || system === '1N~' ? '1' : system === '2~' ? '2' : '3'
+    installation && getInstallationSupplyTransformer(installation) ? '3' :
+      system === '1~' || system === '1N~' ? '1' : system === '2~' ? '2' : '3'
   
   const handleClick = useCallback((event: unknown) => {
     const e = event as EendraadPointerEvent
@@ -138,9 +142,9 @@ export function SupplySymbol({ x, y, panelId }: SupplySymbolProps) {
       
       {voltageLabel && (
         <Text
-          x={-SYMBOL_SIZE / 2 - 126}
+          x={-SYMBOL_SIZE / 2 - voltageLabelWidth - 6}
           y={-4}
-          width={120}
+          width={voltageLabelWidth}
           text={voltageLabel}
           align="right"
           fontSize={12}

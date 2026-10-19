@@ -82,11 +82,15 @@ function buildPhaseAdjacency(
   const internalTransfer = assembly.nodes.some((node) => node.kind === 'inverter-unit' && node.properties.acConnection === 'separate')
 
   for (const connection of assembly.connections) {
+    // Grid power travels the converter's grid-input leg too: a changeover grid input
+    // may be tapped from it. The leg dead-ends at the converter unless it transfers
+    // internally, so this never creates a path through the converter itself.
     if (
       connection.domain !== 'AC' ||
       !connection.conductors.includes(phase) ||
-      !(allowedRoles.has(connection.pathRole) || (mode === 'grid' && internalTransfer &&
-        (connection.pathRole === 'inverter-grid-ac' || connection.pathRole === 'inverter-backup-ac')))
+      !(allowedRoles.has(connection.pathRole) ||
+        (mode === 'grid' && connection.pathRole === 'inverter-grid-ac') ||
+        (mode === 'grid' && internalTransfer && connection.pathRole === 'inverter-backup-ac'))
     ) {
       continue
     }

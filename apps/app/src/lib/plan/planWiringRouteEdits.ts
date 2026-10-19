@@ -50,6 +50,8 @@ export function movePlanWireRouteWaypoint(
   const existing = routeIndex >= 0 ? routes[routeIndex] : undefined
   const waypoints = [...((existing ?? route).waypoints ?? [])]
   if (waypointIndex < 0 || waypointIndex >= waypoints.length) return null
+  const currentPoint = waypoints[waypointIndex]
+  if (currentPoint?.x === point.x && currentPoint.y === point.y) return routes
   waypoints[waypointIndex] = point
   const nextRoute = routeWithManualWaypoints(route, existing, waypoints)
   if (routeIndex < 0) return [...routes, nextRoute]
@@ -108,6 +110,14 @@ export function movePlanWireRouteRiser(
     candidate.riser?.fromFloorId === fromFloorId &&
     candidate.from.placementId !== undefined &&
     candidate.from.placementId === arrival.from.placementId
+  const currentPoint = planWireRiserPoint(route)
+  if (currentPoint?.x === pos.x && currentPoint.y === pos.y) {
+    const sharedStoredRoutes = routes.filter(sharesPassage)
+    if (sharedStoredRoutes.every((candidate) => {
+      const storedPoint = planWireRiserPoint(candidate)
+      return storedPoint?.x === pos.x && storedPoint.y === pos.y
+    })) return routes
+  }
   const moved = routes.map((candidate) =>
     candidate.id !== arrival.id && sharesPassage(candidate)
       ? { ...candidate, riser: { fromFloorId, pos } }

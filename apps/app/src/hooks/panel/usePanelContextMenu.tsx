@@ -1,5 +1,8 @@
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
+import { useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
 import { deleteProjectEntities, resolveSelectionDeleteRefs } from '@/handlers/commands/deleteEntities'
 import { editProperties } from '@/handlers/properties/editProperties'
+import { duplicateProtection } from '@/handlers/eendraad/duplicateProtection'
 import { useCallback, useEffect } from 'react'
 import type { TFunction } from 'i18next'
 import type { ContextMenuItem } from '@/components/common/ContextMenu'
@@ -18,6 +21,7 @@ import { getSharedSupplyFrameDevices, SHARED_SUPPLY_FRAME_ID } from '@/lib/panel
 import { isModularSocket } from '@/lib/socket/modularSocket'
 import type { Panel, PanelGridModuleRef } from '@/types/schema'
 import type { Point, Selection as CanvasSelection } from '@/types/ui'
+import { isKeyboardOwnedByFloatingEditor } from '@/utils/keyboardOwner'
 
 type ModuleItem = {
   ref: PanelGridModuleRef
@@ -81,6 +85,8 @@ export function usePanelContextMenu({
   sharedSupplyRefKeys,
   t,
 }: UsePanelContextMenuOptions) {
+  const window = useCanvasWindow()
+  const isActiveViewport = useIsActiveViewport()
   const deleteAuxiliaryEnclosures = useCallback(
     (enclosureIds: string[]) => {
       useProjectStore.getState().deleteAuxiliaryElectricalEnclosure(enclosureIds)
@@ -339,7 +345,7 @@ export function usePanelContextMenu({
               items.push({
                 label: t('contextMenu.duplicate'),
                 onClick: () => {
-                  const newId = useProjectStore.getState().duplicateProtectionLeft(ref.id)
+                  const newId = duplicateProtection({ protectionId: ref.id })
                   if (newId) {
                     useUIStore.getState().setSelection({ type: 'protection', ids: [newId] })
                   }
@@ -426,8 +432,11 @@ export function usePanelContextMenu({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActiveViewport()) return
       if (!canDeleteItems) return
       if (!isEendraadDeleteKey(e)) return
+      // A floating editor over the canvas (the junction editor) deletes its own selection.
+      if (isKeyboardOwnedByFloatingEditor()) return
 
       if (isKeyboardTypingTarget(e.target)) return
 
@@ -467,7 +476,7 @@ export function usePanelContextMenu({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [canDeleteItems, deleteAuxiliaryEnclosures, handleGetContextMenuItems, t])
+  }, [canDeleteItems, deleteAuxiliaryEnclosures, handleGetContextMenuItems, isActiveViewport, t, window])
 
   return handleGetContextMenuItems
 }

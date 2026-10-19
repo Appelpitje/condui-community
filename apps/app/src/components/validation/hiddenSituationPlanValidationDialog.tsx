@@ -3,7 +3,7 @@ import HiddenItemsDialog, { type HiddenItem } from '@/components/common/HiddenIt
 import { getHiddenSituationPlanPlacements } from '@/lib/plan/hiddenSituationPlanPlacements'
 import type { ProjectWithSituationPlanPlacements } from '@/lib/plan/hiddenSituationPlanPlacements'
 import { restoreHiddenSituationPlanPlacementsToActiveView } from '@/lib/plan/restoreHiddenSituationPlanPlacements'
-import { getSymbolById } from '@/lib/symbols'
+import { getSymbolById, getSymbolIconPath } from '@/lib/symbols'
 import { useDialogStore } from '@/stores/dialogStore'
 import { useUIStore } from '@/stores/uiStore'
 
@@ -36,7 +36,7 @@ export function openHiddenSituationPlanValidationDialog(
         t('hiddenItemsDialog.unnamedItem', 'Unnamed item'),
       subtitle: hidden.circuitLabel || undefined,
       icon: symbolMeta ? (
-        <img src={symbolMeta.svgPath} alt="" className="h-7 w-7 object-contain dark:invert" />
+        <img src={getSymbolIconPath(symbolMeta)} alt="" className="h-7 w-7 object-contain dark:invert" />
       ) : undefined,
     }
   })

@@ -1,4 +1,125 @@
 {
+  "findPanel": {
+    "title": "Znajdź rozdzielnicę",
+    "placeholder": "Szukaj rozdzielnic…",
+    "empty": "Nie znaleziono rozdzielnic",
+    "oneWire": "Schemat jednokreskowy",
+    "panelView": "Układ rozdzielnicy",
+    "planView": "Plan instalacji",
+    "unplaced": "Nie umieszczono na planie"
+  },
+  "nativeRoomScan": {
+    "title": "Skan piętra",
+    "description": "Zeskanuj ściany, drzwi i okna na tym piętrze.",
+    "start": "Skanuj piętro",
+    "scanning": "Skanowanie…",
+    "unsupported": "Skanowanie pomieszczeń nie jest dostępne na tym urządzeniu.",
+    "failed": "Nie udało się zeskanować piętra.",
+    "cancelled": "Anulowano skan piętra.",
+    "result": "Wynik skanowania",
+    "walls": "Ściany",
+    "doors": "Drzwi",
+    "windows": "Okna",
+    "openings": "Otwory",
+    "scanAgain": "Skanuj ponownie",
+    "preview": "Podgląd rzutu",
+    "rotateLeft": "Obróć o 90° w lewo",
+    "rotateRight": "Obróć o 90° w prawo",
+    "addToFloor": "Dodaj do {{floor}}",
+    "unmatched": "Nieprzypisane otwory",
+    "skippedWalls": "Pominięte ściany",
+    "checkCenters": "Sprawdź osie ścian",
+    "noWalls": "Nie znaleziono ścian.",
+    "importFailed": "Nie udało się dodać skanu.",
+    "floorUnavailable": "Wybrana kondygnacja nie jest już dostępna.",
+    "stale": "Projekt został zmieniony. Odśwież podgląd, aby kontynuować.",
+    "refresh": "Odśwież podgląd",
+    "search": "LiDAR RoomPlan pomieszczenie ściany drzwi okna",
+    "roomNameDefault": "Pomieszczenie",
+    "roomName": "Nazwa pomieszczenia",
+    "targetPanel": "Rozdzielnica",
+    "includePlacements": "Zaznaczaj gniazda, oprawy i łączniki",
+    "existingInstallation": "Rozmieszczanie jest wyłączone, ponieważ projekt zawiera już punkty końcowe.",
+    "reviewHint": "Obwody ze skanu są wstępne. Sprawdź zabezpieczenia, przewody i połączenia sterujące oświetleniem.",
+    "modelDocument": "Model piętra",
+    "placementsDocument": "Rozmieszczenie ze skanu",
+    "toReview": "Do sprawdzenia",
+    "zoomIn": "Powiększ",
+    "zoomOut": "Pomniejsz",
+    "resetView": "Resetuj widok",
+    "orbitHint": "Przeciągnij, aby obrócić · uszczypnij, aby zmienić skalę",
+    "reviewCircuit": "Sprawdź obwód",
+    "markReviewed": "Oznacz jako sprawdzone",
+    "capturedHeight": "Zarejestrowana wysokość",
+    "noPhoto": "Brak zdjęcia referencyjnego",
+    "elementRemoved": "Powiązany element usunięto. Zdjęcie zostało zachowane.",
+    "showOnPlan": "Pokaż na planie",
+    "showOnOneWire": "Pokaż na schemacie jednokreskowym",
+    "downloadScan": "Pobierz skan",
+    "documentFailed": "Nie można otworzyć tego dokumentu skanu.",
+    "group": {
+      "sockets": "gniazda",
+      "lighting": "oświetlenie",
+      "equipment": "urządzenia"
+    },
+    "capture": {
+      "cancel": "Anuluj",
+      "undo": "Cofnij",
+      "finish": "Zakończ",
+      "center": "Środek",
+      "review": "Sprawdź",
+      "back": "Wstecz",
+      "more": "Inne typy",
+      "placements": "Położenia",
+      "processing": "Przetwarzanie…",
+      "locked": "Punkt zablokowany",
+      "centerAim": "Celuj środkiem · dotknij, aby zablokować",
+      "markFixtures": "Zaznaczaj elementy",
+      "tracking": "Śledzenie",
+      "trackingPaused": "Śledzenie niepewne",
+      "offscreen": "poza kadrem",
+      "noMarks": "Piętro zeskanowane · brak oznaczonych urządzeń",
+      "finishRoom": "Zakończ piętro",
+      "fewerSockets": "Mniej gniazd",
+      "moreSockets": "Więcej gniazd",
+      "variantHint": "Przesuń, aby wybrać · puść, aby umieścić",
+      "variants": {
+        "socket": "Gniazdo",
+        "light": "Światło",
+        "switch": "Łącznik",
+        "twoWay": "Schodowy",
+        "cross": "Krzyżowy",
+        "push": "Przycisk",
+        "dimmer": "Ściemniacz",
+        "led": "LED",
+        "fluorescent": "Świetl.",
+        "spot": "Spot"
+      },
+      "surfaceNeeded": "Wyceluj w zeskanowaną ścianę, podłogę lub sufit"
+    },
+    "documentBudget": "Materiały ze skanu przekraczają limit miejsca na dokumenty projektu. Usuń lub zmniejsz istniejące dokumenty i spróbuj ponownie.",
+    "noClosedRooms": "Nie wykryto zamkniętych pomieszczeń. Zeskanuj pełne granice, aby rozpoznać pomieszczenia.",
+    "roomTypes": {
+      "bedroom": "Sypialnia",
+      "bathroom": "Łazienka",
+      "kitchen": "Kuchnia",
+      "livingRoom": "Salon",
+      "diningRoom": "Jadalnia",
+      "laundry": "Pralnia",
+      "office": "Biuro"
+    },
+    "modelLayers": {
+      "object": "Meble",
+      "wall": "Ściany",
+      "openings": "Drzwi i okna",
+      "floor": "Podłoga"
+    },
+    "assignCircuit": "Przypisz do obwodu",
+    "newCircuit": "Nowy obwód",
+    "assignmentFailed": "Nie udało się przypisać tych lokalizacji.",
+    "selectPlacement": "Wybierz lokalizację",
+    "clearSelection": "Wyczyść zaznaczenie"
+  },
   "junctionIdentity": {
     "label": "Identyfikacja połączenia",
     "pickExisting": "Użyj ponownie istniejącej identyfikacji",
@@ -9,9 +130,11 @@
     "toggleVisibility": "Pokaż lub ukryj etykietę na schemacie"
   },
   "terminalStrip": {
-    "pin": "Numer terminala",
+    "pin": "Numer obwodu",
     "incomingPin": "Wejście",
-    "outgoingPin": "Wyłączone"
+    "outgoingPin": "Wyłączone",
+    "circuitConflict": "{{label}} jest przypisany do różnych obwodów.",
+    "circuitConflictRemediation": "Użyj osobnego numeru grupy zacisków dla każdego obwodu."
   },
   "appUpdate": {
     "banner": "Dostępna jest nowa wersja aplikacji.",
@@ -35,6 +158,7 @@
     "importFallbackProjectName": "Zaimportowany projekt ({{idShort}})"
   },
   "common": {
+    "more": "Więcej",
     "save": "Zapisz",
     "cancel": "Anuluj",
     "delete": "Usuń",
@@ -155,6 +279,7 @@
     "zoom": "Zoom"
   },
   "commandPalette": {
+    "addSupplyTransformer": "Dodaj transformator zasilający",
     "placeholder": "Szukaj poleceń",
     "empty": "Brak pasujących poleceń",
     "moveToCircuit": "Przenieś do obwodu",
@@ -187,14 +312,98 @@
       "kind": "Typ obwodu",
       "direction": "Strona zasilania",
       "left": "Lewa",
-      "right": "Prawa"
+      "right": "Prawa",
+      "x": "X",
+      "y": "Y",
+      "startX": "Początek X",
+      "startY": "Początek Y",
+      "endX": "Koniec X",
+      "endY": "Koniec Y",
+      "thickness": "Grubość",
+      "wall": "Ściana",
+      "planWidth": "Szerokość",
+      "height": "Wysokość",
+      "stepDepth": "Głębokość stopnia",
+      "asset": "Symbol",
+      "offsetX": "Przesunięcie X",
+      "offsetY": "Przesunięcie Y",
+      "rotationDeg": "Obrót (°)",
+      "opacity": "Krycie (%)",
+      "segment": "Odcinek",
+      "text": "Tekst",
+      "title": "Tytuł",
+      "fontSize": "Rozmiar tekstu",
+      "titlePosition": "Położenie tytułu",
+      "route": "Trasa przewodu",
+      "index": "Indeks punktu",
+      "placement": "Symbol na planie",
+      "destination": "Miejsce docelowe",
+      "organization": "Układ zasilania",
+      "connection": "Połączenie"
     },
     "kinds": {
       "lighting": "Oświetlenie",
       "sockets": "Gniazda",
       "fixed_appliance": "Urządzenie stałe",
       "other": "Inne"
-    }
+    },
+    "removeFromOneWire": "Usuń ze schematu jednoprzewodowego",
+    "showOnOneWire": "Pokaż na schemacie jednoprzewodowym",
+    "addFloor": "Dodaj kondygnację",
+    "deleteFloor": "Usuń kondygnację",
+    "transformBackground": "Dostosuj tło planu",
+    "addPlanWall": "Dodaj ścianę",
+    "addPlanDoor": "Dodaj drzwi",
+    "addPlanWindow": "Dodaj okno",
+    "addPlanStair": "Dodaj schody",
+    "addPlanGraphic": "Dodaj symbol na planie",
+    "placeExistingOnPlan": "Umieść na planie",
+    "hideAllPanelModules": "Ukryj wszystkie moduły rozdzielnicy",
+    "showAllPanelModules": "Pokaż wszystkie moduły rozdzielnicy",
+    "showAuxiliaryEnclosures": "Pokaż obudowy pomocnicze na planie",
+    "hideAuxiliaryEnclosures": "Ukryj obudowy pomocnicze na planie",
+    "importPlanBackground": "Importuj tło planu",
+    "calibratePlan": "Ustaw skalę planu",
+    "removeBackground": "Usuń tło planu",
+    "splitWall": "Podziel ścianę",
+    "planAddNote": "Dodaj notatkę na planie",
+    "eendraadAddNote": "Dodaj notatkę na schemacie",
+    "eendraadCreateFrame": "Obramuj wybrane elementy",
+    "planInsertWireWaypoint": "Dodaj punkt przewodu",
+    "planMoveWireWaypoint": "Przesuń punkt przewodu",
+    "planRemoveWireWaypoint": "Usuń punkt przewodu",
+    "planMoveWireRiser": "Przesuń przejście przez strop",
+    "planDisconnectOutgoingWires": "Odłącz wychodzące przewody na planie",
+    "cableAcceptLengthEstimates": "Zatwierdź szacowane długości kabli",
+    "moveSupplyDevice": "Przenieś urządzenie zasilające",
+    "moveCircuitTrunkDevice": "Przenieś urządzenie obwodu",
+    "values": {
+      "inside": "Wewnątrz",
+      "outside": "Na zewnątrz",
+      "sharedSupply": "Wspólne zasilanie",
+      "supplyWire": "Przewód zasilający",
+      "backupWire": "Przewód zasilania rezerwowego",
+      "backupOutput": "Wyjście zasilania rezerwowego",
+      "changeoverGrid": "Wejście sieciowe przełącznika",
+      "converterGrid": "Wejście sieciowe przekształtnika",
+      "converterDc": "Strona DC przekształtnika",
+      "supplyDestination": "{{panel}} · {{lane}}",
+      "destinationAtPosition": "{{destination}} · pozycja {{position}}",
+      "circuitDestinationAtPosition": "{{panel}} · {{circuit}} · pozycja {{position}}",
+      "defaultNote": "Nowa notatka",
+      "defaultFrame": "Ramka",
+      "singleFeed": "Pojedyncze zasilanie",
+      "splitBackupFeed": "Oddzielne zasilanie rezerwowe",
+      "splitSwitchableFeed": "Oddzielne zasilanie przełączane",
+      "installationSupply": "Zasilanie instalacji"
+    },
+    "setPanelFeedOrganization": "Zmień zasilanie rozdzielnicy",
+    "setGridFeedBoundary": "Przesuń granicę zasilania sieciowego",
+    "setBackupFeedBoundary": "Przesuń granicę zasilania rezerwowego",
+    "movePanelSupply": "Przenieś zasilanie rozdzielnicy",
+    "disconnectInverterGridInput": "Odłącz wejście sieciowe falownika",
+    "ejectSecondaryBusProtections": "Przenieś szynę wtórną do nowej rozdzielnicy",
+    "ensureSecondaryPanelEarthingStem": "Dodaj odgałęzienie uziemienia rozdzielnicy"
   },
   "shortcuts": {
     "title": "Skróty",
@@ -224,6 +433,7 @@
       "ctrlCmdP": "Ctrl/Cmd+P",
       "ctrlCmdD": "Ctrl/Cmd + D",
       "ctrlCmdK": "Ctrl/Cmd + K",
+      "ctrlCmdF": "Ctrl/Cmd + F",
       "tab": "Tab",
       "esc": "Wyjście",
       "space": "Przestrzeń",
@@ -716,6 +926,12 @@
     }
   },
   "installation": {
+    "supplyConnectionLabel": "Przyłącze do sieci",
+    "supplyDirect": "Bezpośrednio niskie napięcie",
+    "supplyTransformer": "Własny transformator",
+    "connectionCurrent": "Prąd przyłączeniowy (A)",
+    "connectionUnspecified": "Nie określono",
+    "connectionCustom": "Własna wartość",
     "defaultCable": "Kabel standardowy",
     "title": "Profil",
     "profile": "Profil",
@@ -794,6 +1010,7 @@
     "type": "Typ",
     "rating": "Prąd znamionowy",
     "curve": "Charakterystyka wyzwalania",
+    "specialistCurveWarning": "Nietypowa w instalacjach domowych. Sprawdź ochronę przed zwarciem.",
     "sensitivity": "Prąd różnicowy IΔn",
     "poles": "Polska",
     "polesConfig": "Konfiguracja biegunów",
@@ -1097,6 +1314,10 @@
       "options": "Opcje"
     },
     "transformer": {
+      "primaryVoltage": "Napięcie pierwotne (V)",
+      "secondaryVoltage": "Napięcie wtórne (V)",
+      "ratedPower": "Moc znamionowa (kVA)",
+      "shortCircuitVoltage": "Napięcie zwarcia uk (%)",
       "safetyType": "Transformator bezpieczeństwa",
       "safety_none": "Brak",
       "safety_closed_short": "Zamknięte",
@@ -1251,6 +1472,9 @@
     "syncWithPanelView": "Synchronizacja z widokiem tablicy"
   },
   "canvas": {
+    "detachView": "Odłącz widok",
+    "dockView": "Przywróć widok",
+    "popupBlocked": "Zezwól na wyskakujące okna dla Condui i spróbuj ponownie.",
     "enclosureTransition": "{{from}} → {{to}}",
     "grid": "Pokaż siatkę",
     "snap": "Wyrównaj",
@@ -1554,6 +1778,8 @@
     }
   },
   "sitplanVisibility": {
+    "colors": "Kolory planu",
+    "symbolColor": "Kolor: {{category}}",
     "title": "Widoczność",
     "showAll": "Pokaż wszystko",
     "groundPlans": "Plany pięter",
@@ -1636,6 +1862,7 @@
     "horn": "Klakson",
     "siren": "Syrena",
     "panel_distribution": "Rozdzielnica",
+    "junction_box": "Puszka rozgałęźna",
     "relay": "Przekaźnik",
     "domotica": "Automatyka domowa / inteligentna instalacja",
     "energy_meter": "Licznik energii",
@@ -2263,6 +2490,11 @@
         "message": "Zbyt mała zdolność wyłączania zabezpieczenia zasilania: {{list}}",
         "details": "Zabezpieczenie przyłącza przed licznikiem musi mieć zdolność wyłączania co najmniej 6000 A. Zabezpieczenia nadprądowe za licznikiem muszą mieć zdolność wyłączania co najmniej 3000 A."
       },
+      "circuitShortCircuitProtectionVerifiable": {
+        "message": "Obwód {{circuitCode}}: ochrona przed zwarciem dla charakterystyki {{curve}} nie została zweryfikowana",
+        "missingData": "Podaj prąd znamionowy wyłącznika, przekroje przewodów i wszystkie długości kabli, aby sprawdzić ochronę przed zwarciem. Brak danych nie potwierdza wystarczającej ochrony.",
+        "unsupportedCurve": "Condui nie zna wiarygodnego progu wyzwalania dla tej charakterystyki. Sprawdź ochronę na podstawie charakterystyki producenta i minimalnego prądu zwarciowego."
+      },
       "circuitWithinMaximumProtectedLength": {
         "message": "Obwód {{circuitCode}}: przewód o długości {{lengthM}} m przekracza maksymalną długość chronioną {{maxLengthM}} m",
         "details": "Zwarcie na końcu przewodu musi nadal powodować natychmiastowe zadziałanie wyłącznika {{curve}}{{ratingA}} ({{tripCurrentA}} A). Dla przekroju {{sectionMm2}} mm² maksymalna długość wynosi {{maxLengthM}} m. Wybierz większy przekrój przewodu, krótszą trasę albo wyłącznik o niższym prądzie znamionowym lub innej charakterystyce."
@@ -2292,6 +2524,10 @@
         "details": "Domena przewodu musi odpowiadać oczekiwanej domenie wejścia lub wyjścia podłączonego elementu. Tylko przetworniki (transformator, prostownik, falownik, przetwornica DC-DC) mogą łączyć różne domeny."
       },
       "mainRcdCompliance": {
+        "sensitivityMissing": {
+          "message": "Czułość głównego RCD/RCBO jest nieznana",
+          "details": "Podaj znamionowy prąd różnicowy (mA) istniejącego urządzenia, aby sprawdzić główną ochronę różnicowoprądową. Użyj potwierdzonych danych urządzenia."
+        },
         "missing": {
           "message": "Główne zasilanie nie ma nadrzędnego wyłącznika różnicowoprądowego ani różnicowonadprądowego",
           "details": "AREI wymaga głównego wyłącznika różnicowoprądowego na początku instalacji. Zamontuj go na przewodzie zasilającym, przed rozdzielnicą główną."
@@ -2323,6 +2559,12 @@
         "details": "Rozdzielnicę można odłączyć za pomocą urządzenia zasilającego znajdującego się przed nią, ale nie ma w niej lokalnego wyłącznika głównego ani rozłącznika. Lokalna możliwość odłączenia zwiększa bezpieczeństwo i ułatwia konserwację."
       },
       "circuitHasRcdProtection": {
+        "sensitivityMissing": {
+          "groupMessage": "Obwody mają nadrzędny RCD/RCBO o nieznanej czułości",
+          "remediation": "Podaj czułość (mA) istniejącego nadrzędnego RCD/RCBO na podstawie potwierdzonych danych urządzenia.",
+          "message": "Obwód {{circuitCode}} ma nadrzędny RCD/RCBO o nieznanej czułości",
+          "details": "Podaj czułość (mA) istniejącego nadrzędnego RCD/RCBO, aby sprawdzić ochronę 30 mA. Użyj potwierdzonych danych urządzenia."
+        },
         "missing": {
           "message": "Obwód {{circuitCode}} wymaga zabezpieczenia różnicowoprądowego 30 mA, ale nie znaleziono urządzenia nadrzędnego",
           "details": "Oświetlenie, ogólne gniazda wtyczkowe, pralki, suszarki, zmywarki i obwody ładowania pojazdów elektrycznych wymagają zabezpieczenia różnicowoprądowego 30 mA. Zamontuj przed obwodem wyłącznik różnicowoprądowy lub różnicowonadprądowy albo poprowadź go przez istniejące urządzenie 30 mA."
@@ -2694,6 +2936,7 @@
   },
   "plan": {
     "doorProperties": "Drzwi",
+    "gatePreset": "Brama",
     "windowProperties": "Okno",
     "openingWidth": "Szerokość",
     "cm": "cm",
@@ -2777,7 +3020,11 @@
     "backupFeed": "Zasilacz zapasowy",
     "gridMarker": "Netto",
     "backupMarker": "Kopia zapasowa",
-    "switchableBackupMarker": "Kopia zapasowa/sieć"
+    "switchableBackupMarker": "Kopia zapasowa/sieć",
+    "changeoverInput1": "Wejście 1",
+    "changeoverInputGrid": "Sieć",
+    "changeoverInputConverter": "Zasilanie falownika",
+    "inverterGridInputDisconnected": "Wejście sieciowe falownika niepodłączone"
   },
   "wallProperties": {
     "title": "Właściwości ściany",
@@ -3264,7 +3511,11 @@
     "shape": {
       "phase": "Faza",
       "neutral": "Neutralny",
-      "earth": "Ochronny"
+      "earth": "Ochronny",
+      "deck2": "Dwupiętrowa",
+      "deck3": "Trzypiętrowa PE/N/L",
+      "install": "Instalacyjna L/N/PE",
+      "single": "Jednopiętrowa"
     },
     "addJumper": "Dodaj mostek",
     "removeJumper": "Usuń mostek",
@@ -3299,6 +3550,22 @@
         "unknown-connector": "Złączka już nie istnieje",
         "pe-without-bonded-rail": "Zaciski ochronne na nieuziemionej szynie"
       }
-    }
+    },
+    "tool": {
+      "select": "Zaznacz",
+      "bridge": "Narysuj mostek"
+    },
+    "bridgeThroughRail": "Uziemienie jest już połączone przez szynę",
+    "shapeOf": "Kształt"
+  },
+  "oneWireReference": {
+    "title": "Zeskanowana strona",
+    "blend": "Wtop w obszar roboczy",
+    "opacity": "Krycie",
+    "openDocument": "Otwórz dokument",
+    "remove": "Usuń ze schematu jednoprzewodowego",
+    "showOnOneWire": "Pokaż na schemacie jednoprzewodowym",
+    "pageName": "Strona schematu jednoprzewodowego {{page}}",
+    "documentPage": "{{name}} · strona {{page}}"
   }
 }

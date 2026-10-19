@@ -15,7 +15,7 @@ import type { Panel, Circuit, WireSegment } from '@/types/schema'
 import { useEendraadWireSegments } from '@/hooks/eendraad/useEendraadWireSegments'
 import { computeAreiCircuitEndpointLimitCount } from '@/lib/validation/areiCircuitEndpointCount'
 import { trackGoogleAnalyticsEvent } from '@/lib/analytics/googleAnalytics'
-import { focusSelectionOnCanvas } from '@/lib/ui/focusSelectionOnCanvas'
+import { useFocusSelectionOnCanvas } from '@/hooks/useFocusSelectionOnCanvas'
 import { logger } from '@/lib/logger'
 import {
   buildCircuitCableValidationDebug,
@@ -154,6 +154,7 @@ function ValidationIssuesDialog({
   onHeaderPointerDown,
   headerActions,
 }: ValidationIssuesDialogProps) {
+  const focusSelectionOnCanvas = useFocusSelectionOnCanvas()
   const { t } = useTranslation()
   const currentProject = useProjectStore((state: ProjectState) => state.currentProject)
   const language = useSettingsStore((state) => state.language)

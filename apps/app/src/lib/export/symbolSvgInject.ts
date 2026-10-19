@@ -10,6 +10,8 @@
 import Konva from 'konva'
 import {
   SYMBOL_EXPORT_ATTR_SVG_PATH,
+  resolveSymbolColorFromImageElement,
+  resolveSymbolColorFromImageSrc,
   fetchThemedSymbolSvgText,
   resolveSymbolSvgPathFromImageElement,
   resolveSymbolSvgPathFromImageSrc,
@@ -23,6 +25,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
 
 export type SymbolExportDescriptor = {
   paintOrder: number
+  color?: string
   svgPath: string
   /** Scene-space pivot (Konva offset anchor), relative to export root. */
   x: number
@@ -58,7 +61,7 @@ function resolveSymbolSvgPathFromImageNode(imageNode: Konva.Image): string | nul
 
 function getNodePoseRelativeToRoot(
   node: Konva.Node,
-  root: Konva.Container,
+  root: Konva.Container
 ): { x: number; y: number; rotationDeg: number } {
   const rootInverse = root.getAbsoluteTransform().copy().invert()
   const position = rootInverse.point(node.getAbsolutePosition())
@@ -72,7 +75,7 @@ function getNodePoseRelativeToRoot(
 
 function getSymbolImageExportPose(
   imageNode: Konva.Image,
-  root: Konva.Container,
+  root: Konva.Container
 ): Pick<
   SymbolExportDescriptor,
   'x' | 'y' | 'rotationDeg' | 'transformMatrix' | 'width' | 'height'
@@ -101,7 +104,7 @@ function getSymbolImageExportPose(
 /** Same fallback pattern as planGraphicSvgInject: pivot → rotate → center → viewBox scale. */
 export function buildSymbolExportTransform(
   desc: Pick<SymbolExportDescriptor, 'x' | 'y' | 'rotationDeg' | 'width' | 'height'>,
-  viewBox: { x: number; y: number; width: number; height: number },
+  viewBox: { x: number; y: number; width: number; height: number }
 ): string {
   const scaleX = desc.width / (viewBox.width || 1)
   const scaleY = desc.height / (viewBox.height || 1)
@@ -116,11 +119,8 @@ export function buildSymbolExportTransform(
 }
 
 export function buildSymbolMatrixExportTransform(
-  desc: Pick<
-    SymbolExportDescriptor,
-    'transformMatrix' | 'width' | 'height'
-  >,
-  viewBox: { x: number; y: number; width: number; height: number },
+  desc: Pick<SymbolExportDescriptor, 'transformMatrix' | 'width' | 'height'>,
+  viewBox: { x: number; y: number; width: number; height: number }
 ): string | null {
   const matrix = desc.transformMatrix
   if (!matrix) return null
@@ -138,13 +138,16 @@ function readImageDescriptor(
   imageNode: Konva.Image,
   root: Konva.Container,
   paintOrder: number,
-  svgPath: string,
+  svgPath: string
 ): SymbolExportDescriptor {
   imageNode.setAttr(SYMBOL_EXPORT_ATTR_SVG_PATH, svgPath)
   const pose = getSymbolImageExportPose(imageNode, root)
   return {
     paintOrder,
     svgPath,
+    color: isHtmlImageElement(imageNode.image())
+      ? resolveSymbolColorFromImageElement(imageNode.image() as HTMLImageElement)
+      : undefined,
     ...pose,
     opacity: imageNode.opacity() ?? 1,
   }
@@ -155,7 +158,7 @@ function collectSymbolImageDescriptors(
   root: Konva.Container,
   paintOrderRef: { value: number },
   descriptors: SymbolExportDescriptor[],
-  toRemove: Konva.Image[],
+  toRemove: Konva.Image[]
 ): void {
   const children = node.getChildren()
   for (let index = 0; index < children.length; index++) {
@@ -164,9 +167,7 @@ function collectSymbolImageDescriptors(
       const imageNode = child as Konva.Image
       const svgPath = resolveSymbolSvgPathFromImageNode(imageNode)
       if (!svgPath) continue
-      descriptors.push(
-        readImageDescriptor(imageNode, root, paintOrderRef.value++, svgPath),
-      )
+      descriptors.push(readImageDescriptor(imageNode, root, paintOrderRef.value++, svgPath))
       toRemove.push(imageNode)
       continue
     }
@@ -184,7 +185,7 @@ export function collectAndRemoveSymbolImagesForExport(root: Konva.Group): Symbol
   const toRemove: Konva.Image[] = []
   const paintOrderRef = { value: 0 }
   collectSymbolImageDescriptors(root, root, paintOrderRef, descriptors, toRemove)
-  toRemove.forEach((imageNode) => imageNode.remove())
+  toRemove.forEach((imageNode) => imageNode.destroy())
   return descriptors
 }
 
@@ -199,7 +200,12 @@ function parseViewBoxFromSvgText(svgText: string): string {
   return `0 0 ${width} ${height}`
 }
 
-function parseViewBoxValues(svgText: string): { x: number; y: number; width: number; height: number } {
+function parseViewBoxValues(svgText: string): {
+  x: number
+  y: number
+  width: number
+  height: number
+} {
   const viewBox = parseViewBoxFromSvgText(svgText)
   const parts = viewBox.split(/[\s,]+/).map((value) => Number(value))
   if (parts.length === 4 && parts.every((value) => Number.isFinite(value))) {
@@ -216,14 +222,14 @@ function buildSymbolVectorElement(
   doc: Document,
   desc: SymbolExportDescriptor,
   themedSvgText: string,
-  strokeColor: string,
+  strokeColor: string
 ): SVGGElement {
   const viewBox = parseViewBoxValues(themedSvgText)
 
   const wrapper = doc.createElementNS(SVG_NS, 'g')
   wrapper.setAttribute(
     'transform',
-    buildSymbolMatrixExportTransform(desc, viewBox) ?? buildSymbolExportTransform(desc, viewBox),
+    buildSymbolMatrixExportTransform(desc, viewBox) ?? buildSymbolExportTransform(desc, viewBox)
   )
   if (desc.opacity < 0.999) {
     wrapper.setAttribute('opacity', String(desc.opacity))
@@ -232,7 +238,7 @@ function buildSymbolVectorElement(
   const flattenedSvgText = flattenSymbolSvgForExport(
     themedSvgText,
     strokeColor,
-    `sym${desc.paintOrder}_`,
+    `sym${desc.paintOrder}_`
   )
   const parsed = new DOMParser().parseFromString(flattenedSvgText, 'image/svg+xml')
   const sourceRoot = parsed.documentElement
@@ -249,7 +255,7 @@ function getSymbolSceneContainer(svgRoot: Element): Element {
   const layerGroup = svgRoot.querySelector(':scope > g')
   if (!layerGroup) return svgRoot
   const layerChildren = Array.from(layerGroup.childNodes).filter(
-    (node): node is Element => node.nodeType === 1,
+    (node): node is Element => node.nodeType === 1
   )
   // Konva exports the cloned scene root as a single child <g> under the layer.
   if (layerChildren.length === 1) {
@@ -270,10 +276,10 @@ function parseKonvaImagePose(
   x: number,
   y: number,
   width: number,
-  height: number,
+  height: number
 ): Pick<SymbolExportDescriptor, 'x' | 'y' | 'rotationDeg' | 'transformMatrix'> {
   const matrixMatch = transform.match(
-    /matrix\(([-\d.eE+]+)[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+)\)/,
+    /matrix\(([-\d.eE+]+)[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+)\)/
   )
   if (matrixMatch) {
     const a = Number(matrixMatch[1])
@@ -298,7 +304,9 @@ function parseKonvaImagePose(
     }
   }
 
-  const rotateMatch = transform.match(/rotate\(([-\d.eE+]+)(?:[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+))?\)/)
+  const rotateMatch = transform.match(
+    /rotate\(([-\d.eE+]+)(?:[,\s]+([-\d.eE+]+)[,\s]+([-\d.eE+]+))?\)/
+  )
   const rotationDeg = rotateMatch ? Number(rotateMatch[1]) : 0
   const pivotX = rotateMatch?.[2] != null ? Number(rotateMatch[2]) : x + width / 2
   const pivotY = rotateMatch?.[3] != null ? Number(rotateMatch[3]) : y + height / 2
@@ -321,7 +329,7 @@ function valuesAreFinite(...values: number[]): boolean {
 export async function injectSymbolSvgsIntoExportSvg(
   svgString: string,
   descriptors: SymbolExportDescriptor[],
-  exportTheme: ExportTheme,
+  exportTheme: ExportTheme
 ): Promise<string> {
   if (descriptors.length === 0) return svgString
 
@@ -338,13 +346,14 @@ export async function injectSymbolSvgsIntoExportSvg(
   const sorted = [...descriptors].sort((a, b) => a.paintOrder - b.paintOrder)
 
   for (const desc of sorted) {
-    let themedPromise = themedByPath.get(desc.svgPath)
+    const cacheKey = `${desc.svgPath}:${desc.color ?? ''}`
+    let themedPromise = themedByPath.get(cacheKey)
     if (!themedPromise) {
-      themedPromise = fetchThemedSymbolSvgText(desc.svgPath, isDark)
-      themedByPath.set(desc.svgPath, themedPromise)
+      themedPromise = fetchThemedSymbolSvgText(desc.svgPath, isDark, desc.color)
+      themedByPath.set(cacheKey, themedPromise)
     }
     const themedSvgText = await themedPromise
-    const element = buildSymbolVectorElement(doc, desc, themedSvgText, strokeColor)
+    const element = buildSymbolVectorElement(doc, desc, themedSvgText, desc.color ?? strokeColor)
     container.appendChild(element)
   }
 
@@ -359,7 +368,7 @@ export function isCatalogSymbolImageNode(imageNode: Konva.Image): boolean {
 /** Replace rasterized catalog symbol <image> nodes with inline vectors (fallback path). */
 export async function replaceRasterSymbolImagesInExportSvg(
   svgString: string,
-  exportTheme: ExportTheme,
+  exportTheme: ExportTheme
 ): Promise<string> {
   const parser = new DOMParser()
   const doc = parser.parseFromString(svgString, 'image/svg+xml')
@@ -395,23 +404,26 @@ export async function replaceRasterSymbolImagesInExportSvg(
     const transform = imageEl.getAttribute('transform') ?? ''
     if (!width || !height) continue
 
-    let themedPromise = themedByPath.get(svgPath)
+    const color = resolveSymbolColorFromImageSrc(href)
+    const cacheKey = `${svgPath}:${color ?? ''}`
+    let themedPromise = themedByPath.get(cacheKey)
     if (!themedPromise) {
-      themedPromise = fetchThemedSymbolSvgText(svgPath, isDark)
-      themedByPath.set(svgPath, themedPromise)
+      themedPromise = fetchThemedSymbolSvgText(svgPath, isDark, color)
+      themedByPath.set(cacheKey, themedPromise)
     }
     const themedSvgText = await themedPromise
 
     const pose = parseKonvaImagePose(transform, x, y, width, height)
     const desc: SymbolExportDescriptor = {
       paintOrder: 0,
+      color,
       svgPath,
       ...pose,
       width,
       height,
       opacity,
     }
-    const group = buildSymbolVectorElement(doc, desc, themedSvgText, strokeColor)
+    const group = buildSymbolVectorElement(doc, desc, themedSvgText, desc.color ?? strokeColor)
     imageEl.parentNode?.replaceChild(group, imageEl)
   }
 

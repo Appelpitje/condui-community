@@ -20,6 +20,14 @@ import type { DropTarget } from '@/lib/layout/findDropTarget'
 import { getEditableProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { PROTECTION_SYMBOL_IDS } from '@/lib/protectionKind'
 import { getSymbolById } from '@/lib/symbols'
+import { findPanelOwnDistributionEndpoint } from '@/lib/eendraad/panelSupplyLink'
+import { findPanelById } from '@/lib/panel/panelTree'
+import { findTrunkDeviceInProject } from '@/lib/eendraad/findTrunkDeviceInProject'
+import { getEditableProjectElectricalInstallation } from '@/lib/projectV2/electrical'
+import { withCustomPlacementFlag } from '@/lib/plan/customPlacement'
+import { syncPanelAndSituationPlanDeviceVisibility } from '@/lib/plan/panelPlanPlacementVisibility'
+import { canSymbolAppearOnSituationPlan } from '@/lib/plan/situationPlanSymbolEligibility'
+import { isConflictingOnSymbolDrop } from './sameSymbolAddMore'
 
 const PROTECTION_IDS = new Set<string>(PROTECTION_SYMBOL_IDS)
 
@@ -27,7 +35,7 @@ export interface ElectricalSymbolDropInput {
   symbolId: string
   target: DropTarget
   /** The dropped symbol's own situation-plan placement (plan canvas drops). */
-  planPlacement?: Pick<Placement, 'id' | 'floorId' | 'layer' | 'pos' | 'rotationDeg' | 'scale'>
+  planPlacement?: Pick<Placement, 'id' | 'floorId' | 'layer' | 'pos' | 'rotationDeg' | 'rotationMode' | 'scale'>
   /** Canvas position of the drop, for free-floating symbols such as notes. */
   dropCanvasPosition?: Point
 }
@@ -47,7 +55,7 @@ export type ElectricalSymbolDropOutcome =
       mutated: boolean
     }
   | { status: 'rejected'; message: string }
-  | { status: 'blocked'; reason: 'protection_after_junction_panel' | 'unknown_symbol' }
+  | { status: 'blocked'; reason: 'protection_after_junction_panel' | 'unknown_symbol' | 'conflicting_endpoint_preset' }
 
 function findCircuit(project: ProjectV2, circuitId: string) {
   for (const panel of getEditableProjectElectricalPanels(project)) {
@@ -118,9 +126,17 @@ export function placeElectricalSymbolInProject(
 ): ElectricalSymbolDropOutcome {
   const symbol = getSymbolById(input.symbolId)
   if (!symbol) return { status: 'blocked', reason: 'unknown_symbol' }
+  if (input.planPlacement && !canSymbolAppearOnSituationPlan(input.symbolId))
+    return { status: 'rejected', message: 'This symbol cannot be placed on the situation plan' }
   const target = normalizeElectricalDropTarget(input.symbolId, input.target)
   if (blocksProtectionAfterJunctionPanel(project, input.symbolId, target)) {
     return { status: 'blocked', reason: 'protection_after_junction_panel' }
+  }
+  // The same configured-family rule must hold in dry runs and on every canvas.
+  if (target.domoticaChildDropIntent === 'replace' && target.circuitId && target.endpointId) {
+    const endpoint = findCircuit(project, target.circuitId)?.endpoints.find((entry) => entry.id === target.endpointId)
+    if (endpoint && isConflictingOnSymbolDrop(input.symbolId, endpoint))
+      return { status: 'blocked', reason: 'conflicting_endpoint_preset' }
   }
 
   let selection: Selection | null = null
@@ -151,7 +167,9 @@ export function placeElectricalSymbolInProject(
       },
       addEndpoint: (circuitId, endpoint, insertAfterEndpointId, branchOpts) => {
         created.push({ kind: 'endpoint', id: endpoint.id })
-        if (!planPlacement) {
+        // Board feeder occurrences are logical references; its canonical PANEL endpoint owns
+        // the physical plan occurrence and is positioned after board creation below.
+        if (!planPlacement || input.symbolId === 'panel_distribution') {
           base.addEndpoint(circuitId, endpoint, insertAfterEndpointId, branchOpts)
           return
         }
@@ -200,5 +218,40 @@ export function placeElectricalSymbolInProject(
     false
   )
   if (rejection) return { status: 'rejected', message: rejection }
+  if (planPlacement && !placementId) {
+    const panelId = created.find((ref) => ref.kind === 'panel')?.id
+    const board = panelId ? findPanelById(getEditableProjectElectricalPanels(project), panelId) : null
+    const boardPlacement = board ? findPanelOwnDistributionEndpoint(board)?.placements[0] : undefined
+    const device = created.filter((ref) => ref.kind === 'trunkDevice')
+      .map((ref) => findTrunkDeviceInProject(project, ref.id))
+      .find((entry) => entry?.symbol === input.symbolId)
+    const installation = getEditableProjectElectricalInstallation(project)
+    const sharedPlacement = device?.symbol === 'junction_panel'
+      ? installation?.junctionPanelPlacements?.find((placement) => placement.label === device.label)
+      : input.symbolId === 'earthing'
+        ? installation?.earthingPlacements?.find((placement) => placement.floorId === planPlacement.floorId)
+        : undefined
+    let standardPlacement = boardPlacement ?? device?.placements?.[0]
+    if (!standardPlacement && !sharedPlacement && device) {
+      // Optional plan devices need no automatic occurrence, but an explicit plan drop does.
+      standardPlacement = { ...planPlacement, pos: { ...planPlacement.pos } }
+      device.placements = [standardPlacement]
+      mutated = true
+    }
+    const placement = sharedPlacement ?? standardPlacement
+    if (!placement) return { status: 'rejected', message: 'This drop does not create a situation-plan occurrence' }
+    const patch = {
+      floorId: planPlacement.floorId,
+      layer: planPlacement.layer,
+      pos: { ...planPlacement.pos },
+      rotationDeg: planPlacement.rotationDeg,
+      ...(planPlacement.rotationMode ? { rotationMode: planPlacement.rotationMode } : {}),
+      scale: planPlacement.scale,
+    }
+    Object.assign(placement, standardPlacement ? withCustomPlacementFlag(standardPlacement, patch) : patch)
+    placementId = placement.id
+    mutated = true
+    syncPanelAndSituationPlanDeviceVisibility(project)
+  }
   return { status: 'placed', selection, created, placementId, mutated }
 }

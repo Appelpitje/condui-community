@@ -7,10 +7,12 @@ import {
   projectPanels,
   validationCircuitCode,
   validationProtectionLabel,
+  isPanelPlacementCarrierCircuit,
 } from './common'
 import { defaultVoltagesForSystem, normalizeNominalVoltageSystem } from '@/constants/nominalVoltage'
 import { isHouseholdInstallation } from '@/lib/installationProfile'
 import { isOvercurrentProtectionType } from '@/lib/protectionKind'
+import { isSpecialistProtectionCurve } from '@/lib/protectionCurves'
 import {
   buildCircuitCablePathIndex,
   type CircuitCablePath,
@@ -148,6 +150,64 @@ function circuitCablePaths(context: CheckContext, circuitId: string): CircuitCab
   return index.get(circuitId) ?? []
 }
 
+/** A specialist characteristic must not silently escape a check because inputs are absent. */
+function circuitShortCircuitProtectionVerifiable(context: CheckContext): CheckResult {
+  const { scope, query } = context
+  if (scope.type !== 'circuit') return { passed: true }
+  if (isPanelPlacementCarrierCircuit(query, scope.id)) {
+    return { passed: true, coverage: { status: 'skipped', reason: 'panel-placement-carrier-is-not-an-electrical-feed' } }
+  }
+  const circuit = query.getCircuitById(scope.id)
+  const protection = query.getProtectionForCircuit(scope.id)
+  if (!circuit) return { passed: true }
+  if (!protection || protection.dcBusId != null) {
+    return { passed: true, coverage: { status: 'missing-information', reason: 'protective-device-not-modeled', missingFacts: ['upstream protective device'] } }
+  }
+  if (protection.type !== 'MCB' && protection.type !== 'RCBO') return { passed: true }
+  if (!isSpecialistProtectionCurve(protection.curve)) return { passed: true }
+
+  const curve = protection.curve!
+  const supportedCurve = instantaneousTripCurrentA(1, curve) != null
+  const paths = circuitCablePaths(context, circuit.id)
+  const positive = (value: number | undefined): boolean =>
+    value != null && Number.isFinite(value) && value > 0
+  const complete = supportedCurve && positive(protection.ratingA) && paths.length > 0 &&
+    paths.every((path) => path.missingLengthAnchors.length === 0 &&
+      path.edges.every((edge) => positive(edge.lengthM) &&
+        positive(edge.cable?.sectionMm2 ?? circuit.cable?.sectionMm2)))
+  if (complete) return { passed: true, coverage: { status: 'passed' } }
+
+  const missingFacts = [
+    ...(!supportedCurve ? ['supported protective-device curve model'] : []),
+    ...(!positive(protection.ratingA) ? ['protective-device current rating'] : []),
+    ...(paths.length === 0 ? ['modeled cable path'] : []),
+    ...(paths.some((path) => path.missingLengthAnchors.length > 0) ? ['complete route length / connected cable anchors'] : []),
+    ...(paths.some((path) => path.edges.some((edge) => !positive(edge.lengthM))) ? ['cable edge length'] : []),
+    ...(paths.some((path) => path.edges.some((edge) => !positive(edge.cable?.sectionMm2 ?? circuit.cable?.sectionMm2))) ? ['cable cross-section'] : []),
+  ]
+
+  return {
+    passed: false,
+    coverage: {
+      status: supportedCurve ? 'missing-information' : 'unavailable',
+      reason: supportedCurve
+        ? 'short-circuit-protection-could-not-be-verified-from-entered-data'
+        : 'unsupported-protection-curve',
+      missingFacts,
+    },
+    offenders: [
+      { kind: 'circuit', id: circuit.id, viewHint: 'eendraad' },
+      { kind: 'protection', id: protection.id, viewHint: 'eendraad' },
+    ],
+    message: i18n.t('validation.primitives.circuitShortCircuitProtectionVerifiable.message', {
+      circuitCode: validationCircuitCode(circuit.code), curve,
+    }),
+    details: i18n.t(supportedCurve
+      ? 'validation.primitives.circuitShortCircuitProtectionVerifiable.missingData'
+      : 'validation.primitives.circuitShortCircuitProtectionVerifiable.unsupportedCurve'),
+  }
+}
+
 /**
  * AREI 5.3.5.5.h: a fault at the far end of the circuit must still reach the breaker's
  * instantaneous trip current. Only entered lengths are summed, so the result is a lower bound
@@ -156,17 +216,33 @@ function circuitCablePaths(context: CheckContext, circuitId: string): CircuitCab
 function circuitWithinMaximumProtectedLength(context: CheckContext): CheckResult {
   const { scope, query, project } = context
   if (scope.type !== 'circuit') return { passed: true }
+  if (isPanelPlacementCarrierCircuit(query, scope.id)) {
+    return { passed: true, coverage: { status: 'skipped', reason: 'panel-placement-carrier-is-not-an-electrical-feed' } }
+  }
   const circuit = query.getCircuitById(scope.id)
   if (!circuit) return { passed: true }
   const protection = query.getProtectionForCircuit(scope.id)
   if (!protection || protection.dcBusId != null) return { passed: true }
   if (protection.type !== 'MCB' && protection.type !== 'RCBO') return { passed: true }
   const tripCurrentA = instantaneousTripCurrentA(protection.ratingA, protection.curve)
-  if (tripCurrentA == null) return { passed: true }
+  if (tripCurrentA == null) {
+    return {
+      passed: true,
+      coverage: {
+        status: 'missing-information',
+        reason: 'protective-device-rating-or-trip-curve-unavailable',
+        missingFacts: [
+          ...(!protection.ratingA || protection.ratingA <= 0 ? ['protective-device current rating'] : []),
+          ...(!protection.curve ? ['protective-device trip curve'] : []),
+        ],
+      },
+    }
+  }
 
   const voltageV = faultLoopVoltageV(projectInstallation(project), protection)
+  const paths = circuitCablePaths(context, circuit.id)
   let worst: { path: CircuitCablePath; maxLengthM: number; sectionMm2: number } | undefined
-  for (const path of circuitCablePaths(context, circuit.id)) {
+  for (const path of paths) {
     const sectionMm2 = path.minSectionMm2 ?? circuit.cable?.sectionMm2
     if (!sectionMm2 || path.knownLengthM <= 0) continue
     const material = path.edges.some((edge) => edge.material === 'aluminium')
@@ -178,7 +254,27 @@ function circuitWithinMaximumProtectedLength(context: CheckContext): CheckResult
       worst = { path, maxLengthM, sectionMm2 }
     }
   }
-  if (!worst) return { passed: true }
+  const missingFacts = [
+    ...(paths.length === 0 ? ['modeled cable path'] : []),
+    ...(paths.some((path) => path.missingLengthAnchors.length > 0) ? ['complete route length / connected cable anchors'] : []),
+    ...(paths.some((path) => path.edges.some((edge) => !edge.lengthM || edge.lengthM <= 0)) ? ['cable edge length'] : []),
+    ...(paths.some((path) => path.edges.some((edge) => !(path.minSectionMm2 ?? circuit.cable?.sectionMm2 ?? edge.cable?.sectionMm2))) ? ['cable cross-section'] : []),
+    ...(query.getCableSegments(circuit.id).length === 0 || query.getCableSegments(circuit.id).some((segment) => !query.getInstallationMethod(segment)) ? ['cable installation method'] : []),
+    ...(paths.some((path) => path.edges.some((edge) => !edge.material && !edge.cable?.kind)) ? ['conductor material'] : []),
+    ...(!projectInstallation(project)?.nominalVoltage?.system ? ['nominal voltage system'] : []),
+  ]
+  if (!worst) {
+    return {
+      passed: true,
+      ...(missingFacts.length > 0 ? {
+        coverage: {
+          status: 'missing-information' as const,
+          reason: 'known-data-does-not-prove-protected-length-compliance',
+          missingFacts,
+        },
+      } : {}),
+    }
+  }
 
   const circuitCode = validationCircuitCode(circuit.code)
   const lengthM = Math.round(worst.path.knownLengthM)
@@ -187,6 +283,13 @@ function circuitWithinMaximumProtectedLength(context: CheckContext): CheckResult
   const ratingA = protection.ratingA ?? 0
   return {
     passed: false,
+    ...(missingFacts.length > 0 ? {
+      coverage: {
+        status: 'failed' as const,
+        reason: 'known-cable-length-exceeds-protected-maximum-with-some-data-incomplete',
+        missingFacts,
+      },
+    } : {}),
     offenders: [
       { kind: 'circuit', id: circuit.id, viewHint: 'eendraad' },
       { kind: 'protection', id: protection.id, viewHint: 'eendraad' },
@@ -211,3 +314,4 @@ function circuitWithinMaximumProtectedLength(context: CheckContext): CheckResult
 registerPrimitive('householdBoardBreakingCapacity', householdBoardBreakingCapacity)
 registerPrimitive('householdSupplyBreakingCapacity', householdSupplyBreakingCapacity)
 registerPrimitive('circuitWithinMaximumProtectedLength', circuitWithinMaximumProtectedLength)
+registerPrimitive('circuitShortCircuitProtectionVerifiable', circuitShortCircuitProtectionVerifiable)

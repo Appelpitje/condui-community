@@ -1,3 +1,4 @@
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useCanvasOverlayScale } from '@/contexts/CanvasOverlayScaleContext'
@@ -77,6 +78,8 @@ export function FloatingControl({
   suppressTooltip = false,
   mobileMenuFitCanvas = false,
 }: FloatingControlProps) {
+  const window = useCanvasWindow()
+  const document = window.document
   const [internalOpen, setInternalOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 })
@@ -125,15 +128,22 @@ export function FloatingControl({
       window.removeEventListener('resize', positionTooltip)
       window.removeEventListener('scroll', positionTooltip, true)
     }
-  }, [showTooltip, side])
+  }, [showTooltip, side, window])
 
   useEffect(() => {
     if (!isOpen || !children) return
 
     const handleCanvasDismiss = () => setOpen(false)
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.stopPropagation(); setOpen(false) }
+    }
     window.addEventListener(CANVAS_OVERLAY_DISMISS_EVENT, handleCanvasDismiss)
-    return () => window.removeEventListener(CANVAS_OVERLAY_DISMISS_EVENT, handleCanvasDismiss)
-  }, [children, isOpen, setOpen])
+    window.addEventListener('keydown', handleEscape, true)
+    return () => {
+      window.removeEventListener(CANVAS_OVERLAY_DISMISS_EVENT, handleCanvasDismiss)
+      window.removeEventListener('keydown', handleEscape, true)
+    }
+  }, [children, isOpen, setOpen, window])
 
   const useMobileMenuLayout = Boolean(
     mobileMenuFitCanvas && editorCompact && isOpen && children
@@ -163,7 +173,7 @@ export function FloatingControl({
     measure()
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
-  }, [useMobileMenuLayout, overlayHeight])
+  }, [useMobileMenuLayout, overlayHeight, window])
 
   useLayoutEffect(() => {
     if (!isOpen || !children || useMobileMenuLayout) {
@@ -205,7 +215,7 @@ export function FloatingControl({
       observer?.disconnect()
       window.removeEventListener('resize', measure)
     }
-  }, [children, isOpen, overlayScale, useMobileMenuLayout])
+  }, [children, isOpen, overlayScale, useMobileMenuLayout, window])
 
   const bgClasses =
     isOpen && children
@@ -224,25 +234,23 @@ export function FloatingControl({
     <div
       ref={wrapperRef}
       className="relative"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onPointerEnter={(event) => setHovered(event.pointerType === 'mouse')}
+      onPointerLeave={() => setHovered(false)}
+      onPointerCancel={() => setHovered(false)}
     >
       <button
         type="button"
         data-testid={triggerTestId}
         onPointerDown={(e) => {
+          setHovered(false)
           if (!disabled) preventCanvasToolbarMouseFocus(e)
         }}
-        onClick={
-          disabled
-            ? undefined
-            : children
-              ? () => {
-                  setHovered(false)
-                  setOpen(!isOpen)
-                }
-              : onClick
-        }
+        onClick={() => {
+          setHovered(false)
+          if (disabled) return
+          if (children) setOpen(!isOpen)
+          else onClick?.()
+        }}
         className={`${baseButtonClasses} ${shapeClasses} ${bgClasses} ${disabledClasses}`}
         aria-label={label}
         aria-expanded={children ? isOpen : undefined}
@@ -253,7 +261,8 @@ export function FloatingControl({
 
       {showTooltip && typeof document !== 'undefined' && createPortal(
         <div
-          className="pointer-events-none fixed z-[100] -translate-y-1/2"
+          role="tooltip"
+          className="pointer-events-none fixed z-[260] -translate-y-1/2"
           style={{
             left: tooltipPosition.left,
             top: tooltipPosition.top,

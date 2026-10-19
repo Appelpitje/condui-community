@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-46.4 -47.0 123.9 123.9" role="img" aria-label="Aardingsonderbreker">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M-36.4 -15.0L-6.9 2.0" stroke-width="7"/><path d="M-36.4 -15.0L-6.9 2.0" stroke="#16a34a" stroke-width="4"/><path d="M-36.4 -15.0L-6.9 2.0" stroke="#facc15" stroke-width="4" stroke-dasharray="5 5"/>
+  <path d="M38.1 28.0L67.5 45.0" stroke-width="7"/><path d="M38.1 28.0L67.5 45.0" stroke="#16a34a" stroke-width="4"/><path d="M38.1 28.0L67.5 45.0" stroke="#facc15" stroke-width="4" stroke-dasharray="5 5"/>
+  <polygon points="-20.8,12.0 31.2,42.0 31.2,30.0 -20.8,0.0" fill="#1e293b"/>
+  <polygon points="52.0,30.0 31.2,42.0 31.2,30.0 52.0,18.0" fill="#020617"/>
+  <polygon points="0.0,-12.0 52.0,18.0 31.2,30.0 -20.8,0.0" fill="#64748b"/>
+  <polygon points="-9.5,-0.5 32.0,23.5 32.0,19.5 -9.5,-4.5" fill="#c2803a"/>
+  <polygon points="40.7,18.5 32.0,23.5 32.0,19.5 40.7,14.5" fill="#a86a2c"/>
+  <polygon points="-0.9,-9.5 40.7,14.5 32.0,19.5 -9.5,-4.5" fill="#dfa66a"/>
+  <path d="M-3.2 -9.0V-3.0A4.9 2.8 0 0 0 6.6 -3.0V-9.0Z" fill="#64748b"/>
+  <ellipse cx="1.7" cy="-9.0" rx="4.9" ry="2.8" fill="#334155"/>
+  <path d="M24.5 7.0V13.0A4.9 2.8 0 0 0 34.3 13.0V7.0Z" fill="#64748b"/>
+  <ellipse cx="29.4" cy="7.0" rx="4.9" ry="2.8" fill="#334155"/>
+</g>
+</svg>

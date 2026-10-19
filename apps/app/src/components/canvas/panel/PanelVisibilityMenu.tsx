@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getSymbolById } from '@/lib/symbols'
+import { getSymbolById, getSymbolIconPath } from '@/lib/symbols'
 import { preventCanvasToolbarMouseFocus } from '@/lib/ui/preventCanvasToolbarMouseFocus'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -103,7 +103,7 @@ export function PanelVisibilityMenu({
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-gray-200 bg-white dark:border-gray-600 dark:bg-gray-700">
                     {symbol ? (
                       <img
-                        src={symbol.svgPath}
+                        src={getSymbolIconPath(symbol)}
                         alt=""
                         className="h-7 w-7 object-contain dark:invert"
                       />

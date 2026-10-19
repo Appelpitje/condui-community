@@ -7,7 +7,8 @@
 
 import type { Point, ViewportLayout } from '@/types/ui'
 import type { Placement } from '@/types/schema'
-import { collectPlacementsOnFloor, findCircuitForEndpointInProject } from '@/utils/project'
+import { collectPlacementsOnFloor } from '@/utils/project'
+import { walkPanels } from '@/lib/panel/panelTree'
 import {
   selectProjectBuildingFloors,
   type ProjectWithOptionalV2Building,
@@ -16,7 +17,6 @@ import {
   selectProjectElectricalPanels,
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
-import { getAllCircuits } from '@/lib/eendraad/projectElectricalDomain'
 import { markAwaitingPlanPlacement } from '@/lib/plan/customPlacement'
 import { isManualPlanPlacementEnabled } from '@/lib/plan/manualPlanPlacementPreference'
 
@@ -143,9 +143,14 @@ export function buildAutoSitplanPlacement(
 
   const layer = 'layers' in floor && Array.isArray(floor.layers) ? floor.layers[0] ?? 'electrical' : 'electrical'
   const allPlacements = collectPlacementsOnFloor(project, opts.floorId)
+  const circuitIdByEndpointId = new Map<string, string>()
   const trunkCircuitIdByDeviceId = new Map<string, string>()
-  for (const panel of selectProjectElectricalPanels(project)) {
-    for (const circuit of getAllCircuits(panel)) {
+  for (const panel of walkPanels(selectProjectElectricalPanels(project))) {
+    // getAllCircuits includes descendants; each panel is already visited here.
+    for (const circuit of [...panel.circuits, ...panel.protections.flatMap((p) => p.circuits ?? [])]) {
+      for (const endpoint of circuit.endpoints) {
+        if (!circuitIdByEndpointId.has(endpoint.id)) circuitIdByEndpointId.set(endpoint.id, circuit.id)
+      }
       for (const device of circuit.trunkDevices ?? []) {
         trunkCircuitIdByDeviceId.set(device.id, circuit.id)
       }
@@ -155,7 +160,7 @@ export function buildAutoSitplanPlacement(
     placement: Placement & { endpointId?: string; trunkDeviceId?: string },
   ) => {
     if (placement.endpointId) {
-      return findCircuitForEndpointInProject(project, placement.endpointId)?.circuit.id
+      return circuitIdByEndpointId.get(placement.endpointId)
     }
     return placement.trunkDeviceId
       ? trunkCircuitIdByDeviceId.get(placement.trunkDeviceId)

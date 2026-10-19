@@ -1,3 +1,11 @@
+import { useStore } from 'zustand'
+import {
+  usePlanWireWaypointPreview,
+  type PlanWireWaypointPreview,
+  type PlanWireWaypointPreviewStore,
+} from '@/hooks/plan/usePlanWireWaypointPreview'
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
+import { useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { isKeyboardTypingTarget } from '@/lib/ui/keyboardTypingTarget'
 import { Circle, Group, Line, Path, Text } from 'react-konva'
@@ -33,6 +41,7 @@ import {
 } from '@/lib/plan/planWireParallel'
 import { planWireRiserPassageKey as riserPassageKey } from '@/lib/plan/planWiringRouteEdits'
 import { planWireVisualMetrics } from '@/lib/plan/planWireVisualMetrics'
+import { isKeyboardOwnedByFloatingEditor } from '@/utils/keyboardOwner'
 
 /** A wire end placed through its own placement (junction panel, earth electrode, enclosure). */
 export type PlanWireEndPlacement = Placement & { nodeType?: string }
@@ -42,6 +51,7 @@ import {
   unitVector,
   splinePath,
   sampleSpline,
+  planWireMaxSplineHandle,
   flatten,
 } from '@/lib/plan/planWireGeometry'
 
@@ -93,6 +103,10 @@ interface PlanWiresLayerProps {
   previewRouteIds?: ReadonlySet<string> | null
   /** The wire under the pointer, so the canvas can preview its circuit. */
   onHoverRoute?: (route: PlanWireRoute | null) => void
+  /** An endpoint wire drag owns pointer feedback until it finishes. */
+  drawingWire?: boolean
+  waypointPreviewStore?: PlanWireWaypointPreviewStore
+  previewPointContext?: RoutePointContext
 }
 
 function resolveEndpointAnchor(
@@ -248,7 +262,10 @@ export type PlanWireRiserPreview = { points: ReadonlyMap<string, Point2> }
 
 type PlacingWaypointSession = {
   route: PlanWireRoute
+  insert: boolean
   waypointIndex: number
+  context?: RoutePointContext
+  grab?: { client: Point2; offset: Point2 }
 }
 
 export function PlanWiresLayer({
@@ -280,8 +297,14 @@ export function PlanWiresLayer({
   focusRouteIds,
   previewRouteIds,
   onHoverRoute,
+  drawingWire = false,
+  waypointPreviewStore,
+  previewPointContext,
 }: PlanWiresLayerProps) {
+  const window = useCanvasWindow()
+  const isActiveViewport = useIsActiveViewport()
   const metrics = planWireVisualMetrics(zoom, pxPerMeter)
+  const maxSplineHandle = planWireMaxSplineHandle(pxPerMeter)
   const wireWidth = metrics.strokeWidth
   // Grabbable by finger or cursor at any zoom: never narrower than ~14px on screen.
   const hitWidth = metrics.hitStrokeWidth
@@ -295,12 +318,14 @@ export function PlanWiresLayer({
     if (!active || !selectedWaypoint) return
     const clear = () => setSelectedWaypoint(null)
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!isActiveViewport()) return
       if (isKeyboardTypingTarget(event.target)) return
       if (event.key === 'Escape') {
         clear()
         return
       }
       if (event.key !== 'Delete' && event.key !== 'Backspace') return
+      if (isKeyboardOwnedByFloatingEditor()) return
       // Capture phase: the plan's own Delete (removing selected symbols) must not run too.
       event.preventDefault()
       event.stopPropagation()
@@ -314,16 +339,24 @@ export function PlanWiresLayer({
       window.removeEventListener('pointerdown', clear, true)
       window.removeEventListener('keydown', onKeyDown, true)
     }
-  }, [active, onRemoveWaypoint, selectedWaypoint])
+  }, [active, isActiveViewport, onRemoveWaypoint, selectedWaypoint, window])
   const [hoverInsertPreview, setHoverInsertPreview] = useState<{
     routeId: string
     point: Point2
   } | null>(null)
-  const [dragWaypointPreview, setDragWaypointPreview] = useState<{
-    routeId: string
-    waypointIndex: number
-    point: Point2
-  } | null>(null)
+  const localWaypointStore = usePlanWireWaypointPreview()
+  const waypointStore = waypointPreviewStore ?? localWaypointStore
+  const activeWaypointRouteId = useStore(waypointStore, state => state.preview?.route.id ?? null)
+  const dragWaypointPreview = useStore(waypointStore, state =>
+    waypointPreviewStore ? null : state.preview
+  )
+  const setDragWaypointPreview = (preview: PlanWireWaypointPreview | null) => waypointStore.setState({ preview })
+  useEffect(() => {
+    if (!drawingWire && !activeWaypointRouteId) return
+    setHoveredRouteId(null)
+    setHoverInsertPreview(null)
+    onHoverRoute?.(null)
+  }, [drawingWire, activeWaypointRouteId, onHoverRoute])
   const [placingWaypoint, setPlacingWaypoint] = useState<PlacingWaypointSession | null>(null)
   const [ownRiserPreview, setOwnRiserPreview] = useState<PlanWireRiserPreview | null>(null)
   const riserPreview =
@@ -332,10 +365,12 @@ export function PlanWiresLayer({
 
   // The last pointer position and whether the button is still down. A quick click can release
   // before the placing effect below has attached its listeners; this is tracked from the start.
-  const pointerRef = useRef<{ down: boolean; x: number; y: number } | null>(null)
+  const pointerRef = useRef<{ down: boolean; cancelled: boolean; x: number; y: number } | null>(null)
   useEffect(() => {
     const track = (event: PointerEvent) => {
       pointerRef.current = {
+        cancelled: event.type === 'pointerdown' ? false :
+          event.type === 'pointercancel' || pointerRef.current?.cancelled === true,
         down:
           event.type === 'pointerup' || event.type === 'pointercancel'
             ? false
@@ -344,63 +379,105 @@ export function PlanWiresLayer({
         y: event.clientY,
       }
     }
+    const blur = () => {
+      if (pointerRef.current) pointerRef.current = { ...pointerRef.current, down: false, cancelled: true }
+    }
     window.addEventListener('pointerdown', track, true)
     window.addEventListener('pointermove', track, true)
     window.addEventListener('pointerup', track, true)
     window.addEventListener('pointercancel', track, true)
+    window.addEventListener('blur', blur)
     return () => {
       window.removeEventListener('pointerdown', track, true)
       window.removeEventListener('pointermove', track, true)
       window.removeEventListener('pointerup', track, true)
       window.removeEventListener('pointercancel', track, true)
+      window.removeEventListener('blur', blur)
     }
-  }, [])
+  }, [window])
 
   useEffect(() => {
     if (!placingWaypoint) return
+    if (!active) {
+      setPlacingWaypoint(null)
+      setDragWaypointPreview(null)
+      return
+    }
 
-    const { route, waypointIndex } = placingWaypoint
+    const { route, waypointIndex, context, insert, grab } = placingWaypoint
+    const resolvePoint = (x: number, y: number) => {
+      const point = clientToPlan(x, y)
+      return point && grab ? { x: point.x + grab.offset.x, y: point.y + grab.offset.y } : point
+    }
+    const commit = (x: number, y: number) => {
+      // Match Konva's drag threshold: selecting a handle must not change project data.
+      if (grab && Math.hypot(x - grab.client.x, y - grab.client.y) < 3) return
+      const point = resolvePoint(x, y)
+      if (!point) return
+      if (insert) onInsertWaypoint?.(route, point, waypointIndex)
+      else onMoveWaypoint?.(route, waypointIndex, point)
+    }
 
     // Released before we were listening: drop the point where the pointer was released.
     const last = pointerRef.current
     if (last && !last.down) {
       setPlacingWaypoint(null)
       setDragWaypointPreview(null)
-      const point = clientToPlan(last.x, last.y)
-      if (point) onMoveWaypoint?.(route, waypointIndex, point)
+      if (last.cancelled) return
+      commit(last.x, last.y)
       return
     }
 
+    let ended = false
     const onPointerMove = (event: PointerEvent) => {
-      const point = clientToPlan(event.clientX, event.clientY)
+      if (ended) return
+      const point = resolvePoint(event.clientX, event.clientY)
       if (!point) return
       setDragWaypointPreview({
-        routeId: route.id,
+        route,
         waypointIndex,
         point,
+        insert,
+        context,
       })
     }
 
     const finishPlacement = (event: PointerEvent) => {
-      if (!isPrimaryMouseEvent(event)) return
+      if (ended || !isPrimaryMouseEvent(event)) return
+      ended = true
       // End the session first: a failing store update must not leave the point on the cursor.
       setPlacingWaypoint(null)
       setDragWaypointPreview(null)
-      const point = clientToPlan(event.clientX, event.clientY)
-      if (point) {
-        onMoveWaypoint?.(route, waypointIndex, point)
-      }
+      commit(event.clientX, event.clientY)
     }
 
+    const cancel = () => {
+      ended = true
+      setPlacingWaypoint(null)
+      setDragWaypointPreview(null)
+    }
+    const keyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !isActiveViewport() || isKeyboardTypingTarget(event.target)) return
+      event.preventDefault()
+      event.stopPropagation()
+      cancel()
+    }
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', finishPlacement)
-    window.addEventListener('pointercancel', finishPlacement)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('blur', cancel)
+    window.addEventListener('keydown', keyDown, true)
     return () => {
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', finishPlacement)
-      window.removeEventListener('pointercancel', finishPlacement)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('blur', cancel)
+      window.removeEventListener('keydown', keyDown, true)
     }
-  }, [clientToPlan, placingWaypoint, onMoveWaypoint])
+  }, [
+    active, clientToPlan, placingWaypoint, onInsertWaypoint, onMoveWaypoint, waypointStore,
+    isActiveViewport, window,
+  ])
 
   const staticStroke = planWireStaticStroke(theme)
   const activeStroke = planWireActiveStroke(theme)
@@ -443,8 +520,9 @@ export function PlanWiresLayer({
         if (!startAnchor || !endAnchor) return null
         const style = routeStyle
         const waypoints = [...(route.waypoints ?? [])]
-        if (dragWaypointPreview?.routeId === route.id) {
-          waypoints[dragWaypointPreview.waypointIndex] = dragWaypointPreview.point
+        if (dragWaypointPreview?.route.id === route.id) {
+          if (dragWaypointPreview.insert) waypoints.splice(dragWaypointPreview.waypointIndex, 0, dragWaypointPreview.point)
+          else waypoints[dragWaypointPreview.waypointIndex] = dragWaypointPreview.point
         }
         const insets = applyEndpointInsets(startAnchor, waypoints, endAnchor)
         // A trace arriving from another floor starts at its riser, not at a symbol edge.
@@ -493,7 +571,7 @@ export function PlanWiresLayer({
           : undefined
       if (incomingRoute) incomingRouteIdByRouteId.set(draft.route.id, incomingRoute.route.id)
       if (outgoingRoute) outgoingRouteIdByRouteId.set(draft.route.id, outgoingRoute.route.id)
-      const context: RoutePointContext = {}
+      const context: RoutePointContext = { ...previewPointContext }
       if (incomingRoute) {
         context.startPrevious = routeBeforePoint(incomingRoute)
       }
@@ -534,13 +612,14 @@ export function PlanWiresLayer({
       const { draft, context } = draftContexts[index]!
       const hasContext = Boolean(context.startPrevious || context.endNext)
       return draft.style === 'spline'
-        ? sampleSpline(draft.basePoints, hasContext ? context : undefined)
+        ? sampleSpline(draft.basePoints, hasContext ? context : undefined, maxSplineHandle)
         : draft.style === 'straight'
           ? draft.basePoints
           : (orthogonalPolylines.get(draft.route.id) ?? draft.basePoints)
     }
     const bundles = new Map<string, Array<{ index: number; reversed: boolean }>>()
     draftContexts.forEach(({ draft }, index) => {
+      if (waypointPreviewStore && draft.route.id === activeWaypointRouteId) return
       const bundle = planWireBundleKey(draft.route, draft.basePoints)
       if (!bundle) return
       bundles.set(bundle.key, [
@@ -612,14 +691,15 @@ export function PlanWiresLayer({
       const hitPoints =
         bundled ??
         (draft.style === 'spline'
-          ? sampleSpline(draft.basePoints, hasContext ? context : undefined)
+          ? sampleSpline(draft.basePoints, hasContext ? context : undefined, maxSplineHandle)
           : points)
       const pathData =
         !bundled && draft.style === 'spline'
-          ? splinePath(draft.basePoints, hasContext ? context : undefined)
+          ? splinePath(draft.basePoints, hasContext ? context : undefined, maxSplineHandle)
           : ''
       return {
         route: draft.route,
+        context,
         points,
         basePoints: draft.basePoints,
         // A bundled wire is drawn as its offset polyline.
@@ -631,6 +711,9 @@ export function PlanWiresLayer({
     })
   }, [
     dragWaypointPreview,
+    activeWaypointRouteId,
+    waypointPreviewStore,
+    previewPointContext,
     riserPreview,
     getEndpointById,
     getTrunkDeviceById,
@@ -644,6 +727,7 @@ export function PlanWiresLayer({
     hoveredRouteIds,
     hoveredRouteId,
     metrics.parallelSpacing,
+    maxSplineHandle,
   ])
 
   const riserPointOf = (route: PlanWireRoute, basePoints: Point2[]) =>
@@ -728,7 +812,7 @@ export function PlanWiresLayer({
 
   return (
     <Group name="plan-wires-layer" listening={active}>
-      {drawableRoutes.map(({ route, points, basePoints, style, hitPoints, pathData, bundle }) => {
+      {drawableRoutes.map(({ route, context, points, basePoints, style, hitPoints, pathData, bundle }) => {
         if (bundle?.visible === false) return null
         const hovered = hoveredRouteId === route.id
         const highlighted = highlightedRouteIds?.has(route.id) === true
@@ -772,6 +856,7 @@ export function PlanWiresLayer({
           <React.Fragment key={route.id}>
             {style === 'spline' ? (
               <Path
+                visible={!waypointPreviewStore || activeWaypointRouteId !== route.id}
                 data={pathData}
                 stroke={stroke}
                 strokeWidth={strokeWidth}
@@ -784,6 +869,7 @@ export function PlanWiresLayer({
               />
             ) : (
               <Line
+                visible={!waypointPreviewStore || activeWaypointRouteId !== route.id}
                 points={flatten(points)}
                 stroke={stroke}
                 strokeWidth={strokeWidth}
@@ -807,6 +893,10 @@ export function PlanWiresLayer({
               />
             )}
             <Line
+              name="plan-wire-hit"
+              id={route.id}
+              fromPlacementId={route.from.placementId}
+              toPlacementId={route.to.placementId}
               points={flatten(hitPoints)}
               stroke="rgba(0,0,0,0.001)"
               strokeWidth={1}
@@ -814,6 +904,7 @@ export function PlanWiresLayer({
               lineCap="round"
               lineJoin="round"
               onMouseEnter={(event) => {
+                if (drawingWire || activeWaypointRouteId) return
                 setHoveredRouteId(route.id)
                 onHoverRoute?.(route)
                 if (!active || route.riserExit) return
@@ -826,7 +917,7 @@ export function PlanWiresLayer({
                 )
               }}
               onMouseMove={(event) => {
-                if (!active || route.riserExit) return
+                if (drawingWire || activeWaypointRouteId || !active || route.riserExit) return
                 const point = eventCanvasPoint(event)
                 const insertion = point
                   ? nearestVisualInsertion(point, hitPoints, basePoints)
@@ -836,12 +927,13 @@ export function PlanWiresLayer({
                 )
               }}
               onMouseLeave={() => {
+                if (drawingWire) return
                 setHoveredRouteId(null)
                 onHoverRoute?.(null)
                 setHoverInsertPreview(null)
               }}
-              onMouseDown={(event) => {
-                if (placingWaypoint || !active || !onInsertWaypoint || !onMoveWaypoint) return
+              onPointerDown={(event) => {
+                if (activeWaypointRouteId || placingWaypoint || !active || !onInsertWaypoint) return
                 // A departure run is shaped on the arrival floor; here only its riser moves.
                 if (route.riserExit) return
                 if (!isPrimaryMouseEvent(event.evt)) return
@@ -853,20 +945,23 @@ export function PlanWiresLayer({
                 if (!insertion) return
                 const placePoint =
                   clientToPlan(event.evt.clientX, event.evt.clientY) ?? insertion.point
-                onInsertWaypoint(route, placePoint, insertion.waypointIndex)
                 setDragWaypointPreview({
-                  routeId: route.id,
+                  route,
                   waypointIndex: insertion.waypointIndex,
                   point: placePoint,
+                  insert: true,
+                  context,
                 })
                 setPlacingWaypoint({
                   route,
+                  insert: true,
                   waypointIndex: insertion.waypointIndex,
+                  context,
                 })
               }}
             />
             {active &&
-              hoverInsertPreview?.routeId === route.id &&
+              !activeWaypointRouteId && hoverInsertPreview?.routeId === route.id &&
               (!route.waypoints || route.waypoints.length === 0 || hovered) && (
                 <Circle
                   x={hoverInsertPreview.point.x}
@@ -894,52 +989,39 @@ export function PlanWiresLayer({
                 return (
                   <Circle
                     key={`${route.id}-${index}`}
+                    name={`plan-wire-waypoint-${route.id}-${waypointIndex}`}
                     x={point.x}
                     y={point.y}
                     radius={isPicked ? waypointRadius * 1.4 : waypointRadius}
                     fill={isPicked ? PLAN_WIRE_SELECTED_STROKE : activeStroke}
                     stroke="#ffffff"
                     strokeWidth={wireWidth}
-                    draggable={!isPlacing}
+                    visible={!waypointPreviewStore || activeWaypointRouteId !== route.id}
                     listening={!isPlacing}
-                    onMouseDown={(event) => {
-                      if (!isPrimaryMouseEvent(event.evt)) {
-                        event.target.stopDrag()
-                      }
-                    }}
-                    onDragStart={(event) => {
-                      if (!isPrimaryMouseEvent(event.evt)) {
-                        event.target.stopDrag()
-                      }
-                    }}
-                    onClick={(event) => {
+                    onPointerDown={(event) => {
+                      if (!isPrimaryMouseEvent(event.evt) || !onMoveWaypoint) return
                       event.cancelBubble = true
+                      event.evt.preventDefault()
                       if (event.evt.altKey && onRemoveWaypoint) {
                         onRemoveWaypoint(route, waypointIndex)
                         return
                       }
                       setSelectedWaypoint({ route, waypointIndex })
+                      const position = clientToPlan(event.evt.clientX, event.evt.clientY) ?? point
+                      setDragWaypointPreview({ route, waypointIndex, point, insert: false, context })
+                      setPlacingWaypoint({
+                        route, waypointIndex, insert: false, context,
+                        grab: {
+                          client: { x: event.evt.clientX, y: event.evt.clientY },
+                          offset: { x: point.x - position.x, y: point.y - position.y },
+                        },
+                      })
                     }}
                     onContextMenu={(event) => {
                       event.evt.preventDefault()
                       event.cancelBubble = true
                       if (!isExplicitWaypointDeleteContextMenu(event.evt)) return
                       onRemoveWaypoint?.(route, waypointIndex)
-                    }}
-                    onDragMove={(event) => {
-                      setDragWaypointPreview({
-                        routeId: route.id,
-                        waypointIndex,
-                        point: { x: event.target.x(), y: event.target.y() },
-                      })
-                    }}
-                    onDragEnd={(event) => {
-                      setDragWaypointPreview(null)
-                      if (!isPrimaryMouseEvent(event.evt) || !onMoveWaypoint) return
-                      onMoveWaypoint(route, waypointIndex, {
-                        x: event.target.x(),
-                        y: event.target.y(),
-                      })
                     }}
                   />
                 )
@@ -970,6 +1052,34 @@ export function PlanWiresLayer({
           </React.Fragment>
         )
       })}
+    </Group>
+  )
+}
+
+/** Subscribe only this one-wire overlay to the pointer, leaving the saved drawing still. */
+export function PlanWireWaypointPreviewLayer({ store, ...props }: {
+  store: PlanWireWaypointPreviewStore
+} & Omit<PlanWiresLayerProps, 'routes' | 'active' | 'waypointPreviewStore'>) {
+  const preview = useStore(store, state => state.preview)
+  const routes = useMemo(() => {
+    if (!preview) return []
+    const waypoints = [...(preview.route.waypoints ?? [])]
+    if (preview.insert) waypoints.splice(preview.waypointIndex, 0, preview.point)
+    else waypoints[preview.waypointIndex] = preview.point
+    return [{ ...preview.route, waypoints }]
+  }, [preview])
+  if (!preview) return null
+  return (
+    <Group name="plan-wire-waypoint-preview" listening={false}>
+      <PlanWiresLayer
+        {...props}
+        routes={routes}
+        previewPointContext={preview.context}
+        active
+        drawingWire
+        focusMode
+        focusRouteIds={new Set([preview.route.id])}
+      />
     </Group>
   )
 }

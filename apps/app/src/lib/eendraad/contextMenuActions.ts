@@ -7,16 +7,15 @@ import type { LayoutTree } from '@/lib/layout/layoutTree'
 import type { Point } from '@/types/ui'
 import type { Selection } from '@/types/ui'
 import type { Endpoint, TrunkDevice, Circuit, ProtectionDevice, Panel } from '@/types/schema'
-import { generateId } from '@/utils'
-import { clonePlacementsForDuplicate } from '@/lib/eendraad/duplicateSitplanHelpers'
-import { circuitContainsJunctionPanelIdentity, getJunctionIdentity } from '@/lib/junctionIdentity'
 import { useProjectStore } from '@/stores/projectStore'
+import { duplicateProtection } from '@/handlers/eendraad/duplicateProtection'
 import {
   canDuplicateEendraadSelection,
   runEendraadDuplicate,
 } from '@/lib/eendraad/duplicateSelection'
 import type { ProjectWithOptionalV2Building } from '@/lib/projectV2/buildingFloors'
 import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 
 export type EendraadClipboard = { type: 'endpoint' | 'trunkDevice' | 'protection' | 'panel'; ids: string[] }
 
@@ -57,6 +56,7 @@ export interface ProjectStoreActions {
   addGroundTrunkDevice: (device: TrunkDevice, insertIndex?: number, panelId?: string) => void
   insertProtectionAfter: (panelId: string, protection: ProtectionDevice, afterProtectionId: string) => void
   updateCircuit: (circuitId: string, updates: Partial<Circuit>) => void
+  duplicateProtection?: (protectionId: string) => string | null
   setSelection: (selection: { type: 'endpoint' | 'trunkDevice' | 'protection'; ids: string[] }) => void
 }
 
@@ -75,12 +75,25 @@ export function doEendraadDuplicate(
   get: ProjectStoreGetters,
   actions: ProjectStoreActions,
 ): void {
+  if (selection.type === 'endpoint' || selection.type === 'trunkDevice') {
+    const project = get.getCurrentProject?.()
+    if (!project || selection.ids.length === 0) return
+    const outcome = runProjectCommand('electrical.duplicateElements', {
+      items: selection.ids.map((id) => ({ kind: selection.type === 'endpoint' ? 'endpoint' as const : 'trunkDevice' as const, id })),
+      purpose: 'duplicate',
+      target: { type: 'sourceSelection' },
+    }, { label: 'Duplicate selection' })
+    const select = outcome?.results[0]?.select?.filter((ref) => ref.kind === selection.type)
+    if (!outcome?.changed || !select?.length) return
+    actions.setSelection({ type: selection.type, ids: select.map((ref) => ref.id) })
+    return
+  }
   const store = useProjectStore.getState()
   const result = runEendraadDuplicate(
     selection,
     get,
     actions,
-    (protectionId) => store.duplicateProtectionLeft(protectionId),
+    (protectionId) => actions.duplicateProtection ? actions.duplicateProtection(protectionId) : duplicateProtection({ protectionId }),
     (fn, opts) => store.withSingleUndoEntry(fn, opts),
   )
   if (result) {
@@ -105,117 +118,35 @@ export function doEendraadPaste(
       target = { type: 'circuit', circuitId: first.id, panelId: target.panelId }
     }
   }
-  if (!target || !target.circuitId) {
-    if (target?.type === 'supplyWire' && clipboard.type === 'trunkDevice') {
-      const devices = clipboard.ids
-        .map((id) => get.getTrunkDeviceById(id))
-        .filter((r): r is NonNullable<typeof r> => !!r && r.isSupplyDevice === true)
-      if (devices.length === 0) return false
-      if (devices.some((entry) => entry.device.symbol === 'junction_panel')) return false
-      const insertIndex = target.supplyDeviceInsertIndex ?? 0
-      devices.forEach((r, i) => {
-        const clone: TrunkDevice = {
-          ...JSON.parse(JSON.stringify(r.device)),
-          id: generateId(),
-          placements: r.device.placements?.length
-            ? clonePlacementsForDuplicate(r.device.placements, { symbolType: r.device.symbol })
-            : r.device.placements,
-        }
-        actions.addSupplyTrunkDevice(clone, insertIndex + i)
-      })
-      return true
-    }
-    if (target?.type === 'groundWire' && clipboard.type === 'trunkDevice') {
-      const devices = clipboard.ids
-        .map((id) => get.getTrunkDeviceById(id))
-        .filter((r): r is NonNullable<typeof r> => !!r && r.isGroundDevice === true)
-      if (devices.length === 0) return false
-      if (devices.some((entry) => entry.device.symbol === 'junction_panel')) return false
-      const insertIndex = target.groundDeviceInsertIndex ?? 0
-      devices.forEach((r, i) => {
-        const clone: TrunkDevice = {
-          ...JSON.parse(JSON.stringify(r.device)),
-          id: generateId(),
-          placements: r.device.placements?.length
-            ? clonePlacementsForDuplicate(r.device.placements, { symbolType: r.device.symbol })
-            : r.device.placements,
-        }
-        actions.addGroundTrunkDevice(clone, insertIndex + i, target.panelId)
-      })
-      return true
-    }
-    return false
-  }
-
-  const circuitId = target.circuitId
-
-  if (clipboard.type === 'endpoint') {
-    const circuit = get.getCircuitById(circuitId)
+  if (!target) return false
+  const itemKind = clipboard.type === 'endpoint' ? 'endpoint' : clipboard.type === 'trunkDevice' ? 'trunkDevice' : null
+  if (!itemKind) return false
+  let commandTarget: unknown
+  if (target.type === 'supplyWire' && itemKind === 'trunkDevice') {
+    commandTarget = { type: 'supply', panelId: target.panelId ?? null, feedScope: target.supplyFeedScope ?? 'shared', insertIndex: target.supplyDeviceInsertIndex ?? 0 }
+  } else if (target.type === 'groundWire' && itemKind === 'trunkDevice') {
+    commandTarget = { type: 'ground', panelId: target.panelId ?? null, insertIndex: target.groundDeviceInsertIndex ?? 0 }
+  } else if (target.circuitId && itemKind === 'endpoint') {
+    commandTarget = { type: 'pasteEndpoints', circuitId: target.circuitId, insertAfterEndpointId: target.insertAfterEndpointId }
+  } else if (target.circuitId && itemKind === 'trunkDevice') {
+    const circuit = get.getCircuitById(target.circuitId)
     if (!circuit) return false
-    const junctionIds = clipboard.ids
-      .map((id) => get.getEndpointById(id))
-      .filter((endpoint) => endpoint?.symbol === 'junction_panel')
-      .map((endpoint) => getJunctionIdentity(endpoint!))
-    if (
-      new Set(junctionIds.map((id) => id.toUpperCase())).size !== junctionIds.length ||
-      clipboard.ids.some((id) =>
-        get.getEndpointById(id)?.symbol === 'junction_panel' &&
-        get.findCircuitForEndpoint(id)?.circuit.id === circuitId
-      ) ||
-      junctionIds.some((id) => circuitContainsJunctionPanelIdentity(circuit, id))
-    ) return false
-    let insertAfter = target.insertAfterEndpointId
-    const newIds: string[] = []
-    for (const eid of clipboard.ids) {
-      const ep = get.getEndpointById(eid)
-      if (!ep) continue
-      const clone: Endpoint = {
-        ...JSON.parse(JSON.stringify(ep)),
-        id: generateId(),
-        placements: (ep.placements ?? []).map((p) => ({ ...p, id: generateId() })),
-      }
-      actions.addEndpoint(circuitId, clone, insertAfter)
-      insertAfter = clone.id
-      newIds.push(clone.id)
+    if (target.dcBusId && target.branchId) {
+      commandTarget = { type: 'dcBranchDevice', circuitId: target.circuitId, branchId: target.branchId, insertIndex: target.branchDeviceInsertIndex ?? 0 }
+    } else {
+      commandTarget = { type: 'circuitTrunk', circuitId: target.circuitId, insertIndex: target.circuitTrunkSegmentIndex ?? (circuit.trunkDevices?.length ?? 0) }
     }
-    if (newIds.length > 0) actions.setSelection({ type: 'endpoint', ids: newIds })
-    return true
-  }
-
-  if (clipboard.type === 'trunkDevice') {
-    const circuit = get.getCircuitById(circuitId)
-    if (!circuit) return false
-    const devices = clipboard.ids
-      .map((id) => get.getTrunkDeviceById(id))
-      .filter((r): r is NonNullable<typeof r> => !!r && !r.isSupplyDevice && !r.isGroundDevice)
-    if (devices.length === 0) return false
-    const junctionIds = devices
-      .filter((entry) => entry.device.symbol === 'junction_panel')
-      .map((entry) => getJunctionIdentity(entry.device))
-    if (
-      new Set(junctionIds.map((id) => id.toUpperCase())).size !== junctionIds.length ||
-      devices.some((entry) =>
-        entry.device.symbol === 'junction_panel' && entry.circuit?.id === circuitId
-      ) ||
-      junctionIds.some((id) => circuitContainsJunctionPanelIdentity(circuit, id))
-    ) return false
-    const sorted = [...devices].sort((a, b) => (a.device.trunkPosition ?? 0) - (b.device.trunkPosition ?? 0))
-    const newIds: string[] = []
-    sorted.forEach((r, i) => {
-      const clone: TrunkDevice = {
-        ...JSON.parse(JSON.stringify(r.device)),
-        id: generateId(),
-        trunkPosition: (r.device.trunkPosition ?? 0) + 0.5 + i,
-        placements: r.device.placements?.length
-          ? clonePlacementsForDuplicate(r.device.placements, { symbolType: r.device.symbol })
-          : r.device.placements,
-      }
-      actions.addTrunkDevice(circuitId, clone)
-      newIds.push(clone.id)
-    })
-    if (newIds.length > 0) actions.setSelection({ type: 'trunkDevice', ids: newIds })
-    return true
-  }
-
-  return false
+  } else return false
+  const outcome = runProjectCommand('electrical.duplicateElements', {
+    items: clipboard.ids.map((id) => ({ kind: itemKind, id })),
+    purpose: 'paste',
+    target: commandTarget,
+  }, { label: 'Paste' })
+  const result = outcome?.results[0]
+  if (!outcome?.changed || !result?.select?.length) return false
+  const endpointIds = result.select.filter((ref) => ref.kind === 'endpoint').map((ref) => ref.id)
+  const deviceIds = result.select.filter((ref) => ref.kind === 'trunkDevice').map((ref) => ref.id)
+  if (endpointIds.length) actions.setSelection({ type: 'endpoint', ids: endpointIds })
+  else if (deviceIds.length) actions.setSelection({ type: 'trunkDevice', ids: deviceIds })
+  return true
 }

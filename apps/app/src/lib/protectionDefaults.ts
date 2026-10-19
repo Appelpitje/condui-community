@@ -12,7 +12,7 @@ import type {
 } from '@/types/schema'
 import { polesConfigFromVoltageSystem } from '@/constants/poleConfig'
 import { polesFromConfig } from '@/constants/poleConfig'
-import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { ROTATING_SWITCH_LABEL_VISIBILITY } from '@/lib/protectionKind'
 import {
   getProjectElectricalInstallation,
@@ -127,7 +127,32 @@ export function resolveBreakingCapacitySelectValue(
     if (kaEntry) return kaEntry.value
     return String(ka)
   }
-  return DEFAULT_BREAKING_CAPACITY_OPTION
+  return ''
+}
+
+/** A capacity edit replaces both representations, including explicit clears. */
+export function normalizeProtectionCapacityUpdates<
+  T extends { breakingCapacityKa?: number; breakingCapacityOption?: string },
+>(updates: T, current?: { breakingCapacityOption?: string }): T {
+  const hasKa = Object.prototype.hasOwnProperty.call(updates, 'breakingCapacityKa')
+  const hasOption = Object.prototype.hasOwnProperty.call(updates, 'breakingCapacityOption')
+  if (!hasKa && !hasOption) return updates
+  const next = { ...updates }
+  if (hasKa) {
+    const option = hasOption ? updates.breakingCapacityOption : current?.breakingCapacityOption
+    if (
+      updates.breakingCapacityKa == null ||
+      (option != null && breakingCapacityKaFromSelectValue(option) !== updates.breakingCapacityKa) ||
+      (!hasOption && !option)
+    ) {
+      next.breakingCapacityOption = undefined
+    }
+  } else {
+    next.breakingCapacityKa = updates.breakingCapacityOption
+      ? breakingCapacityKaFromSelectValue(updates.breakingCapacityOption)
+      : undefined
+  }
+  return next
 }
 
 export function breakingCapacityLabelForOption(optionValue: string): string {
@@ -262,28 +287,30 @@ export function getDefaultProtectionProps(
 }
 
 /**
- * Fill missing MCB/RCBO breaking-capacity fields on supply-trunk protections.
- * Legacy default projects created the devices with rating/curve but without stored kA values,
- * so the properties panel showed 3000 while the one-wire diagram had nothing to render.
+ * Reconcile a known MCB/RCBO capacity on supply-trunk protections.
+ * Missing ratings remain unspecified; loading must not invent electrical facts.
  */
 export function healSupplyTrunkProtectionBreakingCapacity(
   project: ProjectWithOptionalV2Electrical
 ): boolean {
   let changed = false
-  for (const device of getAllSupplyTrunkDevices(project)) {
+  for (const device of queryAllSupplyTrunkDevices(project)) {
     if (device.type !== 'protection') continue
     const kind = device.protectionType
     if (kind !== 'MCB' && kind !== 'RCBO') continue
     if (device.breakingCapacityKa != null && device.breakingCapacityOption != null) continue
 
-    const polesConfig = device.polesConfig ?? getVoltagePolesConfig(project)
-    const defaults = getDefaultTrunkDeviceProtectionProps(kind, polesConfig)
-    if (device.breakingCapacityKa == null && defaults.breakingCapacityKa != null) {
-      device.breakingCapacityKa = defaults.breakingCapacityKa
+    if (device.breakingCapacityKa == null && device.breakingCapacityOption) {
+      const ka = breakingCapacityKaFromSelectValue(device.breakingCapacityOption)
+      if (ka == null) continue
+      device.breakingCapacityKa = ka
       changed = true
     }
-    if (device.breakingCapacityOption == null && defaults.breakingCapacityOption != null) {
-      device.breakingCapacityOption = defaults.breakingCapacityOption
+    if (device.breakingCapacityOption == null && device.breakingCapacityKa != null) {
+      device.breakingCapacityOption = resolveBreakingCapacitySelectValue(
+        undefined,
+        device.breakingCapacityKa
+      )
       changed = true
     }
   }

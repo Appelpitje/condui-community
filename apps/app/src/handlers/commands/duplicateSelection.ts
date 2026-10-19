@@ -18,6 +18,8 @@ import {
 } from '@/lib/eendraad/syncEndpointMultiplierCount'
 import { useUIStore } from '@/stores/uiStore'
 import { useProjectStore } from '@/stores/projectStore'
+import { duplicateProtection } from '@/handlers/eendraad/duplicateProtection'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 
 /**
  * Duplicates the current selection. On the situation plan (or with placements selected)
@@ -46,6 +48,33 @@ export function duplicateSelection(panelIndex: number | null): boolean {
       ui.setSelection(planDupResult)
       return true
     }
+  }
+
+  // Individual one-wire endpoint/device duplication uses one semantic command,
+  // including multiplier, DC-branch and supply/ground group semantics.
+  const project = store.currentProject
+  if (project && (selection.type === 'endpoint' || selection.type === 'trunkDevice') && selection.ids.length) {
+    if (canDuplicateEendraadSelection(selection, {
+      getEndpointById: store.getEndpointById,
+      getCircuitById: store.getCircuitById,
+      findCircuitForEndpoint: store.findCircuitForEndpoint,
+      getTrunkDeviceById: store.getTrunkDeviceById,
+      getProtectionById: store.getProtectionById,
+      getCurrentProject: () => project,
+    })) {
+      const result = runProjectCommand('electrical.duplicateElements', {
+        items: selection.ids.map((id) => ({ kind: selection.type === 'endpoint' ? 'endpoint' as const : 'trunkDevice' as const, id })),
+        purpose: 'duplicate',
+        target: { type: 'sourceSelection' },
+        sitplan: { activeFloorId: ui.activeFloorId, viewportCenter: null, activePanelId: null },
+      }, { label: 'Duplicate selection' })
+      const created = result?.results[0]?.select?.filter((ref) => ref.kind === selection.type)
+      if (!result?.changed || !created) return false
+      if (created.length === 0) return false
+      ui.setSelection({ type: selection.type, ids: created.map((ref) => ref.id) })
+      return true
+    }
+    return false
   }
 
   const getters = {
@@ -88,7 +117,7 @@ export function duplicateSelection(panelIndex: number | null): boolean {
       updateCircuit: store.updateCircuit,
       setSelection: useUIStore.getState().setSelection,
     },
-    (protectionId) => store.duplicateProtectionLeft(protectionId),
+    (protectionId) => duplicateProtection({ protectionId }),
     (fn, opts) => store.withSingleUndoEntry(fn, opts)
   )
   if (!dupResult) return false

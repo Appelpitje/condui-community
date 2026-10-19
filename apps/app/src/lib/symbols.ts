@@ -16,6 +16,11 @@ export interface SymbolMetadata {
   category: string
   scope: 'eendraad' | 'situatieplan' | 'both'
   svgPath: string
+  /**
+   * Icon for lists, pickers and the symbol reference when the canvas drawing (`svgPath`) does not read
+   * well on its own at icon size. Read it through `getSymbolIconPath`.
+   */
+  iconSvgPath?: string
   tags: string[]
   /** For energy conversion components: input electrical domain */
   inputDomain?: ElectricalDomain
@@ -1068,6 +1073,7 @@ export const symbols: SymbolMetadata[] = [
     category: 'domotica',
     scope: 'both',
     svgPath: '/symbols/domotica/domotica.svg',
+    iconSvgPath: '/symbols/domotica/domotica_icon.svg',
     tags: [
       'domotica',
       'smarthome',
@@ -1341,6 +1347,11 @@ const LEGACY_SYMBOL_IDS: Record<string, string> = {
 /**
  * Get symbol by ID (supports legacy socket_230v/socket_3phase/switch_single/switch_double for old projects)
  */
+/** Icon to show for a symbol in lists and pickers: its icon override, otherwise its canvas drawing. */
+export function getSymbolIconPath(symbol: Pick<SymbolMetadata, 'svgPath' | 'iconSvgPath'>): string {
+  return symbol.iconSvgPath ?? symbol.svgPath
+}
+
 export function getSymbolById(id: string) {
   const resolvedId = LEGACY_SYMBOL_IDS[id] ?? id
   return symbols.find((s) => s.id === resolvedId) ?? null

@@ -1,6 +1,7 @@
+import { useViewportWindowStore } from './ViewportWindowStore'
 /* eslint react-refresh/only-export-components: off -- Preset definitions are exported with their selector. */
 import { useTranslation } from 'react-i18next'
-import { isLayoutPresetAvailable, useUIStore } from '@/stores/uiStore'
+import { isLayoutPresetAvailable } from '@/stores/uiStore'
 import type { LayoutPreset } from '@/types/ui'
 
 interface PresetDef {
@@ -10,7 +11,13 @@ interface PresetDef {
 
 function LayoutIcon({ children }: { children: React.ReactNode }) {
   return (
-    <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.5}>
+    <svg
+      className="w-5 h-5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
       {children}
     </svg>
   )
@@ -90,8 +97,8 @@ export function LayoutSelector({
   onAfterPresetChange?: () => void
 }) {
   const { t } = useTranslation()
-  const currentPreset = useUIStore((s) => s.viewportLayout.preset)
-  const setLayoutPreset = useUIStore((s) => s.setLayoutPreset)
+  const currentPreset = useViewportWindowStore((s) => s.viewportLayout.preset)
+  const setLayoutPreset = useViewportWindowStore((s) => s.setLayoutPreset)
   const presets = compact
     ? LAYOUT_PRESET_DEFS.filter(({ preset }) =>
         compactOrientation === 'portrait'

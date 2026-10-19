@@ -10,6 +10,7 @@ import { withIdSource } from '@/utils/id'
 import { withProjectMutationTime } from '@/lib/projectMutations/mutationTime'
 import type { ParsedInvocation } from './registry'
 import { CommandError, type CommandEnv, type CommandResult } from './types'
+import { resolveCreatedReferences } from './batchReferences'
 
 /**
  * Domain repairs that must hold after any change, whoever made it. They used to run only as
@@ -36,11 +37,26 @@ export function applyCommandBatch(
   env: CommandEnv
 ): { project: ProjectV2; results: CommandResult[]; events: DomainEvent[] } {
   const results: CommandResult[] = []
+  const aliases = new Map<string, CommandResult>()
   const { result: next, events } = collectDomainEvents(() =>
     withIdSource(env.newId, () =>
       withProjectMutationTime(env.now, () =>
         produce(base, (draft) => {
-          batch.forEach(({ command, input }, index) => {
+          batch.forEach(({ command, input: originalInput, deferred, as }, index) => {
+            let input = originalInput
+            if (deferred) {
+              let resolved: unknown
+              try {
+                resolved = resolveCreatedReferences(originalInput, aliases)
+              } catch (error) {
+                if (!(error instanceof CommandError)) throw error
+                throw new CommandError(error.code, error.message, { ...error.details, index, commandId: command.id })
+              }
+              const parsed = command.input.safeParse(resolved)
+              if (!parsed.success)
+                throw new CommandError('invalid_input', `Invalid resolved input for "${command.id}"`, { index, commandId: command.id, cause: parsed.error.issues })
+              input = parsed.data
+            }
             const check = command.check(draft as ProjectV2, input)
             if (!check.ok) {
               throw new CommandError('check_failed', check.message, {
@@ -51,7 +67,10 @@ export function applyCommandBatch(
               })
             }
             try {
-              results.push(command.apply(draft, input, env))
+              const applied = command.apply(draft, input, env)
+              const result = as ? { ...applied, as } : applied
+              results.push(result)
+              if (as) aliases.set(as, result)
             } catch (error) {
               if (error instanceof CommandError) throw error
               throw new CommandError('apply_failed', `Command "${command.id}" failed`, {

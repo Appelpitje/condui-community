@@ -404,6 +404,39 @@ export function setPanelFeedOrganizationInProject(
   panelId: string,
   organization: PanelFeedOrganization
 ): boolean {
+  if (!applyPanelFeedOrganization(project, panelId, organization)) return false
+  reconcileConverterInputChangeover(project, panelId)
+  return true
+}
+
+/**
+ * A changeover whose port 1 is requested from the inverter grid-input leg only gets that tap
+ * on a split-switchable panel. Rebuild its graph when the organization changes, so the stored
+ * graph matches the drawing (and what a reload derives) in both directions.
+ */
+function reconcileConverterInputChangeover(
+  project: ProjectWithOptionalV2Electrical,
+  panelId: string
+): void {
+  const installation = getProjectElectricalInstallation(project)
+  const changeover = (installation?.feedTopology?.rootFeeds ?? [])
+    .filter((feed) => feed.panelId === panelId)
+    .flatMap((feed) => feed.trunkDevices ?? [])
+    .find(
+      (device) =>
+        device.symbol === 'source_changeover' &&
+        device.changeoverGridSource === 'converter-input'
+    )
+  if (!changeover) return
+  reconcileSupplyAssemblyBranchProtections(project, panelId)
+  reconcileChangeoverSupplyAssembly(project, changeover)
+}
+
+function applyPanelFeedOrganization(
+  project: ProjectWithOptionalV2Electrical,
+  panelId: string,
+  organization: PanelFeedOrganization
+): boolean {
   const panels = getProjectElectricalPanels(project)
   const panel = findPanelById(panels, panelId)
   const installation = getProjectElectricalInstallation(project)

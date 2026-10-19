@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-29.4 -62.0 128.0 128.0" role="img" aria-label="Verwarming">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-13.9,8.0 69.3,56.0 69.3,4.0 -13.9,-44.0" fill="#283548"/>
+  <polygon points="83.1,48.0 69.3,56.0 69.3,4.0 83.1,-4.0" fill="#1e293b"/>
+  <polygon points="0.0,-52.0 83.1,-4.0 69.3,4.0 -13.9,-44.0" fill="#334155"/>
+  <path d="M4.3 -46.5L-4.3 -41.5" stroke-width="1"/>
+  <path d="M9.5 -43.5L0.9 -38.5" stroke-width="1"/>
+  <path d="M14.7 -40.5L6.1 -35.5" stroke-width="1"/>
+  <path d="M19.9 -37.5L11.3 -32.5" stroke-width="1"/>
+  <path d="M25.1 -34.5L16.5 -29.5" stroke-width="1"/>
+  <path d="M30.3 -31.5L21.7 -26.5" stroke-width="1"/>
+  <path d="M35.5 -28.5L26.8 -23.5" stroke-width="1"/>
+  <path d="M40.7 -25.5L32.0 -20.5" stroke-width="1"/>
+  <path d="M45.9 -22.5L37.2 -17.5" stroke-width="1"/>
+  <path d="M51.1 -19.5L42.4 -14.5" stroke-width="1"/>
+  <path d="M56.3 -16.5L47.6 -11.5" stroke-width="1"/>
+  <path d="M61.5 -13.5L52.8 -8.5" stroke-width="1"/>
+  <path d="M66.7 -10.5L58.0 -5.5" stroke-width="1"/>
+  <path d="M71.9 -7.5L63.2 -2.5" stroke-width="1"/>
+  <g transform="matrix(0.8660 0.5 0 1 -13.86 8.00)"><path d="M6 -44H90" stroke-width="1"/><circle cx="86" cy="-36" r="3" fill="#334155" stroke-width="1"/><path d="M86 -39V-36.9" stroke-width="1"/></g>
+</g>
+</svg>

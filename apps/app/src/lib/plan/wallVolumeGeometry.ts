@@ -1482,6 +1482,25 @@ function readPathsD(
   return result
 }
 
+function signedPolygonArea(points: Point2[]): number {
+  let doubled = 0
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]!
+    const next = points[(index + 1) % points.length]!
+    doubled += point.x * next.y - next.x * point.y
+  }
+  return doubled / 2
+}
+
+/**
+ * Hand-built junction, trim and cutout polygons have whatever winding their construction
+ * happened to produce. Under the NonZero rule an overlapping pair of opposite windings
+ * cancels into a hole, so give them the positive orientation Clipper's inflated walls use.
+ */
+function withPositiveOrientation(points: Point2[]): Point2[] {
+  return signedPolygonArea(points) < 0 ? [...points].reverse() : points
+}
+
 function computeWallBounds(points: Point2[], padding: number) {
   let minX = Infinity
   let minY = Infinity
@@ -1702,7 +1721,9 @@ export async function buildWallVolumeComponentsForVariant(
     }
 
     expandedWallPolygons.push(
-      ...buildWallJunctionPolygons(renderedWalls, masterWallThickness, pxPerMeter)
+      ...buildWallJunctionPolygons(renderedWalls, masterWallThickness, pxPerMeter).map(
+        withPositiveOrientation
+      )
     )
 
     for (const info of componentWalls) {
@@ -1741,7 +1762,7 @@ export async function buildWallVolumeComponentsForVariant(
     subjectPaths.delete?.()
 
     if (openingCutouts.length > 0) {
-      const cutoutPaths = createPathsD(module, openingCutouts)
+      const cutoutPaths = createPathsD(module, openingCutouts.map(withPositiveOrientation))
       const diffPaths = module.DifferenceD(
         mergedPaths,
         cutoutPaths,

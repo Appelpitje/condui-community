@@ -1,9 +1,15 @@
 /* eslint-disable react/prop-types -- TypeScript prop contracts are the source of truth. */
 
 import React from 'react'
+import { Group, Rect } from 'react-konva'
 import type Konva from 'konva'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
+import { useUIStore } from '@/stores/uiStore'
+import { planSymbolColor } from '@/lib/plan/planColors'
+import { selectProjectPlanWiringVisibility } from '@/lib/projectV2/planWiring'
+import { useThemeColors } from '@/lib/theme/hooks'
+import { usePlanPlacementViewport, type PlacementViewportExtent } from './usePlanPlacementViewport'
 import type { Endpoint, Placement, Point2, TrunkDevice } from '@/types/schema'
 import { PlacementSymbol } from './PlacementSymbol'
 import {
@@ -30,6 +36,80 @@ type SingleDragHandlers = {
   onDragStart: () => void
   onDragMove: (event: Konva.KonvaEventObject<DragEvent>) => void
   onDragEnd: (finalPos: Point2) => void
+}
+
+function PlanPlacementOverviewSymbol({
+  placement,
+  color,
+  size,
+  interactive,
+}: {
+  placement: PlacementRow
+  color: string
+  size: number
+  interactive: boolean
+}) {
+  const click = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (!interactive || ('button' in event.evt && event.evt.button !== 0)) return
+    const suppression = window as Window & { __eendraSuppressNextElementTap?: boolean }
+    if (suppression.__eendraSuppressNextElementTap) {
+      suppression.__eendraSuppressNextElementTap = false
+      return
+    }
+    event.cancelBubble = true
+    const state = useUIStore.getState()
+    const selection = state.selection
+    if (event.evt.shiftKey) {
+      state.setSelection({
+        type: 'placement',
+        ids:
+          selection.type === 'placement'
+            ? [...new Set([...selection.ids, placement.id])]
+            : [placement.id],
+      })
+    } else if (event.evt.altKey || event.evt.ctrlKey || event.evt.metaKey) {
+      if (selection.type === 'placement' && selection.ids.includes(placement.id)) {
+        const ids = selection.ids.filter((id) => id !== placement.id)
+        if (ids.length === 0) state.clearSelection()
+        else state.setSelection({ type: 'placement', ids })
+      }
+    } else state.setSelection({ type: 'placement', ids: [placement.id] })
+  }
+  return (
+    <Group name={`placement-${placement.id}`} listening={interactive}>
+      <Rect
+        name={`endpoint-${placement.endpointId}`}
+        x={placement.pos.x}
+        y={placement.pos.y}
+        width={size}
+        height={size}
+        offsetX={size / 2}
+        offsetY={size / 2}
+        rotation={placement.rotationDeg}
+        fill={color}
+        opacity={0.75}
+        perfectDrawEnabled={false}
+        onClick={click}
+        onTap={click}
+      />
+    </Group>
+  )
+}
+
+function placementBounds(placements: PlacementRow[], radius: number) {
+  if (placements.length === 0) return null
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity
+  for (const placement of placements) {
+    const padding = radius * Math.max(1, placement.scale)
+    minX = Math.min(minX, placement.pos.x - padding)
+    minY = Math.min(minY, placement.pos.y - padding)
+    maxX = Math.max(maxX, placement.pos.x + padding)
+    maxY = Math.max(maxY, placement.pos.y + padding)
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
 const structuralSignatureCache = new WeakMap<object, string>()
@@ -81,6 +161,8 @@ const PlanPlacementSymbolEntry = React.memo(function PlanPlacementSymbolEntry({
   multiSelectHandlers,
   singleDragHandlers,
   fontFamily,
+  simplified,
+  proxyColor,
 }: {
   placement: PlacementRow
   baseSymbolSizePx: number
@@ -92,9 +174,35 @@ const PlanPlacementSymbolEntry = React.memo(function PlanPlacementSymbolEntry({
   multiSelectHandlers: MultiSelectHandlers
   singleDragHandlers: SingleDragHandlers
   fontFamily: string
+  simplified: boolean
+  proxyColor: string
 }) {
   const endpoint = usePlacementEndpoint(placement)
   const trunkDevice = usePlacementTrunkDevice(placement)
+  const colorOverride = useProjectStore((state) =>
+    planSymbolColor(
+      endpoint?.symbol,
+      state.currentProject ? selectProjectPlanWiringVisibility(state.currentProject) : undefined
+    )
+  )
+
+  if (
+    simplified &&
+    endpoint?.symbol &&
+    endpoint.symbol !== 'panel_distribution' &&
+    !placement.trunkDeviceId &&
+    !placement.enclosureId &&
+    !placement.junctionPanelLabel
+  ) {
+    return (
+      <PlanPlacementOverviewSymbol
+        placement={placement}
+        color={colorOverride ?? proxyColor}
+        size={baseSymbolSizePx * placement.scale}
+        interactive={!isDrawingToolActive}
+      />
+    )
+  }
 
   return (
     <>
@@ -154,21 +262,64 @@ export const PlanPlacementSymbolsLayer = React.memo(function PlanPlacementSymbol
   getSingleDragHandlers: (placement: PlacementRow) => SingleDragHandlers
   fontFamily: string
 }) {
-  return placements.map((placement) => (
-    <PlanPlacementSymbolEntry
-      key={placement.id}
-      placement={placement}
-      baseSymbolSizePx={baseSymbolSizePx}
-      currentZoom={currentZoom}
-      isDrawingToolActive={isDrawingToolActive}
-      canDrag={canDrag}
-      snapPosition={snapPosition}
-      isQuickPlacerCurrent={quickPlacerPlacementId === placement.id}
-      multiSelectHandlers={multiSelectHandlers}
-      singleDragHandlers={getSingleDragHandlers(placement)}
-      fontFamily={fontFamily}
-    />
-  ))
+  const electrical = useProjectStore((state) => state.currentProject?.disciplines.electrical)
+  const extents = React.useMemo(() => {
+    const state = useProjectStore.getState()
+    return new Map(
+      placements.map((placement) => {
+        const endpoint = placement.endpointId ? state.getEndpointById(placement.endpointId) : null
+        // Multi-socket bodies and panel/overlay artwork can extend well beyond a
+        // nominal symbol square. Keep a conservative envelope in canvas units.
+        const radius =
+          baseSymbolSizePx *
+          Math.max(1, placement.scale) *
+          Math.max(4, (endpoint?.socketProps?.socketCount ?? 1) * 2)
+        return [placement.id, { pos: placement.pos, radius }] as const
+      })
+    )
+  }, [placements, baseSymbolSizePx, electrical])
+  const viewport = usePlanPlacementViewport(placements, currentZoom, extents)
+  const colors = useThemeColors()
+  const bounds = React.useMemo(
+    () => placementBounds(placements, baseSymbolSizePx),
+    [placements, baseSymbolSizePx]
+  )
+  return (
+    <Group ref={viewport.groupRef} name="plan-placement-symbol-details">
+      {placements.length > 500 && bounds && (
+        <Rect
+          name="plan-placement-logical-bounds"
+          {...bounds}
+          fillEnabled={false}
+          strokeEnabled={false}
+          listening={false}
+        />
+      )}
+      {viewport.visiblePlacements.map((placement) => (
+        <PlanPlacementSymbolEntry
+          key={placement.id}
+          placement={placement}
+          baseSymbolSizePx={baseSymbolSizePx}
+          currentZoom={currentZoom}
+          isDrawingToolActive={isDrawingToolActive}
+          canDrag={canDrag}
+          snapPosition={snapPosition}
+          isQuickPlacerCurrent={quickPlacerPlacementId === placement.id}
+          multiSelectHandlers={multiSelectHandlers}
+          singleDragHandlers={getSingleDragHandlers(placement)}
+          fontFamily={fontFamily}
+          simplified={
+            placements.length > 500 &&
+            !viewport.fullDetail &&
+            !viewport.isSelected(placement) &&
+            quickPlacerPlacementId !== placement.id &&
+            baseSymbolSizePx * placement.scale * viewport.zoom < 12
+          }
+          proxyColor={colors.symbolColor}
+        />
+      ))}
+    </Group>
+  )
 })
 
 const PlanPlacementLabelEntryWithSource = React.memo(function PlanPlacementLabelEntryWithSource({
@@ -204,12 +355,66 @@ export const PlanPlacementLabelsLayer = React.memo(function PlanPlacementLabelsL
   labelPositions: Map<string, Point2>
   labelFontSize: number
 }) {
-  return placements.map((placement) => (
-    <PlanPlacementLabelEntryWithSource
-      key={`label-${placement.id}`}
-      placement={placement}
-      staticLabelPosition={labelPositions.get(placement.id)}
-      labelFontSize={labelFontSize}
-    />
-  ))
+  const electrical = useProjectStore((state) => state.currentProject?.disciplines.electrical)
+  const extents = React.useMemo(() => {
+    const state = useProjectStore.getState()
+    return new Map<string, PlacementViewportExtent>(
+      placements.map((placement) => {
+        const endpoint = placement.endpointId ? state.getEndpointById(placement.endpointId) : null
+        const trunk = placement.trunkDeviceId
+          ? state.getTrunkDeviceById(placement.trunkDeviceId)?.device
+          : null
+        const text =
+          endpoint?.label ??
+          trunk?.label ??
+          placement.junctionPanelLabel ??
+          placement.planLabel ??
+          ''
+        // Two em per UTF-16 unit is deliberately wider than our supported fonts;
+        // use the label anchor, including large manual offsets, rather than the symbol center.
+        const radius = Math.max(text.length + 1, text.split('\n').length) * labelFontSize * 2
+        return [placement.id, { pos: labelPositions.get(placement.id) ?? placement.pos, radius }]
+      })
+    )
+  }, [placements, labelPositions, labelFontSize, electrical])
+  const viewport = usePlanPlacementViewport(placements, undefined, extents)
+  const logicalBounds = React.useMemo(() => {
+    if (extents.size === 0) return null
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity
+    for (const { pos, radius } of extents.values()) {
+      minX = Math.min(minX, pos.x - radius)
+      minY = Math.min(minY, pos.y - radius)
+      maxX = Math.max(maxX, pos.x + radius)
+      maxY = Math.max(maxY, pos.y + radius)
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+  }, [extents])
+  const visible =
+    viewport.fullDetail || placements.length <= 500 || labelFontSize * viewport.zoom >= 4
+      ? viewport.visiblePlacements
+      : viewport.visiblePlacements.filter(viewport.isSelected)
+  return (
+    <Group ref={viewport.groupRef} name="plan-placement-label-details">
+      {placements.length > 500 && logicalBounds && (
+        <Rect
+          name="plan-placement-logical-bounds"
+          {...logicalBounds}
+          fillEnabled={false}
+          strokeEnabled={false}
+          listening={false}
+        />
+      )}
+      {visible.map((placement) => (
+        <PlanPlacementLabelEntryWithSource
+          key={`label-${placement.id}`}
+          placement={placement}
+          staticLabelPosition={labelPositions.get(placement.id)}
+          labelFontSize={labelFontSize}
+        />
+      ))}
+    </Group>
+  )
 })

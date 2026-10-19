@@ -506,6 +506,10 @@ function energyConversionPropsKey(p?: EnergyConversionDeviceProps): string {
     p.transformerShortCircuitProtected ? '1' : '',
     p.transformerProtected ? '1' : '',
     p.transformerOverlayLabel ?? '',
+    p.transformerPrimaryVoltageV ?? '',
+    p.transformerSecondaryVoltageV ?? '',
+    p.transformerRatedPowerKva ?? '',
+    p.transformerShortCircuitVoltagePercent ?? '',
     p.pMaxPrimaryW ?? '',
     p.pMaxSecondaryW ?? '',
   ].join('\x1f')
@@ -621,6 +625,18 @@ function buildEnergyConversionPropsSpecLines(
   }
   if (p.transformerOverlayLabel?.trim()) {
     lines.push(`${t('endpoints.transformer.overlayLabel')}: ${p.transformerOverlayLabel.trim()}`)
+  }
+  if (symbol === 'transformer') {
+    const values = [
+      ['primaryVoltage', p.transformerPrimaryVoltageV],
+      ['secondaryVoltage', p.transformerSecondaryVoltageV],
+      ['ratedPower', p.transformerRatedPowerKva],
+      ['shortCircuitVoltage', p.transformerShortCircuitVoltagePercent],
+    ] as const
+    for (const [key, value] of values) {
+      if (value != null && Number.isFinite(value) && value > 0)
+        lines.push(`${t(`endpoints.transformer.${key}`)}: ${value}`)
+    }
   }
   if (p.pMaxPrimaryW?.trim())
     lines.push(`${t('endpoints.conversion.pMaxPrimary')}: ${p.pMaxPrimaryW.trim()}`)

@@ -15,7 +15,6 @@ import {
   computeMainBusInsertIndexForEjectedProtection,
   dedupePanelProtectionsInPanelTree,
   deriveDescriptiveNameFromProtectionForNewSubPanel,
-  getMainBusOrder,
   moveProtectionToMainBusInsertIndex,
   pickRepresentativeCircuitIdForMainBusMove,
   promoteMovedSubPanelRootToIncomingTrunk,
@@ -45,7 +44,9 @@ import {
 } from '@/lib/eendraad/projectElectricalDomain'
 import { addProtectionToProject } from '@/lib/eendraad/protectionMutations'
 import { resolveSecondaryBusEjectSelection } from '@/lib/eendraad/secondaryBusEjectEligibility'
+import { ejectSecondaryBusProtectionsToNewPanelInProject } from '@/lib/eendraad/secondaryBusEjectMutation'
 import { ensureInstallationFeedTopology } from '@/lib/feedTopology'
+import domainI18n from '@/lib/i18n/domainI18n'
 import { logger } from '@/lib/logger'
 import { findPanelById } from '@/lib/panel/panelTree'
 import { getViewportCenterPlanSpaceIfApplicable } from '@/lib/plan/autoSitplanPlacement'
@@ -573,58 +574,12 @@ export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
     const current = get().currentProject
     const initialSelection = resolveSecondaryBusEjectSelection(current, protectionIds)
     if (!initialSelection) return null
-    if (initialSelection.protectionIds.length === 1) {
-      return get().ejectProtectionToNewPanel(initialSelection.protectionIds[0]!, opts)
-    }
 
     let createdId: string | null = null
     set((state) => {
       if (!state.currentProject) return
       const selection = resolveSecondaryBusEjectSelection(state.currentProject, protectionIds)
-      if (!selection || selection.protectionIds.length <= 1) return
-
-      const sourcePanel = findPanelById(
-        getEditableProjectElectricalPanels(state.currentProject),
-        selection.sourcePanel.id
-      )
-      if (!sourcePanel) return
-      const parentProtection = findProtectionById(sourcePanel, selection.parentProtection.id)
-      const parentCircuit = parentProtection?.circuits?.find(
-        (circuit) => circuit.id === selection.parentCircuit.id
-      )
-      if (!parentProtection || !parentCircuit) return
-
-      const protectionsToMove = selection.protectionIds
-        .map((id) => findProtectionById(sourcePanel, id))
-        .filter((protection): protection is ProtectionDevice => !!protection)
-      if (protectionsToMove.length !== selection.protectionIds.length) return
-
-      const totalPanelCount = countPanels(getEditableProjectElectricalPanels(state.currentProject))
-      const panelNumber = totalPanelCount + 1
-      const newPanelId = generateId()
-      createdId = newPanelId
-
-      const descriptiveName = deriveDescriptiveNameFromProtectionForNewSubPanel(
-        protectionsToMove[0]!
-      )
-      const autoSecondaryName = `Panel ${panelNumber}`
-      const derivedPanelName =
-        opts?.newPanelName ??
-        (descriptiveName && descriptiveName.length > 0 ? descriptiveName : autoSecondaryName)
-
-      const newPanel: Panel = {
-        id: newPanelId,
-        name: derivedPanelName,
-        symbol: 'panel_distribution',
-        isMain: false,
-        protections: [],
-        circuits: [],
-        subPanels: [],
-      }
-
-      if (!sourcePanel.subPanels) sourcePanel.subPanels = []
-      sourcePanel.subPanels.push(newPanel)
-
+      if (!selection) return
       const uiSnap = useUIStore.getState()
       const preferredPlanPos = uiSnap.activeFloorId
         ? (getViewportCenterPlanSpaceIfApplicable(
@@ -635,64 +590,43 @@ export const createProtectionSlice: ProjectSliceCreator = (set, get) => ({
             uiSnap.planView
           ) ?? undefined)
         : undefined
-      const panelPlacement = ensurePanelPlacement(state.currentProject, newPanel, {
+      // Reuse the domain helper for the same topology mutation as the command path.
+      // Use the legacy placement policy (ground/first floor and overlap avoidance) to
+      // compute the placement on a detached panel, then pass its coordinates into the
+      // shared mutation so the panel and its plan endpoint appear atomically.
+      const placementProbe: Panel = {
+        id: generateId(),
+        name: 'Panel',
+        symbol: 'panel_distribution',
+        isMain: false,
+        protections: [],
+        circuits: [],
+        subPanels: [],
+      }
+      const placement = ensurePanelPlacement(state.currentProject, placementProbe, {
         ...(preferredPlanPos ? { preferredPlanPos } : {}),
       })
-      const targetPanel = findPanelById(
-        getEditableProjectElectricalPanels(state.currentProject),
-        newPanelId
-      )!
-      let panelCircuit = targetPanel.circuits.find((circuit) => circuit.code === 'PANEL')
-      if (!panelCircuit) {
-        panelCircuit = {
-          id: generateId(),
-          code: 'PANEL',
-          kind: 'other',
-          cable: {
-            kind: 'XVB',
-            conductors: 3,
-            sectionMm2: 6,
-            hasPE: true,
-          },
-          endpoints: [],
+      const result = ejectSecondaryBusProtectionsToNewPanelInProject(
+        state.currentProject,
+        selection.protectionIds,
+        {
+          ...(opts?.newPanelName ? { newPanelName: opts.newPanelName } : {}),
+          language: domainI18n.language,
+          newId: generateId,
+          ...(placement
+            ? {
+                planPlacement: {
+                  floorId: placement.placement.floorId,
+                  layer: placement.placement.layer,
+                  pos: placement.placement.pos,
+                },
+              }
+            : {}),
         }
-        targetPanel.circuits.push(panelCircuit)
-      }
-      if (panelPlacement) {
-        panelPlacement.endpoint.placements = [panelPlacement.placement]
-        panelCircuit.endpoints.push(panelPlacement.endpoint)
-      }
-
-      for (const protection of protectionsToMove) {
-        relocateProtectionToPanelMainBus(
-          sourcePanel,
-          targetPanel,
-          protection,
-          getMainBusOrder(targetPanel).length
-        )
-      }
-
-      parentProtection.subPanelId = newPanelId
-      if (parentCircuit.subCircuitIds?.length === 0) {
-        parentCircuit.subCircuitIds = undefined
-      }
-
-      prunePanelGridSlotsForUnresolvedModules(sourcePanel)
-      removePanelGridDuplicateRefs(state.currentProject, sourcePanel)
-      dedupePanelProtectionsInPanelTree(sourcePanel)
-      dedupePanelProtectionsInPanelTree(targetPanel)
-      ensureLinkedSubPanelsHaveOwnPanelEndpoint(state.currentProject)
-      syncLinkedSubPanelHierarchy(state.currentProject)
-      const installation = getEditableProjectElectricalInstallation(state.currentProject)
-      if (!installation) return
-      ensureInstallationFeedTopology(
-        installation,
-        getEditableProjectElectricalPanels(state.currentProject)
       )
-
+      if (!result) return
+      createdId = result.panelId
       state.isDirty = true
-      maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, sourcePanel.id)
-      maybeApplyAutomaticEendraadNamingForPanel(state.currentProject, targetPanel.id)
     })
     return createdId
   },

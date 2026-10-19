@@ -1,4 +1,9 @@
-import type { Circuit, Panel, ProtectionDevice } from '@/types/schema'
+import type { Panel } from '@/types/schema'
+import {
+  getElectricalSnapshotIndex,
+  type ParentCircuitInfo,
+} from '@/lib/projectV2/electricalLookupIndex'
+import { walkPanels } from '@/lib/panel/panelTree'
 
 /**
  * Find the parent circuit (and its protection) for a given circuit ID.
@@ -6,38 +11,23 @@ import type { Circuit, Panel, ProtectionDevice } from '@/types/schema'
  */
 export function findParentCircuitInfo(
   circuitId: string,
-  panels: Panel[],
-): { parentCircuit: Circuit; parentProtection: ProtectionDevice | null } | null {
-  let parentCircuit: Circuit | null = null
-  let parentProtection: ProtectionDevice | null = null
-
-  const search = (panel: Panel): boolean => {
-    for (const c of panel.circuits) {
-      if (c.subCircuitIds?.includes(circuitId)) {
-        parentCircuit = c
-        return true
+  panels: Panel[]
+): ParentCircuitInfo | null {
+  const index = getElectricalSnapshotIndex(panels)
+  if (index) return index.parentCircuitsByChildId.get(circuitId) ?? null
+  for (const panel of walkPanels(panels)) {
+    for (const circuit of panel.circuits) {
+      if (circuit.subCircuitIds?.includes(circuitId)) {
+        return { parentCircuit: circuit, parentProtection: null }
       }
     }
-    for (const prot of panel.protections) {
-      if (prot.circuits) {
-        for (const c of prot.circuits) {
-          if (c.subCircuitIds?.includes(circuitId)) {
-            parentCircuit = c
-            parentProtection = prot
-            return true
-          }
+    for (const protection of panel.protections) {
+      for (const circuit of protection.circuits ?? []) {
+        if (circuit.subCircuitIds?.includes(circuitId)) {
+          return { parentCircuit: circuit, parentProtection: protection }
         }
       }
     }
-    for (const subPanel of panel.subPanels) {
-      if (search(subPanel)) return true
-    }
-    return false
   }
-
-  for (const panel of panels) {
-    if (search(panel)) break
-  }
-
-  return parentCircuit ? { parentCircuit, parentProtection } : null
+  return null
 }

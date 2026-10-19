@@ -11,6 +11,7 @@ import { SECONDARY_BUS_PREVIEW_STUB_LENGTH, type DropTarget } from '@/lib/layout
 import type { LayoutTree } from '@/lib/layout/layoutTree'
 import {
   declutterDropZoneHints,
+  getDropZoneHintProximityForDistance,
   getMinimumScreenSizeScale,
 } from '@/lib/layout/dropZoneHintDeclutter'
 import { useEffectiveCanvasZoom } from '@/hooks/useEffectiveCanvasZoom'
@@ -21,19 +22,25 @@ import type { Point } from '@/types/ui'
 
 /** Matches drag-preview accent (EendraadCanvas / DragPreview). */
 const PREVIEW_STROKE = '#0284c7'
-const PREVIEW_FILL = 'rgba(2, 132, 199, 0.12)'
-const PREVIEW_DASH = [6, 4]
+const PREVIEW_FILL = 'rgba(2, 132, 199, 0.08)'
+const PREVIEW_DASH = [4, 3]
 const HINT_RADIUS = 8
-const SECONDARY_BUS_STUB_WIDTH = 4
+const SECONDARY_BUS_STUB_WIDTH = 1.6
 /** Minimum on-screen radius (px) of a hint under the pointer when zoomed out. */
 const HINT_MIN_SCREEN_RADIUS = 11
 /** Resting opacity of hints far from the pointer; they stay readable but recede. */
-const HINT_FAINT_OPACITY = 0.5
+const HINT_FAINT_OPACITY = 0.12
 /** Resting size of far hints relative to a hint under the pointer. */
 const HINT_FAINT_SCALE = 0.8
-const HINT_STROKE_WIDTH = 1.5
+const HINT_STROKE_WIDTH = 1.1
 /** Extra gap (in hint radii) so neighbouring circles never touch. */
 const HINT_SPACING_RADII = 2.5
+
+function getHintPointerOpacity(item: CanvasSvgOverlayItem, distancePx: number | null): number {
+  if (item.opacity === 1) return 1
+  return HINT_FAINT_OPACITY +
+    (1 - HINT_FAINT_OPACITY) * getDropZoneHintProximityForDistance(distancePx ?? Infinity)
+}
 
 interface DropZoneHintsOverlayProps {
   layoutTree: LayoutTree | null
@@ -41,9 +48,12 @@ interface DropZoneHintsOverlayProps {
   symbol: SymbolMetadata | null
   activeDropTarget?: DropTarget | null
   activeDropTargetNodeId?: string | null
+  activeSameSymbolTargetNodeId?: string | null
   activePosition?: Point | null
   relocation?: DropZoneHintRelocation | null
   movingPanelAttachmentId?: string | null
+  branchEndpointNodeIds?: ReadonlySet<string>
+  branchCircuitIds?: ReadonlySet<string>
 }
 
 export function DropZoneHintsOverlay({
@@ -52,24 +62,29 @@ export function DropZoneHintsOverlay({
   symbol,
   activeDropTarget = null,
   activeDropTargetNodeId = null,
+  activeSameSymbolTargetNodeId = null,
   activePosition = null,
   relocation = null,
   movingPanelAttachmentId = null,
+  branchEndpointNodeIds,
+  branchCircuitIds,
 }: DropZoneHintsOverlayProps) {
   const hints = useMemo(() => {
     if (!layoutTree || !project || !symbol) return []
-    return collectDropZoneHints(symbol, layoutTree, project, { movingPanelAttachmentId })
-  }, [layoutTree, project, symbol, movingPanelAttachmentId])
+    return collectDropZoneHints(symbol, layoutTree, project, { movingPanelAttachmentId, suppressSameSymbolTargets: !!relocation })
+  }, [layoutTree, project, symbol, movingPanelAttachmentId, relocation])
 
   const activeHintNodeId = useMemo(
     () =>
-      resolveActiveDropZoneHintNodeId(
-        hints,
-        activeDropTarget,
-        activeDropTargetNodeId,
-        activePosition
-      ),
-    [hints, activeDropTarget, activeDropTargetNodeId, activePosition]
+      activeSameSymbolTargetNodeId
+        ? `same-symbol-add-more-${activeSameSymbolTargetNodeId}`
+        : resolveActiveDropZoneHintNodeId(
+            hints,
+            activeDropTarget,
+            activeDropTargetNodeId,
+            activePosition
+          ),
+    [hints, activeDropTarget, activeDropTargetNodeId, activeSameSymbolTargetNodeId, activePosition]
   )
 
   const zoom = useEffectiveCanvasZoom(ZOOM_100, 'eendraad')
@@ -78,30 +93,16 @@ export function DropZoneHintsOverlay({
   const fullRadius = HINT_RADIUS * sizeScale
 
   const visibleHints = useMemo(() => {
-    const sameSymbolHints = hints.filter((h) => h.nodeId.startsWith('same-symbol-add-more-'))
     const activeHint = hints.find((hint) => hint.nodeId === activeHintNodeId) ?? null
-    const candidates = hints.filter((hint) => {
-      if (!isRelocationDropZoneHintCompatible(hint, relocation)) return false
-      if (isRelocationNoOpDropZoneHint(hint, relocation)) return false
-      if (hint.nodeId !== activeHintNodeId || hint.nodeId.startsWith('same-symbol-add-more-')) {
-        // Hide regular circle hints that overlap with a same-symbol-add-more square,
-        // but keep trunk-top hints (they sit in a different visual zone).
-        if (
-          !hint.nodeId.startsWith('same-symbol-add-more-') &&
-          !hint.nodeId.includes('circuit-trunk-') &&
-          sameSymbolHints.length > 0
-        ) {
-          const tooClose = sameSymbolHints.some(
-            (s) => Math.abs(s.x - hint.x) < 30 && Math.abs(s.y - hint.y) < 30
-          )
-          if (tooClose) return false
-        }
-        return true
-      }
-      return false
-    })
+    const candidates = hints.filter((hint) =>
+      !branchEndpointNodeIds?.has(hint.nodeId.replace(/^same-symbol-add-more-/, '')) &&
+      !(hint.targetType === 'circuit' && hint.match?.circuitId && branchCircuitIds?.has(hint.match.circuitId) &&
+        !hint.match.dcBusId && !hint.match.converterDcConnection && typeof hint.match.secondaryBusInsertIndex !== 'number') &&
+      isRelocationDropZoneHintCompatible(hint, relocation) &&
+      !isRelocationNoOpDropZoneHint(hint, relocation)
+    )
     return declutterDropZoneHints(candidates, activeHint, fullRadius * HINT_SPACING_RADII)
-  }, [hints, activeHintNodeId, relocation, fullRadius])
+  }, [hints, activeHintNodeId, relocation, fullRadius, branchEndpointNodeIds, branchCircuitIds])
 
   // Target transitions change only these local SVGs, not the full Konva overlay.
   const items = useMemo<CanvasSvgOverlayItem[]>(() => {
@@ -128,6 +129,7 @@ export function DropZoneHintsOverlay({
       const padding = (SECONDARY_BUS_STUB_WIDTH * sizeScale) / 2 + 1
       return {
         id: hint.nodeId,
+        pointerAnchor: { x: hint.x, y: hint.y },
         opacity: hint.nodeId === activeHintNodeId ? 1 : HINT_FAINT_OPACITY,
         bounds: {
           x: left - padding,
@@ -135,7 +137,7 @@ export function DropZoneHintsOverlay({
           width: right - left + padding * 2,
           height: bottom - top + padding * 2,
         },
-        content: hint.outline ? (
+        content: sameSymbol && hint.nodeId === activeHintNodeId ? null : hint.outline ? (
           <>
             <rect
               x={hint.outline.x}
@@ -146,7 +148,7 @@ export function DropZoneHintsOverlay({
               ry={hint.outline.cornerRadius}
               fill={PREVIEW_FILL}
               stroke={PREVIEW_STROKE}
-              strokeWidth={2 * sizeScale}
+              strokeWidth={1.25 * sizeScale}
               strokeDasharray={dash}
             />
             {sameSymbol && (
@@ -207,5 +209,5 @@ export function DropZoneHintsOverlay({
     })
   }, [visibleHints, activeHintNodeId, fullRadius, sizeScale])
 
-  return <LocalSvgCanvasOverlay name="drop-zone-hints" items={items} />
+  return <LocalSvgCanvasOverlay name="drop-zone-hints" items={items} pointerOpacity={getHintPointerOpacity} />
 }

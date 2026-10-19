@@ -104,6 +104,8 @@ import {
 } from '../shared/propertiesSharedUtils'
 import { CertificationListingFields } from '../CertificationListingFields'
 import { NominalVoltageSystemPicker } from '../NominalVoltageSystemPicker'
+import { ConnectionCurrentField } from '../ConnectionCurrentField'
+import { TransformerNameplateFields } from '../shared/TransformerNameplateFields'
 import {
   ProtectionDeviceElectricalFields,
   getProtectionTypeDropdownOptions,
@@ -111,6 +113,7 @@ import {
   PROTECTION_SYMBOL_ID_TO_TYPE,
 } from '../ProtectionDeviceElectricalFields'
 import { SynergridListPicker } from '../SynergridListPicker'
+import { ChangeoverGridSourcePicker } from '../shared/ChangeoverGridSourcePicker'
 import {
   getSupplyDeviceMultiplier,
   getSupplyDeviceSerialNumbers,
@@ -159,9 +162,11 @@ const CIRCUIT_TRUNK_SWITCH_RATINGS_A = [10, 16, 20, 25, 32]
 export function TrunkDeviceProperties({
   deviceId,
   placementId,
+  readOnly = false,
 }: {
   deviceId: string
   placementId?: string
+  readOnly?: boolean
 }) {
   const { t } = useTranslation()
   const currentProject = useProjectStore((state: ProjectState) => state.currentProject)
@@ -769,6 +774,7 @@ export function TrunkDeviceProperties({
   }
 
   if (device.symbol === 'source_changeover') {
+    const changeoverPanelId = isSupplyDevice ? result?.supplyPanelId : undefined
     const port1Visible = isSymbolLabelVisible(
       device.symbolLabelDisplay,
       'changeoverPort1Label',
@@ -813,6 +819,9 @@ export function TrunkDeviceProperties({
             }
             onUpdate={(updates) => handleUpdate(updates)}
           />
+        )}
+        {changeoverPanelId && (
+          <ChangeoverGridSourcePicker panelId={changeoverPanelId} readOnly={readOnly} />
         )}
         <div>
           <div className="mb-1 flex items-center gap-2">
@@ -1210,7 +1219,7 @@ export function TrunkDeviceProperties({
               const incomingPin = getTerminalStripPin(device) ?? 1
               const outgoingPin = currentProject
                 ? getEffectiveTerminalStripOutgoingPin(currentProject, device)
-                : incomingPin + 1
+                : incomingPin
               editProperties({
                 actions: [
                   {
@@ -1247,7 +1256,7 @@ export function TrunkDeviceProperties({
         )}
         {device.symbol === 'terminal_strip' && (
           <div>
-            <label className={labelClass}>{t('terminalStrip.pin', 'Pin')}</label>
+            <label className={labelClass}>{t('terminalStrip.pin', 'Circuit number')}</label>
             <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
               <div className="min-w-0">
                 <label className={labelClass}>{t('terminalStrip.incomingPin', 'In')}</label>
@@ -1283,7 +1292,7 @@ export function TrunkDeviceProperties({
                   value={String(
                     currentProject
                       ? getEffectiveTerminalStripOutgoingPin(currentProject, device)
-                      : (getTerminalStripPin(device) ?? 1) + 1
+                      : (getTerminalStripPin(device) ?? 1)
                   )}
                   onCommit={(value) => {
                     const nextPin = Math.max(1, Math.round(Number(value) || 1))
@@ -1709,6 +1718,11 @@ export function TrunkDeviceProperties({
           {/* Transformer-only overlays when used as trunk device */}
           {device.symbol === 'transformer' && (
             <div className="space-y-2">
+              <TransformerNameplateFields
+                value={conv}
+                readOnly={readOnly}
+                onChange={(conversionProps) => handleUpdate({ conversionProps })}
+              />
               <div>
                 <label className={labelClass}>
                   {t('endpoints.transformer.safetyType', 'Safety transformer type')}
@@ -2445,6 +2459,9 @@ export function SupplyProperties({
               )
             })}
           </div>
+          {organization === 'split-switchable' && (
+            <ChangeoverGridSourcePicker panelId={panel.id} readOnly={readOnly} />
+          )}
           {selectedSection && (
             <div className="mt-3 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
               {t('feedOrganization.bus', 'Busbar')}: {selectedSection.label} ·{' '}
@@ -2514,6 +2531,11 @@ export function SupplyProperties({
           </div>
         </div>
       </div>
+      <ConnectionCurrentField
+        value={installation.connectionCurrentA}
+        readOnly={readOnly}
+        onChange={(connectionCurrentA) => updateInstallation({ connectionCurrentA })}
+      />
     </div>
   )
 }

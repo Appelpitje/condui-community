@@ -1,11 +1,12 @@
+import { useViewportWindowStore } from './ViewportWindowStore'
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useUIStore } from '@/stores/uiStore'
 import { CANVAS_ICONS } from './CanvasIcons'
 import type { CanvasType } from '@/types/ui'
 import { FloatingControl } from '@/components/canvas/FloatingControls'
 import { LayoutSelector } from './LayoutSelector'
 import { getAvailableCanvasTypes } from '@/lib/viewport/availableCanvasTypes'
+import { useCanvasWindow } from './ViewportContext'
 
 const CANVAS_TYPES: CanvasType[] = getAvailableCanvasTypes()
 
@@ -23,7 +24,8 @@ export function CanvasSwitcher({
   compactOrientation = 'portrait',
 }: CanvasSwitcherProps) {
   const { t } = useTranslation()
-  const setPanelCanvas = useUIStore((s) => s.setPanelCanvas)
+  const ownerWindow = useCanvasWindow()
+  const setPanelCanvas = useViewportWindowStore((s) => s.setPanelCanvas)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -40,9 +42,9 @@ export function CanvasSwitcher({
       const root = rootRef.current
       if (root && !root.contains(e.target as Node)) close()
     }
-    document.addEventListener('pointerdown', onPointerDown, true)
-    return () => document.removeEventListener('pointerdown', onPointerDown, true)
-  }, [open])
+    ownerWindow.document.addEventListener('pointerdown', onPointerDown, true)
+    return () => ownerWindow.document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [open, ownerWindow])
 
   const Icon = CANVAS_ICONS[currentCanvas]
 

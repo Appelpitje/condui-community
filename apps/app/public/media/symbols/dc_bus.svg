@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-58.0 -50.7 149.4 149.4" role="img" aria-label="DC-rail">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-26.0,25.0 -17.3,30.0 -17.3,18.0 -26.0,13.0" fill="#cbd5e1"/>
+  <polygon points="17.3,10.0 -17.3,30.0 -17.3,18.0 17.3,-2.0" fill="#1e293b"/>
+  <polygon points="8.7,-7.0 17.3,-2.0 -17.3,18.0 -26.0,13.0" fill="#94a3b8"/>
+  <polygon points="34.6,60.0 43.3,65.0 43.3,53.0 34.6,48.0" fill="#cbd5e1"/>
+  <polygon points="77.9,45.0 43.3,65.0 43.3,53.0 77.9,33.0" fill="#1e293b"/>
+  <polygon points="69.3,28.0 77.9,33.0 43.3,53.0 34.6,48.0" fill="#94a3b8"/>
+  <polygon points="-12.1,-5.0 74.5,45.0 74.5,37.0 -12.1,-13.0" fill="#c2803a"/>
+  <polygon points="81.4,41.0 74.5,45.0 74.5,37.0 81.4,33.0" fill="#a86a2c"/>
+  <polygon points="-5.2,-17.0 81.4,33.0 74.5,37.0 -12.1,-13.0" fill="#dfa66a"/>
+  <polygon points="-29.4,5.0 57.2,55.0 57.2,47.0 -29.4,-3.0" fill="#c2803a"/>
+  <polygon points="64.1,51.0 57.2,55.0 57.2,47.0 64.1,43.0" fill="#a86a2c"/>
+  <polygon points="-22.5,-7.0 64.1,43.0 57.2,47.0 -29.4,-3.0" fill="#dfa66a"/>
+  <text x="-13.7" y="-4.0" font-size="22" font-weight="700" fill="#334155" stroke="none" text-anchor="end" font-family="Figtree, system-ui, sans-serif">−</text>
+  <text x="-31.0" y="6.0" font-size="22" font-weight="700" fill="#ef4444" stroke="none" text-anchor="end" font-family="Figtree, system-ui, sans-serif">+</text>
+</g>
+</svg>

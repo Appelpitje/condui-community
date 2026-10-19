@@ -11,6 +11,7 @@ interface PdfViewportLike {
 interface PdfPageLike {
   getViewport(options: { scale: number }): PdfViewportLike
   render(options: {
+    canvas: HTMLCanvasElement
     canvasContext: CanvasRenderingContext2D
     viewport: PdfViewportLike
     transform?: [number, number, number, number, number, number]
@@ -158,6 +159,7 @@ export function LabelStripPdfPreview({ blob }: LabelStripPdfPreviewProps) {
         context.clearRect(0, 0, canvas.width, canvas.height)
         const renderTask = page.render({
           canvasContext: context,
+          canvas,
           viewport: cssViewport,
           transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
         })

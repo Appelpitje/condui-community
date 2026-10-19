@@ -19,6 +19,7 @@ import {
   updateProjectMetadataInProject,
 } from './generalPropertyMutations'
 import { getPlanGraphicElementAsset } from '@/lib/plan/graphicElements'
+import { addressCountrySchema } from './addressCountry'
 
 const finite = z.number().finite()
 const positive = finite.positive()
@@ -30,7 +31,7 @@ const address = z
     number: optionalText,
     postalCode: z.string().optional(),
     city: z.string().optional(),
-    country: z.string().optional(),
+    country: addressCountrySchema.optional(),
   })
   .strict()
 const party = z
@@ -122,6 +123,12 @@ const wallPatch = z
       .strict()
       .nullable()
       .optional(),
+    doorUpdates: z
+      .array(z.object({ id: z.string().min(1), position: finite.min(0).max(1) }).strict())
+      .optional(),
+    windowUpdates: z
+      .array(z.object({ id: z.string().min(1), position: finite.min(0).max(1) }).strict())
+      .optional(),
   })
   .strict()
 const openingPatch = z
@@ -166,6 +173,26 @@ const documentPatch = z
     includeInExport: z.boolean().optional(),
     exportPages: z.array(finite.int().positive()).nullable().optional(),
     teamDocumentId: optionalText,
+    oneWire: z
+      .object({
+        placements: z
+          .record(
+            z.string().regex(/^[1-9]\d{0,3}$/),
+            z.object({ x: finite, y: finite, width: positive }).strict().nullable()
+          )
+          .optional(),
+        hiddenPages: z.array(finite.int().positive()).max(1000).optional(),
+        x: finite.nullable().optional(),
+        y: finite.nullable().optional(),
+        width: positive.nullable().optional(),
+        levels: finite.min(0).max(2).optional(),
+        highPass: finite.min(0).max(2).optional(),
+        opacity: finite.min(10).max(100).optional(),
+        blend: z.boolean().optional(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     links: z
       .array(
         z

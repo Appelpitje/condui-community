@@ -14,6 +14,7 @@ import {
   getAllCircuits,
   getAllEndpoints,
 } from '@/lib/eendraad/projectElectricalDomain'
+import { findTrunkDeviceInProject } from '@/lib/eendraad/findTrunkDeviceInProject'
 import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { logger } from '@/lib/logger'
 import { isMainPanelDistributionEndpoint } from '@/lib/plan/panelDistributionEndpoint'
@@ -95,7 +96,10 @@ export function findMutablePlacementOwner(
       return { placement, circuitId: owner?.circuit?.id, endpointId: endpoint.id }
     }
     for (const circuit of getAllCircuits(panel)) {
-      for (const device of [...(circuit.trunkDevices ?? []), ...(circuit.branches ?? []).flatMap((branch) => branch.branchDevices ?? [])]) {
+      for (const device of [
+        ...(circuit.trunkDevices ?? []),
+        ...(circuit.branches ?? []).flatMap((branch) => branch.branchDevices ?? []),
+      ]) {
         const placement = device.placements?.find((candidate) => candidate.id === placementId)
         if (placement) return { placement, circuitId: circuit.id }
       }
@@ -142,6 +146,19 @@ export function addPlacementToProject(
     return result.circuit.id
   }
   return null
+}
+
+/** Adds a plan placement to an existing trunk device without changing its electrical owner. */
+export function addPlacementToTrunkDeviceInProject(
+  project: ProjectV2,
+  deviceId: string,
+  placement: Placement
+): boolean {
+  const device = findTrunkDeviceInProject(project, deviceId)
+  if (!device) return false
+  device.placements = [...(device.placements ?? []), placement]
+  syncPanelAndSituationPlanDeviceVisibility(project)
+  return true
 }
 
 /** Applies a standard placement patch. Returns its owner, or null for a missing/unchanged placement. */
@@ -292,7 +309,10 @@ export function deletePlacementsFromProject(project: ProjectV2, ids: readonly st
       }
     }
     for (const circuit of getAllCircuits(panel)) {
-      for (const device of [...(circuit.trunkDevices ?? []), ...(circuit.branches ?? []).flatMap((branch) => branch.branchDevices ?? [])]) {
+      for (const device of [
+        ...(circuit.trunkDevices ?? []),
+        ...(circuit.branches ?? []).flatMap((branch) => branch.branchDevices ?? []),
+      ]) {
         if (device.placements?.some((placement) => idsSet.has(placement.id))) {
           device.placements = device.placements.filter((placement) => !idsSet.has(placement.id))
         }

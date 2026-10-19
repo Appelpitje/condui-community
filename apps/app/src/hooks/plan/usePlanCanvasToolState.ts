@@ -23,6 +23,10 @@ export function usePlanCanvasToolState({ readOnly = false }: { readOnly?: boolea
 
   useEffect(() => () => setActiveTool('none'), [setActiveTool])
 
+  useEffect(() => {
+    if (activeTool === 'wiring') setIsFloorPlanMode(false)
+  }, [activeTool])
+
   // Wire-mode controls start enabled without changing ordinary situation-plan visibility.
   useEffect(() => {
     if (activeTool !== 'wiring' || readOnly || !isCableRoutesEnabled()) return

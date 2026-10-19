@@ -25,6 +25,8 @@ import {
   updateGroundTrunkPropertiesInProject,
 } from '@/lib/properties/electricalPropertyMutations'
 import { normalizePatch, patchChanges } from '@/lib/properties/propertyPatch'
+import { getInstallationSupplyTransformer, getInstallationSupplyTransformers, isSupplyTransformer } from '@/lib/electrical/supplyTransformer'
+import { normalizeProtectionCapacityUpdates } from '@/lib/protectionDefaults'
 import { persistAutomaticPanelSlotsInProject } from '@/lib/panel/panelAutomaticSlots'
 import { walkPanels } from '@/lib/panel/panelTree'
 import { z } from 'zod'
@@ -42,7 +44,7 @@ import {
 } from '@/lib/eendraad/projectElectricalDomain'
 import { updateCircuitInProject } from '@/lib/eendraad/circuitMutations'
 import { findTrunkDeviceInProject } from '@/lib/eendraad/findTrunkDeviceInProject'
-import { getAllSupplyTrunkDevices, getPanelSupplyTrunkDevices } from '@/lib/feedTopology'
+import { getAllSupplyTrunkDevices, getPanelSupplyTrunkDevices, queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { assignEndpointsToCircuitInProject } from '@/lib/eendraad/endpointMutations'
 import { deleteEndpointsFromProject } from '@/lib/eendraad/endpointDeletion'
 import {
@@ -74,6 +76,8 @@ import {
 } from '@/lib/properties/propertyActions'
 import { endpointSupportsMultiplier } from '@/utils/endpointMultipliers'
 import { isModularSocket } from '@/lib/socket/modularSocket'
+import { circuitModuleRef } from '@/lib/panel/circuitModuleMounting'
+import { listRemountableCircuitModules } from '@/lib/panel/circuitModuleMountingRules'
 import { isHvacDeviceSymbol } from '@/lib/symbols'
 import {
   circuitPatchSchema,
@@ -84,6 +88,7 @@ import {
   protectionPatchSchema,
 } from '@/lib/properties/propertySchemas'
 import { CommandError, defineProjectCommand, type CommandEnv, type EntityRef } from '../types'
+import { panelModuleRefSchema } from './panelEditLayout'
 
 const electricalPropertyEditSchema = z.discriminatedUnion('kind', [
   z
@@ -181,7 +186,13 @@ const ordinaryPropertyActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('lockCircuitRowForCode'), circuitId: z.string().min(1) }).strict(),
 ])
 
-const propertyActionSchema = z.union([ordinaryPropertyActionSchema, extraElectricalActionSchema])
+const semanticModuleVisibilitySchema = z.strictObject({
+  kind: z.literal('panelModuleVisibility'),
+  panelId: z.string().min(1),
+  module: panelModuleRefSchema,
+  visible: z.boolean(),
+}).transform(({ module, ...action }) => ({ ...action, moduleRefKey: panelGridModuleRefKey(module) }))
+const propertyActionSchema = z.union([ordinaryPropertyActionSchema, extraElectricalActionSchema, semanticModuleVisibilitySchema])
 
 export const propertiesEditInputSchema = z
   .object({
@@ -222,6 +233,20 @@ export type PropertiesEditAction = z.input<typeof propertyActionSchema>
 export type PropertiesEditOutcome = {
   changed: boolean
   changedEntities: Array<{ kind: string; id: string }>
+}
+
+// Drawing text and visibility cannot add modules or change their cabinet widths.
+// Keep all other property families on the existing slot-repair path.
+const drawingOnlyKeys = new Set([
+  'notes', 'labelNotes', 'panelLabel', 'symbolLabelDisplay', 'notesVisible', 'eendraadLetterVisible',
+])
+
+function isDrawingOnlyEdit(input: z.output<typeof propertiesEditInputSchema>): boolean {
+  return !input.installation && !input.actions?.length && !input.wireEdits?.length &&
+    !input.seedInstallDateColors && !input.refreshAutomaticNaming && input.edits.every((edit) =>
+      ['protection', 'circuit', 'endpoint', 'trunkDevice'].includes(edit.kind) &&
+      Object.keys(edit.set).every((key) => drawingOnlyKeys.has(key))
+    )
 }
 
 function uniqueIds(edits: readonly z.output<typeof propertyEditSchema>[]): boolean {
@@ -423,9 +448,12 @@ function applyEdit(
       const panel = findPanelOwningProtection(getEditableProjectElectricalPanels(project), id)
       const protection = panel?.protections.find((candidate) => candidate.id === id)
       if (!protection) continue
-      const patch = normalizePatch(
-        protection as unknown as Record<string, unknown>,
-        edit.set as Record<string, unknown>
+      const patch = normalizeProtectionCapacityUpdates(
+        normalizePatch(
+          protection as unknown as Record<string, unknown>,
+          edit.set as Record<string, unknown>
+        ) as Partial<ProtectionDevice>,
+        protection
       )
       if (!patchChanges(protection as unknown as Record<string, unknown>, patch)) continue
       const result = updateProtectionInProject(project, id, patch as Partial<ProtectionDevice>)
@@ -464,9 +492,12 @@ function applyEdit(
   for (const id of edit.ids) {
     const device = findTrunkDevice(project, id)
     if (!device) continue
-    const patch = normalizePatch(
-      device as unknown as Record<string, unknown>,
-      edit.set as Record<string, unknown>
+    const patch = normalizeProtectionCapacityUpdates(
+      normalizePatch(
+        device as unknown as Record<string, unknown>,
+        edit.set as Record<string, unknown>
+      ) as Partial<import('@/types/schema').TrunkDevice>,
+      device
     )
     if (!patchChanges(device as unknown as Record<string, unknown>, patch)) continue
     let didChange = false
@@ -599,10 +630,12 @@ function applyAction(
 ): void {
   if (isExtraElectricalAction(action)) {
     const tracksRefs = [
+      'projectSupplyConnection',
       'resizeConverter',
       'junctionPanelIdentity',
       'auxiliaryPlanVisibility',
       'panelFeedOrganization',
+      'panelBusFeedBoundary',
     ].includes(action.kind)
     const before = tracksRefs ? collectElectricalPropertyRefs(project) : []
     for (const ref of applyExtraElectricalAction(project, action, env))
@@ -787,6 +820,24 @@ export const propertiesEdit = defineProjectCommand({
       if (!validateEntity(project, edit)) {
         return { ok: false, code: 'stale_target', message: 'A property target no longer exists' }
       }
+      if (edit.kind === 'trunkDevice') {
+        const installation = getEditableProjectElectricalInstallation(project)!
+        for (const id of edit.ids) {
+          const device = findTrunkDevice(project, id)!
+          const next = normalizePatch(device as unknown as Record<string, unknown>, edit.set as Record<string, unknown>)
+          const props = { ...device.conversionProps, ...(next.conversionProps as typeof device.conversionProps) }
+          if (props.transformerRole !== 'supply') continue
+          if ((next.symbol ?? device.symbol) !== 'transformer' || !getInstallationSupplyTransformers(installation).some((source) => source.id === id))
+            return { ok: false, code: 'invalid_transformer_owner', message: 'The supply transformer must be on the common incoming wire' }
+          if (props.transformerPrimaryVoltageV != null && props.transformerPrimaryVoltageV <= 1000)
+            return { ok: false, code: 'invalid_primary_voltage', message: 'The supply transformer primary voltage must exceed 1000 V' }
+          const output = input.installation?.nominalVoltage?.uLineToLine ?? installation.nominalVoltage.uLineToLine
+          const explicitlySetsOutput = edit.set.conversionProps != null &&
+            Object.hasOwn(edit.set.conversionProps, 'transformerSecondaryVoltageV')
+          if ((explicitlySetsOutput || device.conversionProps?.transformerRole !== 'supply') && props.transformerSecondaryVoltageV !== output)
+            return { ok: false, code: 'invalid_secondary_voltage', message: 'Choose the installation voltage to change the supply transformer output' }
+        }
+      }
     }
     if (
       input.seedInstallDateColors &&
@@ -840,7 +891,21 @@ export const propertiesEdit = defineProjectCommand({
         if (!panel) return { ok: false, code: 'stale_target', message: 'Panel no longer exists' }
         const allPanels = getEditableProjectElectricalPanels(project)
         const installation = getEditableProjectElectricalInstallation(project)
+        if (action.visible && queryAllSupplyTrunkDevices(project).some(
+          (device) => `trunkDevice:${device.id}:supply` === action.moduleRefKey && isSupplyTransformer(device)
+        ))
+          return {
+            ok: false,
+            code: 'unsupported_module_visibility',
+            message: 'Supply transformers cannot appear in a panel',
+          }
+        const auxiliaryModule = listRemountableCircuitModules(allPanels).find(
+          (occurrence) => occurrence.ownerPanel.id === action.panelId &&
+            occurrence.entity.panelMounting?.kind === 'auxiliary' &&
+            panelGridModuleRefKey(circuitModuleRef(occurrence)) === action.moduleRefKey
+        )
         const known =
+          auxiliaryModule != null ||
           getDefaultPanelGridModuleRefs(panel, installation, allPanels).some(
             (ref) => panelGridModuleRefKey(ref) === action.moduleRefKey
           ) ||
@@ -853,7 +918,7 @@ export const propertiesEdit = defineProjectCommand({
         if (!action.visible) {
           const domotica = getDefaultPanelGridModuleRefs(panel, installation, allPanels).find(
             (ref) => panelGridModuleRefKey(ref) === action.moduleRefKey
-          )
+          ) ?? (auxiliaryModule ? circuitModuleRef(auxiliaryModule) : undefined)
           if (domotica?.kind === 'domotica') {
             const endpoint = findEndpoint(project, domotica.endpointId)?.endpoint
             if (endpoint && isModularSocket(endpoint))
@@ -912,6 +977,9 @@ export const propertiesEdit = defineProjectCommand({
     }
     if (input.installation) {
       const current = getEditableProjectElectricalInstallation(project)!
+      if (input.installation.nominalVoltage?.system === 'DC' &&
+        (getInstallationSupplyTransformer(current) || input.actions?.some((action) => action.kind === 'projectSupplyConnection' && action.connection === 'transformer')))
+        return { ok: false, code: 'ac_supply_required', message: 'A supply transformer requires an AC installation' }
       const patch = normalizePatch(
         current as unknown as Record<string, unknown>,
         input.installation as Record<string, unknown>
@@ -981,6 +1049,8 @@ export const propertiesEdit = defineProjectCommand({
         ) as never
       )
       if (result.changed) changed.add('installation:electrical')
+      if (result.changedSupplyBreakerId) changed.add(`trunkDevice:${result.changedSupplyBreakerId}`)
+      if (result.changedSupplyTransformerId) changed.add(`trunkDevice:${result.changedSupplyTransformerId}`)
     }
     if (input.refreshAutomaticNaming) {
       const before = new Map<string, string>()
@@ -1010,7 +1080,7 @@ export const propertiesEdit = defineProjectCommand({
       }
       collectChanged(getEditableProjectElectricalPanels(project))
     }
-    if (changed.size || created.length || removed.length) {
+    if ((changed.size || created.length || removed.length) && !isDrawingOnlyEdit(input)) {
       for (const panel of walkPanels(getEditableProjectElectricalPanels(project))) {
         if (persistAutomaticPanelSlotsInProject(project, panel.id)) changed.add(`panel:${panel.id}`)
       }

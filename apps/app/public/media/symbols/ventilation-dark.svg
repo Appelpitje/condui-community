@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-53.3 -56.4 136.0 136.0" role="img" aria-label="Ventilatie">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-43.3,25.0 29.4,67.0 29.4,25.0 -43.3,-17.0" fill="#283548"/>
+  <polygon points="72.7,42.0 29.4,67.0 29.4,25.0 72.7,0.0" fill="#1e293b"/>
+  <polygon points="0.0,-42.0 72.7,0.0 29.4,25.0 -43.3,-17.0" fill="#334155"/>
+  <path d="M-6.3 -38.0V-26.0A9.8 5.7 0 0 0 13.3 -26.0V-38.0Z" fill="#1e293b"/>
+  <ellipse cx="3.5" cy="-38.0" rx="9.8" ry="5.7" fill="#0f172a"/>
+  <path d="M31.8 -16.0V-4.0A9.8 5.7 0 0 0 51.4 -4.0V-16.0Z" fill="#1e293b"/>
+  <ellipse cx="41.6" cy="-16.0" rx="9.8" ry="5.7" fill="#0f172a"/>
+  <path d="M-25.4 -27.0V-15.0A9.8 5.7 0 0 0 -5.8 -15.0V-27.0Z" fill="#1e293b"/>
+  <ellipse cx="-15.6" cy="-27.0" rx="9.8" ry="5.7" fill="#0f172a"/>
+  <path d="M12.7 -5.0V7.0A9.8 5.7 0 0 0 32.3 7.0V-5.0Z" fill="#1e293b"/>
+  <ellipse cx="22.5" cy="-5.0" rx="9.8" ry="5.7" fill="#0f172a"/>
+  <g transform="matrix(0.8660 0.5 0 1 -43.30 25.00)"><rect x="8" y="-34" width="20" height="10" rx="1.5" fill="#020617"/></g>
+</g>
+</svg>

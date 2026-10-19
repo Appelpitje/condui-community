@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import { immer } from 'zustand/middleware/immer'
 import type React from 'react'
+import { getDialogOwnerDocument } from '@/lib/ui/dialogOwner'
 
 export type DialogType = 'confirm' | 'prompt' | 'info' | 'custom'
 
@@ -63,31 +63,29 @@ export interface CustomDialogConfig extends BaseDialogConfig {
 }
 
 export type DialogConfig =
-  | ConfirmDialogConfig
-  | PromptDialogConfig
-  | InfoDialogConfig
-  | CustomDialogConfig
+  ConfirmDialogConfig | PromptDialogConfig | InfoDialogConfig | CustomDialogConfig
 
 interface DialogState {
   dialog: DialogConfig | null
-  openDialog: (config: DialogConfig) => void
+  ownerDocument: Document | null
+  openDialog: (config: DialogConfig, ownerDocument?: Document | null) => void
   closeDialog: () => void
 }
 
 export const selectIsAppDialogOpen = (state: DialogState) => state.dialog != null
 
-export const useDialogStore = create<DialogState>()(
-  immer((set) => ({
-    dialog: null,
+export const useDialogStore = create<DialogState>()((set) => ({
+  dialog: null,
+  ownerDocument: null,
 
-    openDialog: (config) =>
-      set((state) => {
-        state.dialog = config
-      }),
+  openDialog: (dialog, ownerDocument = getDialogOwnerDocument()) => set({ dialog, ownerDocument }),
 
-    closeDialog: () =>
-      set((state) => {
-        state.dialog = null
-      }),
-  }))
-)
+  closeDialog: () => set({ dialog: null, ownerDocument: null }),
+}))
+
+export function closeDialogForDocument(ownerDocument: Document): void {
+  const state = useDialogStore.getState()
+  if (!state.dialog || state.ownerDocument !== ownerDocument) return
+  state.dialog.onClose?.()
+  if (useDialogStore.getState().dialog === state.dialog) state.closeDialog()
+}

@@ -1,5 +1,6 @@
 const Busboy = require('busboy')
 const { DOMParser, XMLSerializer } = require('@xmldom/xmldom')
+const path = require('node:path')
 
 const MAX_UPLOAD_BYTES = Number(process.env.PDF_CONVERT_MAX_UPLOAD_BYTES || 20 * 1024 * 1024)
 const MAX_PAGE_INDEX = Number(process.env.PDF_CONVERT_MAX_PAGE_INDEX || 500)
@@ -13,11 +14,30 @@ let svgExtractorPdfJs = null
 let svgExtractorDomInitialized = false
 const FORCE_FONT_FAMILY = process.env.PDF_CONVERT_FORCE_FONT_FAMILY || 'Arial, sans-serif'
 
+function standardFontDataUrl(packageName) {
+  return path.join(path.dirname(require.resolve(`${packageName}/package.json`)), 'standard_fonts').replaceAll('\\', '/') + '/'
+}
+
 async function getPdfJs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs')
+    pdfjsPromise = Promise.all([
+      import('pdfjs-dist/legacy/build/pdf.mjs'),
+      import('pdfjs-dist/legacy/build/pdf.worker.mjs'),
+    ]).then(([pdfjs, worker]) => {
+      bindPdfWorker(pdfjs, worker)
+      return pdfjs
+    })
   }
   return pdfjsPromise
+}
+
+function bindPdfWorker(pdfjs, worker) {
+  // Both versions publish globalThis.pdfjsWorker. Bind each Node fake-worker
+  // loader to its matching module so the SVG and maintained runtimes can coexist.
+  Object.defineProperty(pdfjs.PDFWorker, '_setupFakeWorkerGlobal', {
+    value: Promise.resolve(worker.WorkerMessageHandler),
+    configurable: true,
+  })
 }
 
 async function getCanvas() {
@@ -51,8 +71,11 @@ function getPdfJsSvgExtractor() {
       Module._load = originalLoad
     }
   }
-  const legacyPdfJsPath = require.resolve('pdf-extractor/node_modules/pdfjs-dist/legacy/build/pdf.js')
-  svgExtractorPdfJs = require(legacyPdfJsPath)
+  // PDF.js 4+ removed SVGGraphics. Keep this pinned compatibility runtime separate
+  // from the maintained renderer, and always load documents with isEvalSupported: false
+  // below (the upstream mitigation for GHSA-wgrm-67xf-hhpq). Do not re-enable eval.
+  svgExtractorPdfJs = require('pdfjs-svg-legacy/build/pdf.js')
+  bindPdfWorker(svgExtractorPdfJs, require('pdfjs-svg-legacy/build/pdf.worker.js'))
   return svgExtractorPdfJs
 }
 
@@ -323,6 +346,7 @@ async function rebuildDecodedTextLayer(svgContent, fileBuffer, pageIndex, warnin
       data: new Uint8Array(fileBuffer),
       stopAtErrors: true,
       isEvalSupported: false,
+      standardFontDataUrl: standardFontDataUrl('pdfjs-dist'),
     })
     const docProxy = await loadingTask.promise
     try {
@@ -468,7 +492,7 @@ async function renderPreviewPngDataUrl(page, scale, warnings) {
     }
     const canvas = createCanvas(width, height)
     const context = canvas.getContext('2d')
-    await page.render({ canvasContext: context, viewport }).promise
+    await page.render({ canvas, canvasContext: context, viewport, intent: 'print' }).promise
     const buffer = canvas.toBuffer('image/png')
     return `data:image/png;base64,${buffer.toString('base64')}`
   } catch (error) {
@@ -539,6 +563,7 @@ exports.handler = async (event) => {
         data: new Uint8Array(fileBuffer),
         stopAtErrors: true,
         isEvalSupported: false,
+        standardFontDataUrl: standardFontDataUrl('pdfjs-svg-legacy'),
       })
       vectorDoc = await loadingTask.promise
       if (pageIndex >= vectorDoc.numPages) {
@@ -578,7 +603,7 @@ exports.handler = async (event) => {
         pageCount: vectorDoc.numPages,
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load pdf-extractor runtime.'
+      const message = error instanceof Error ? error.message : 'Failed to load PDF SVG runtime.'
       console.warn('[convert-pdf] legacy SVG extraction failed', message)
       return errorResponse(
         500,
@@ -622,6 +647,7 @@ exports.handler = async (event) => {
           data: new Uint8Array(fileBuffer),
           stopAtErrors: true,
           isEvalSupported: false,
+          standardFontDataUrl: standardFontDataUrl('pdfjs-dist'),
         })
         pdfDoc = await loadingTask.promise
         if (pageIndex < pdfDoc.numPages) {
@@ -651,7 +677,7 @@ exports.handler = async (event) => {
       return errorResponse(
         500,
         'PDF_EXTRACTOR_RUNTIME_MISSING',
-        'pdf-extractor runtime dependency "canvas" is unavailable on this machine. Use Node 18/20 with prebuilt canvas binary or install Visual Studio C++ build tools.',
+        'PDF conversion canvas runtime is unavailable on this machine.',
         warnings,
       )
     }

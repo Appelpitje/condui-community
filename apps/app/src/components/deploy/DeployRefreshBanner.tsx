@@ -5,6 +5,7 @@ import { logger } from '@/lib/logger'
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw } from 'lucide-react'
 import { APP_BUILD_COMMIT } from '@/lib/appBuildInfo'
@@ -39,6 +40,7 @@ export function DeployRefreshBanner() {
   }, [])
 
   const runCheck = useCallback(async () => {
+    if (Capacitor.isNativePlatform()) return
     if (!import.meta.env.PROD) return
     if (import.meta.env.VITE_E2E === '1') return
     if (!APP_BUILD_COMMIT) return
@@ -52,6 +54,7 @@ export function DeployRefreshBanner() {
   }, [showBanner])
 
   useEffect(() => {
+    if (Capacitor.isNativePlatform()) return
     if (!import.meta.env.PROD) return
     if (import.meta.env.VITE_E2E === '1') return
     if (!APP_BUILD_COMMIT) return
@@ -71,6 +74,7 @@ export function DeployRefreshBanner() {
   }, [runCheck])
 
   useEffect(() => {
+    if (Capacitor.isNativePlatform()) return
     if (!import.meta.env.PROD) return
     if (import.meta.env.VITE_E2E === '1') return
     return onAppServiceWorkerUpdateAvailable(() => {

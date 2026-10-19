@@ -1,5 +1,8 @@
 import type { Point2, WireSegment } from '@/types/schema'
 
+/** Radius of an explicit supply T-junction dot; previews draw theirs at the same size. */
+export const SUPPLY_JUNCTION_DOT_RADIUS = 3
+
 export interface WireJunction {
   point: Point2
   radius: number
@@ -56,7 +59,17 @@ export function getCircuitWireJunctions(wireSegments: WireSegment[]): WireJuncti
   }
 
   const junctions: WireJunction[] = []
+  // Supply T junctions are explicit: their wires carry no circuit and meet collinear runs.
+  const explicitKeys = new Set<string>()
+  for (const segment of wireSegments) {
+    if (!segment.junctionPoint) continue
+    const key = pointKey(segment.junctionPoint)
+    if (explicitKeys.has(key)) continue
+    explicitKeys.add(key)
+    junctions.push({ point: segment.junctionPoint, radius: SUPPLY_JUNCTION_DOT_RADIUS })
+  }
   for (const { point, occurrences } of occurrencesByPoint.values()) {
+    if (explicitKeys.has(pointKey(point))) continue
     const uniqueOccurrences = occurrences.filter(
       (occurrence, index) =>
         occurrences.findIndex((candidate) => candidate.segment.id === occurrence.segment.id) === index

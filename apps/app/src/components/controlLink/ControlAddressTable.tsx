@@ -19,7 +19,7 @@ import { formatGroups, normalizeChannel, parseGroupsInput } from '@/lib/controlL
 import { controlAddressesDocument } from '@/lib/documents/projectDocuments'
 import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { findEndpointById } from '@/lib/eendraad/projectElectricalDomain'
-import { getSymbolById } from '@/lib/symbols'
+import { getSymbolById, getSymbolIconPath } from '@/lib/symbols'
 import { isKeyboardTypingTarget } from '@/lib/ui/keyboardTypingTarget'
 import { walkPanels } from '@/lib/panel/panelTree'
 import { useDialogStore } from '@/stores/dialogStore'
@@ -70,7 +70,7 @@ function LoadCell({ endpoint, label }: { endpoint: Endpoint | undefined; label: 
   return (
     <span className="flex min-w-0 items-center gap-2" title={label}>
       {meta ? (
-        <img src={meta.svgPath} alt="" className="h-5 w-5 shrink-0 object-contain dark:invert" draggable={false} />
+        <img src={getSymbolIconPath(meta)} alt="" className="h-5 w-5 shrink-0 object-contain dark:invert" draggable={false} />
       ) : (
         <span className="h-5 w-5 shrink-0" />
       )}

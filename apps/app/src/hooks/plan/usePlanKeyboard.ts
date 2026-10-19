@@ -5,7 +5,9 @@ import type { PropertiesEditInput } from '@/lib/commands/project/commands/proper
 import { useEffect, type MutableRefObject } from 'react'
 import { usePlanSymbolNudgeKeyboard } from '@/hooks/plan/usePlanSymbolNudgeKeyboard'
 import { useTranslation } from 'react-i18next'
-import { useUIStore } from '@/stores/uiStore'
+import { useCanvasWindow, useViewport } from '@/components/viewport/ViewportContext'
+import { viewportShortcutRouter } from '@/lib/viewport/viewportShortcutRouting'
+import { useViewportUIApi, useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
 import { useProjectStore } from '@/stores/projectStore'
 import {
   hidePlanPlacementsOnActiveFloor,
@@ -203,6 +205,11 @@ type FloorPlacement = Placement & {
  * Hook to handle keyboard shortcuts for the plan canvas
  */
 export function usePlanKeyboard(activeFloorId: string | null, options?: PlanKeyboardOptions) {
+  const window = useCanvasWindow()
+  const viewport = useViewport()
+  const document = window.document
+  const viewportUI = useViewportUIApi()
+  const isActiveViewport = useIsActiveViewport()
   const { t } = useTranslation()
   const getEndpointById = useProjectStore((state) => state.getEndpointById)
   const openDialog = useDialogStore((state) => state.openDialog)
@@ -254,10 +261,13 @@ export function usePlanKeyboard(activeFloorId: string | null, options?: PlanKeyb
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActiveViewport()) return
       const typing = isKeyboardTypingTarget(e.target)
       if (keyboardDisabled) return
       const floors = getCurrentProjectFloors()
-      const pointerOverPlan = pointerOverPlanRef?.current === true
+      const pointerOverPlan =
+        pointerOverPlanRef?.current === true ||
+        (viewport != null && viewportShortcutRouter.isHoveredViewport(window, viewport.panelIndex))
 
       if (
         pointerOverPlan &&
@@ -270,7 +280,7 @@ export function usePlanKeyboard(activeFloorId: string | null, options?: PlanKeyb
         activeFloorId
       ) {
         const store = useProjectStore.getState()
-        const { selection } = useUIStore.getState()
+        const { selection } = viewportUI.getState()
         const rows = store.getPlacementsByFloor(activeFloorId) as FloorPlacement[]
         const selectedPlacementIds = new Set<string>()
 
@@ -387,7 +397,7 @@ export function usePlanKeyboard(activeFloorId: string | null, options?: PlanKeyb
       switch (decision.kind) {
         case 'toggleSnap': {
           e.preventDefault()
-          const { planView, setPlanView } = useUIStore.getState()
+          const { planView, setPlanView } = viewportUI.getState()
           setPlanView({ snapToGrid: !planView.snapToGrid })
           if (isPlanKeyboardDebugEnabled()) {
             logger.info('[PlanKeyboard] toggled snapToGrid →', !planView.snapToGrid)
@@ -419,7 +429,7 @@ export function usePlanKeyboard(activeFloorId: string | null, options?: PlanKeyb
             )
             return
           }
-          useUIStore.getState().setActiveFloor(decision.floorId)
+          viewportUI.getState().setActiveFloor(decision.floorId)
           if (isPlanKeyboardDebugEnabled()) {
             logger.info('[PlanKeyboard] setActiveFloor', {
               index: decision.index,
@@ -447,7 +457,7 @@ export function usePlanKeyboard(activeFloorId: string | null, options?: PlanKeyb
 
       // Handle Delete (check both key and code for cross-platform compatibility)
       if (e.key === 'Delete' || e.code === 'Delete' || e.key === 'Backspace') {
-        const { selection } = useUIStore.getState()
+        const { selection } = viewportUI.getState()
         if (isPlanKeyboardDebugEnabled()) {
           logger.info('[PlanDelete][Global] keydown', {
             key: e.key,
@@ -463,7 +473,7 @@ export function usePlanKeyboard(activeFloorId: string | null, options?: PlanKeyb
         }
         const store = useProjectStore.getState()
         const project = store.currentProject
-        const clearSelection = () => useUIStore.getState().clearSelection()
+        const clearSelection = () => viewportUI.getState().clearSelection()
         const refs: DeleteEntityRef[] = []
         const edits: NonNullable<PropertiesEditInput['edits']> = []
         const walls = getAllPlanWalls(project)
@@ -614,5 +624,10 @@ export function usePlanKeyboard(activeFloorId: string | null, options?: PlanKeyb
     toolShortcuts,
     onCopyFloorPlanSelection,
     onPasteFloorPlanSelection,
+    viewportUI,
+    window,
+    document,
+    isActiveViewport,
+    viewport,
   ])
 }

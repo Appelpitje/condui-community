@@ -35,14 +35,11 @@ function CanvasForType({ type }: { type: CanvasType }) {
  */
 export function ExportCanvasPool() {
   const isExporting = useUIStore((s) => s.isExporting)
-  const viewportLayout = useUIStore((s) => s.viewportLayout)
 
   if (!isExporting) return null
 
-  const visibleCanvasTypes = new Set(viewportLayout.panels.map((p) => p.canvas))
-  const typesToMount = CANVAS_TYPES.filter((t) => !visibleCanvasTypes.has(t))
-
-  if (typesToMount.length === 0) return null
+  // Export switches floors/panels through the global UI store. Dedicated renderers
+  // keep those switches independent of the user's repeated/detached viewport cameras.
 
   return (
     <div
@@ -55,7 +52,7 @@ export function ExportCanvasPool() {
         height: HIDDEN_CANVAS_HEIGHT,
       }}
     >
-      {typesToMount.map((type) => (
+      {CANVAS_TYPES.map((type) => (
         <div
           key={type}
           className="absolute inset-0"

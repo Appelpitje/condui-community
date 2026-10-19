@@ -40,9 +40,21 @@ const blobUrlCache = new Map<string, string>()
  * example during a local Vite restart) without issuing a second network request.
  */
 const rawSvgTextCache = new Map<string, Promise<string>>()
+const pendingSymbolImages = new Set<Promise<HTMLImageElement>>()
+const processedSymbolImages = new Map<string, Promise<HTMLImageElement>>()
+const MAX_PROCESSED_SYMBOL_IMAGES = 64
 /** Maps loaded image src (blob/data URL) back to catalog SVG path for export. */
 const symbolImageSrcRegistry = new Map<string, string>()
 /** Maps loaded HTMLImageElement instances to catalog paths (survives Konva clone by reference). */
+const symbolColorByImageElement = new WeakMap<HTMLImageElement, string>()
+const symbolColorBySrc = new Map<string, string>()
+export function resolveSymbolColorFromImageElement(image: HTMLImageElement): string | undefined {
+  return symbolColorByImageElement.get(image) ?? symbolColorBySrc.get(image.currentSrc || image.src)
+}
+export function resolveSymbolColorFromImageSrc(src: string): string | undefined {
+  return symbolColorBySrc.get(src)
+}
+
 const symbolPathByImageElement = new WeakMap<HTMLImageElement, string>()
 
 export const SYMBOL_EXPORT_ATTR_SVG_PATH = 'symbolExportSvgPath'
@@ -60,15 +72,12 @@ function registerSymbolImageElement(image: HTMLImageElement, svgPath: string): v
 /** Bump when themed SVG processing changes so in-memory blob caches refresh. */
 const SYMBOL_THEME_PROCESSING_VERSION = '5'
 
-function themedSymbolCacheKey(svgPath: string, isDark: boolean): string {
-  return `${SYMBOL_THEME_PROCESSING_VERSION}::${svgPath}::${isDark ? 'dark' : 'light'}`
+function themedSymbolCacheKey(svgPath: string, isDark: boolean, color?: string): string {
+  return `${SYMBOL_THEME_PROCESSING_VERSION}::${svgPath}::${isDark ? 'dark' : 'light'}::${color ?? ''}`
 }
 
 /** Blob URL when this symbol was already loaded or warmed (e.g. offline library preview). */
-export function getCachedThemedSymbolBlobUrl(
-  svgPath: string,
-  isDark: boolean,
-): string | undefined {
+export function getCachedThemedSymbolBlobUrl(svgPath: string, isDark: boolean): string | undefined {
   return blobUrlCache.get(themedSymbolCacheKey(svgPath, isDark))
 }
 
@@ -93,9 +102,7 @@ function getThemeSymbolColor(isDark: boolean): string {
  * Replace common black in SVG with currentColor so injected color applies.
  */
 function replaceBlackWithCurrentColor(svgText: string): string {
-  return svgText
-    .replace(/#000000/gi, 'currentColor')
-    .replace(/#000\b/g, 'currentColor')
+  return svgText.replace(/#000000/gi, 'currentColor').replace(/#000\b/g, 'currentColor')
 }
 
 /**
@@ -115,8 +122,7 @@ function injectThemeColor(svgText: string, colorHex: string): string {
   // Root <svg> already has style="...": prepend our color so it wins
   const withExistingStyle = svgText.replace(
     /<svg(\s[^>]*?)style\s*=\s*["']([^"']*)["']/i,
-    (_, rest, existingStyle) =>
-      `<svg${rest}style="${colorDecl};${existingStyle}"`
+    (_, rest, existingStyle) => `<svg${rest}style="${colorDecl};${existingStyle}"`
   )
   if (withExistingStyle !== svgText) return withExistingStyle
 
@@ -129,8 +135,12 @@ function injectThemeColor(svgText: string, colorHex: string): string {
  * Class-based SVG styles are not reliably applied when the SVG is rasterized
  * through an HTMLImageElement (Konva), so bake them into attributes.
  */
-export function applySymbolThemeToSvgText(svgText: string, isDark: boolean): string {
-  const color = getThemeSymbolColor(isDark)
+export function applySymbolThemeToSvgText(
+  svgText: string,
+  isDark: boolean,
+  colorOverride?: string
+): string {
+  const color = colorOverride ?? getThemeSymbolColor(isDark)
   let text = replaceBlackWithCurrentColor(svgText)
   text = injectThemeColor(text, color)
   text = flattenSymbolSvgForExport(text, color, 'sym_')
@@ -143,13 +153,14 @@ export function applySymbolThemeToSvgText(svgText: string, isDark: boolean): str
 export async function fetchThemedSymbolSvgText(
   svgPath: string,
   isDark: boolean,
+  color?: string
 ): Promise<string> {
   let rawSvgPromise = rawSvgTextCache.get(svgPath)
   if (!rawSvgPromise) {
     rawSvgPromise = fetch(svgPath, {
       credentials: 'same-origin',
       cache: 'no-cache',
-    }).then(async res => {
+    }).then(async (res) => {
       if (!res.ok) throw new Error(`Failed to fetch SVG: ${svgPath} (${res.status})`)
       return res.text()
     })
@@ -160,14 +171,18 @@ export async function fetchThemedSymbolSvgText(
       }
     })
   }
-  return applySymbolThemeToSvgText(await rawSvgPromise, isDark)
+  return applySymbolThemeToSvgText(await rawSvgPromise, isDark, color)
 }
 
 /**
  * Load SVG as text, apply theme, return blob URL.
  */
-async function fetchThemedSvgBlobUrl(svgPath: string, isDark: boolean): Promise<string> {
-  const text = await fetchThemedSymbolSvgText(svgPath, isDark)
+async function fetchThemedSvgBlobUrl(
+  svgPath: string,
+  isDark: boolean,
+  color?: string
+): Promise<string> {
+  const text = await fetchThemedSymbolSvgText(svgPath, isDark, color)
   const blob = new Blob([text], { type: 'image/svg+xml' })
   return URL.createObjectURL(blob)
 }
@@ -206,28 +221,71 @@ function loadImage(src: string): Promise<HTMLImageElement> {
  * Load an SVG symbol with theme applied via currentColor. Returns an
  * HTMLImageElement that Konva can use with explicit width/height.
  */
-export function loadProcessedSymbol(
+function createProcessedSymbolImage(
   svgPath: string,
   isDark: boolean,
+  color?: string
 ): Promise<HTMLImageElement> {
-  const cacheKey = themedSymbolCacheKey(svgPath, isDark)
+  const cacheKey = themedSymbolCacheKey(svgPath, isDark, color)
   const cachedUrl = blobUrlCache.get(cacheKey)
   if (cachedUrl) {
     registerSymbolImageSrc(cachedUrl, svgPath)
     return loadImage(cachedUrl).then((image) => {
       registerSymbolImageElement(image, svgPath)
+      if (color) {
+        symbolColorByImageElement.set(image, color)
+        symbolColorBySrc.set(image.src, color)
+      }
       return image
     })
   }
 
-  return fetchThemedSvgBlobUrl(svgPath, isDark).then((blobUrl) => {
+  return fetchThemedSvgBlobUrl(svgPath, isDark, color).then((blobUrl) => {
     blobUrlCache.set(cacheKey, blobUrl)
     registerSymbolImageSrc(blobUrl, svgPath)
     return loadImage(blobUrl).then((image) => {
       registerSymbolImageElement(image, svgPath)
+      if (color) {
+        symbolColorByImageElement.set(image, color)
+        symbolColorBySrc.set(image.src, color)
+      }
       return image
     })
   })
+}
+
+export function loadProcessedSymbol(
+  svgPath: string,
+  isDark: boolean,
+  color?: string
+): Promise<HTMLImageElement> {
+  const key = themedSymbolCacheKey(svgPath, isDark, color)
+  const cached = processedSymbolImages.get(key)
+  if (cached) {
+    processedSymbolImages.delete(key)
+    processedSymbolImages.set(key, cached)
+    return cached
+  }
+  // Canvas instances can share an immutable decoded catalog image. Recreating
+  // it per placed symbol adds load events, image objects and React commits.
+  const pending = createProcessedSymbolImage(svgPath, isDark, color)
+  processedSymbolImages.set(key, pending)
+  if (processedSymbolImages.size > MAX_PROCESSED_SYMBOL_IMAGES)
+    processedSymbolImages.delete(processedSymbolImages.keys().next().value!)
+  pendingSymbolImages.add(pending)
+  const settled = () => pendingSymbolImages.delete(pending)
+  void pending.then(settled, settled)
+  void pending.catch(() => {
+    if (processedSymbolImages.get(key) === pending) processedSymbolImages.delete(key)
+  })
+  return pending
+}
+
+/** Wait for symbols started by a just-materialized export scene, including follow-up loads. */
+export async function awaitPendingSymbolImages(): Promise<void> {
+  while (pendingSymbolImages.size > 0) {
+    await Promise.allSettled([...pendingSymbolImages])
+  }
 }
 
 /**
@@ -238,7 +296,9 @@ export function clearSymbolCache(): void {
     URL.revokeObjectURL(url)
   }
   blobUrlCache.clear()
+  processedSymbolImages.clear()
   symbolImageSrcRegistry.clear()
+  symbolColorBySrc.clear()
 }
 
 function collectPathConstants(pathGroups: ReadonlyArray<Record<string, string>>): string[] {
@@ -288,7 +348,7 @@ export function getAllSymbolSvgPaths(): string[] {
 async function mapWithConcurrency<T>(
   items: readonly T[],
   concurrency: number,
-  worker: (item: T) => Promise<void>,
+  worker: (item: T) => Promise<void>
 ): Promise<void> {
   if (items.length === 0) return
   let index = 0
@@ -312,10 +372,7 @@ export async function warmSymbolSvgCache(options?: {
   bothThemes?: boolean
 }): Promise<void> {
   const paths = getAllSymbolSvgPaths()
-  const themes =
-    options?.bothThemes === true
-      ? [true, false]
-      : [options?.isDark ?? false]
+  const themes = options?.bothThemes === true ? [true, false] : [options?.isDark ?? false]
 
   await mapWithConcurrency(
     themes.flatMap((isDark) => paths.map((path) => ({ path, isDark }))),
@@ -326,6 +383,6 @@ export async function warmSymbolSvgCache(options?: {
       } catch (error) {
         logger.warn('[symbolImage] warm-up failed:', path, error)
       }
-    },
+    }
   )
 }

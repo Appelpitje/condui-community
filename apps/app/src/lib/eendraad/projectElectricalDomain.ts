@@ -1,4 +1,5 @@
 import { logger } from '@/lib/logger'
+import { isSupplyTransformer } from '@/lib/electrical/supplyTransformer'
 import { symbolCanAppearInPanelGrid } from '@/lib/panel/panelGridSymbolEligibility'
 import {
   collectPanelIds,
@@ -30,6 +31,7 @@ import {
   ensureInstallationFeedTopology,
   ensureRootFeedForBusSection,
   getPanelSupplyTrunkDevices,
+  queryAllSupplyTrunkDevices,
   type SupplyFeedScope,
 } from '@/lib/feedTopology'
 import {
@@ -795,7 +797,8 @@ export function removePromotedIncomingProtectionsFromSubPanels(
 }
 
 export function ensureLinkedSubPanelsHaveOwnPanelEndpoint(
-  project: ElectricalDomainProject
+  project: ElectricalDomainProject,
+  newId: () => string = generateId
 ): boolean {
   let changed = false
 
@@ -810,7 +813,7 @@ export function ensureLinkedSubPanelsHaveOwnPanelEndpoint(
         let panelCircuit = link.targetPanel.circuits.find((circuit) => circuit.code === 'PANEL')
         if (!panelCircuit) {
           panelCircuit = {
-            id: generateId(),
+            id: newId(),
             code: 'PANEL',
             kind: 'other',
             cable: {
@@ -825,7 +828,7 @@ export function ensureLinkedSubPanelsHaveOwnPanelEndpoint(
         }
 
         panelCircuit.endpoints.push({
-          id: generateId(),
+          id: newId(),
           type: 'fixed_appliance',
           label: link.targetPanel.name,
           panelId: link.targetPanel.id,
@@ -1086,6 +1089,7 @@ export function panelGridModuleIsAlwaysVisibleInPanel(
 
 /** One-wire trunk devices that have a physical representation in the panel view. */
 export function trunkDeviceCanAppearInPanelGrid(device: TrunkDevice): boolean {
+  if (isSupplyTransformer(device)) return false
   return (
     device.type === 'relay' || device.symbol === 'relay' ||
     device.type === 'protection' ||
@@ -1103,12 +1107,54 @@ export function protectionCanAppearInPanelGrid(protection: ProtectionDevice): bo
   return protection.directPanelFeeder !== true && protection.directDcBusFeeder !== true
 }
 
+/** Query-local indexes shared when reading several boards from one snapshot. */
+export function createPanelGridModuleRefsContext(allPanels: Panel[]) {
+  const circuits = allPanels.flatMap((candidate) => getAllCircuits(candidate))
+  const protections = new Map<string, ProtectionDevice>()
+  for (const root of allPanels) {
+    for (const protection of getAllProtections(root)) {
+      if (!protections.has(protection.id)) protections.set(protection.id, protection)
+    }
+  }
+  const endpoints = new Map<string, Endpoint>()
+  const circuitDevices = new Map<string, TrunkDevice>()
+  const terminalRefsByPanel = new Map<string, PanelGridModuleRef[]>()
+  const append = (panelId: string | undefined, ref: PanelGridModuleRef) => {
+    if (!panelId) return
+    const refs = terminalRefsByPanel.get(panelId) ?? []
+    refs.push(ref)
+    terminalRefsByPanel.set(panelId, refs)
+  }
+  for (const circuit of circuits) {
+    for (const endpoint of circuit.endpoints) {
+      if (!endpoints.has(endpoint.id)) endpoints.set(endpoint.id, endpoint)
+      if (isTerminalStripEndpoint(endpoint))
+        append(endpoint.terminalStripPanelId, {
+          kind: 'domotica', endpointId: endpoint.id, circuitId: circuit.id,
+        })
+    }
+    for (const device of circuit.trunkDevices ?? []) {
+      if (!circuitDevices.has(device.id)) circuitDevices.set(device.id, device)
+      if (isTerminalStripDevice(device))
+        append(device.terminalStripPanelId, {
+          kind: 'trunkDevice', id: device.id, scope: 'circuit', circuitId: circuit.id,
+        })
+    }
+  }
+  return {
+    allPanels, protections, endpoints, circuitDevices, terminalRefsByPanel,
+    panelIds: collectPanelIds(allPanels),
+    remountable: listRemountableCircuitModules(allPanels),
+  }
+}
+
 /** Build the ordered list of all modules that are eligible for the panel grid. */
 export function getDefaultPanelGridModuleRefs(
   panel: Panel,
   installation: Installation | undefined,
   allPanels: Panel[],
-  supplyDevicesOverride?: TrunkDevice[]
+  supplyDevicesOverride?: TrunkDevice[],
+  readContext?: ReturnType<typeof createPanelGridModuleRefsContext>
 ): PanelGridModuleRef[] {
   const refs: PanelGridModuleRef[] = []
   if (panel.isMain && installation) {
@@ -1160,43 +1206,20 @@ export function getDefaultPanelGridModuleRefs(
   // circuit occurrence. Keep the circuit ref so one-wire ownership and relation edges
   // remain intact, but project the physical module onto its assigned panel.
   const existingKeys = new Set(refs.map((ref) => panelGridModuleRefKey(ref)))
-  for (const candidatePanel of allPanels) {
-    for (const candidateCircuit of getAllCircuits(candidatePanel)) {
-      for (const endpoint of candidateCircuit.endpoints) {
-        if (!isTerminalStripEndpoint(endpoint) || endpoint.terminalStripPanelId !== panel.id) continue
-        const ref: PanelGridModuleRef = {
-          kind: 'domotica',
-          endpointId: endpoint.id,
-          circuitId: candidateCircuit.id,
-        }
-        const key = panelGridModuleRefKey(ref)
-        if (!existingKeys.has(key)) {
-          refs.push(ref)
-          existingKeys.add(key)
-        }
-      }
-      for (const device of candidateCircuit.trunkDevices ?? []) {
-        if (!isTerminalStripDevice(device) || device.terminalStripPanelId !== panel.id) {
-          continue
-        }
-        const ref: PanelGridModuleRef = {
-          kind: 'trunkDevice',
-          id: device.id,
-          scope: 'circuit',
-          circuitId: candidateCircuit.id,
-        }
-        const key = panelGridModuleRefKey(ref)
-        if (!existingKeys.has(key)) {
-          refs.push(ref)
-          existingKeys.add(key)
-        }
-      }
+  const context = readContext?.allPanels === allPanels
+    ? readContext : createPanelGridModuleRefsContext(allPanels)
+  const { endpoints, circuitDevices } = context
+  for (const ref of context.terminalRefsByPanel.get(panel.id) ?? []) {
+    const key = panelGridModuleRefKey(ref)
+    if (!existingKeys.has(key)) {
+      refs.push(ref)
+      existingKeys.add(key)
     }
   }
   // Relays, meters and domotica modules may hang in another panel or a virtual enclosure.
-  const panelIds = collectPanelIds(allPanels)
+  const panelIds = context.panelIds
   const remountedKeys = new Set<string>()
-  for (const occurrence of listRemountableCircuitModules(allPanels)) {
+  for (const occurrence of context.remountable) {
     if (!getCircuitModuleMounting(occurrence.entity)) continue
     const ref: PanelGridModuleRef =
       occurrence.form === 'device'
@@ -1218,18 +1241,12 @@ export function getDefaultPanelGridModuleRefs(
   return refs.filter((ref) => {
     if (remountedKeys.has(panelGridModuleRefKey(ref))) return false
     if (ref.kind === 'domotica') {
-      const endpoint = allPanels
-        .flatMap((candidatePanel) => getAllCircuits(candidatePanel))
-        .flatMap((candidateCircuit) => candidateCircuit.endpoints)
-        .find((candidate) => candidate.id === ref.endpointId)
+      const endpoint = endpoints.get(ref.endpointId)
       const assigned = isTerminalStripEndpoint(endpoint) ? endpoint?.terminalStripPanelId : undefined
       return assigned == null || assigned === panel.id
     }
     if (ref.kind !== 'trunkDevice' || ref.scope !== 'circuit') return true
-    const device = allPanels
-      .flatMap((candidatePanel) => getAllCircuits(candidatePanel))
-      .flatMap((candidateCircuit) => candidateCircuit.trunkDevices ?? [])
-      .find((candidate) => candidate.id === ref.id)
+    const device = circuitDevices.get(ref.id)
     if (device?.panelMounting?.kind === 'auxiliary') return false
     const assignedPanelId = getTerminalStripPanelId(device)
     return assignedPanelId == null || assignedPanelId === panel.id
@@ -1399,9 +1416,14 @@ export function panelGridModuleIsVisibleByDefault(
   panel: Panel,
   installation: Installation | undefined,
   allPanels: Panel[],
-  supplyDevicesOverride?: TrunkDevice[]
+  supplyDevicesOverride?: TrunkDevice[],
+  readContext?: ReturnType<typeof createPanelGridModuleRefsContext>
 ): boolean {
   if (ref.kind === 'protection') {
+    if (readContext?.allPanels === allPanels) {
+      const protection = readContext.protections.get(ref.id)
+      return !!protection && protectionCanAppearInPanelGrid(protection)
+    }
     for (const candidatePanel of allPanels) {
       const protection = findProtectionById(candidatePanel, ref.id)
       if (protection) {
@@ -1554,6 +1576,8 @@ export function isModuleRefValid(
   if (ref.kind === 'trunkDevice') {
     if (ref.scope === 'supply') {
       if (!installation) return false
+      if (queryAllSupplyTrunkDevices(project).some((device) => device.id === ref.id && isSupplyTransformer(device)))
+        return false
       return (
         installation.mainSupply.supplyTrunkDevices?.some((d) => d.id === ref.id) ||
         installation.feedTopology?.sharedFeed.trunkDevices?.some((d) => d.id === ref.id) ||

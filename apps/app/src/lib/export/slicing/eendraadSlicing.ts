@@ -282,7 +282,9 @@ function buildCoreSlices(
   }
 
   // Greedy packing can put every available block on the penultimate page and
-  // leave one tiny block alone. Move the smallest possible safe block group to
+  // leave one circuit alone. A single block can also contain a complete
+  // differential rail with several circuits; keep that group on its own page.
+  // For a lone circuit, move the smallest possible safe block group to
   // the tail when both resulting pages still fit and contain at least two
   // independent main-bus blocks. This changes only page cuts, never layout.
   if (slices.length >= 2) {
@@ -291,7 +293,11 @@ function buildCoreSlices(
     const previousBlocks = getBlocksInRange(blocks, previous.left, previous.right)
     const tailBlocks = getBlocksInRange(blocks, tail.left, tail.right)
 
-    if (tailBlocks.length === 1 && previousBlocks.length >= 3) {
+    if (
+      tailBlocks.length === 1 &&
+      tailBlocks[0]!.circuitIds.length === 1 &&
+      previousBlocks.length >= 3
+    ) {
       const candidates = cutPoints
         .filter((cutPoint) => cutPoint > previous.left && cutPoint < previous.right)
         .sort((a, b) => b - a)

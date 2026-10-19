@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-88.0 -100.0 160.5 160.5" role="img" aria-label="Modulair stopcontact">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-48.5,28.0 -9.5,50.5 -9.5,-39.5 -48.5,-62.0" fill="#f1f5f9"/>
+  <polygon points="39.0,22.5 -9.5,50.5 -9.5,-39.5 39.0,-67.5" fill="#cbd5e1"/>
+  <polygon points="0.0,-90.0 39.0,-67.5 -9.5,-39.5 -48.5,-62.0" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -48.50 28.00)"><circle cx="11.25" cy="-80" r="3.6" fill="#e2e8f0"/><path d="M9.25 -80h4M11.25 -82v4" stroke-width="1"/><circle cx="11.25" cy="-10" r="3.6" fill="#e2e8f0"/><path d="M9.25 -10h4M11.25 -12v4" stroke-width="1"/><circle cx="33.75" cy="-80" r="3.6" fill="#e2e8f0"/><path d="M31.75 -80h4M33.75 -82v4" stroke-width="1"/><circle cx="33.75" cy="-10" r="3.6" fill="#e2e8f0"/><path d="M31.75 -10h4M33.75 -12v4" stroke-width="1"/></g>
+  <polygon points="-54.6,8.5 -17.3,30.0 -17.3,-12.0 -54.6,-33.5" fill="#f1f5f9"/>
+  <polygon points="-10.4,26.0 -17.3,30.0 -17.3,-12.0 -10.4,-16.0" fill="#cbd5e1"/>
+  <polygon points="-47.6,-37.5 -10.4,-16.0 -17.3,-12.0 -54.6,-33.5" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -55.43 32.00)"><g transform="translate(22.5 -45) scale(0.62) translate(-28 28)"><defs><clipPath id="rim-mod-ffffff"><circle cx="28" cy="-28" r="18"/></clipPath></defs>
+<circle cx="28" cy="-28" r="18" fill="#cbd5e1"/>
+<g clip-path="url(#rim-mod-ffffff)"><g transform="translate(6 -6)">
+  <circle cx="28" cy="-28" r="18" fill="#e2e8f0"/>
+  <circle cx="19" cy="-25" r="2.8" fill="#94a3b8"/><circle cx="37" cy="-25" r="2.8" fill="#94a3b8"/>
+  <path d="M28 -39L25 -36" stroke-width="7.5"/>
+  <path d="M28 -39L25 -36" stroke="#94a3b8" stroke-width="5"/>
+  <circle cx="25" cy="-36" r="2.5" fill="#ffffff" stroke-width="1"/>
+</g></g>
+<circle cx="28" cy="-28" r="18" fill="none"/></g></g>
+</g>
+</svg>

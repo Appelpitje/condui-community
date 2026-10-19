@@ -11,6 +11,10 @@ import {
 } from './panelRelationEdges'
 import type { Panel, PanelGridModuleRef } from '@/types/schema'
 import type { ModulePlacement } from '@/lib/panel/panelGridLayout'
+import { moveRelationWireEndpoint } from '@/lib/panel/dragRelationWirePoints'
+import type { PanelSceneSurface, PanelSceneConnector } from '@/lib/panel/panelScene'
+import { resolvePanelSupplyLinkForPanel } from '@/lib/eendraad/panelSupplyLink'
+import { panelPreviewFrame, routePanelFramePreview } from '@/lib/panel/panelFramePreview'
 import { ensureInstallationFeedTopology, getPanelFeedProjection } from '@/lib/feedTopology'
 import { getPanelIncomingMainBusFeedDevice } from '@/lib/panel/subPanelFeed'
 import { findPanelById } from '@/lib/panel/panelTree'
@@ -50,6 +54,9 @@ export type PanelHierarchyRoute = {
 interface RelationWiresProps {
   placements: ModulePlacement[]
   selectedRef: PanelGridModuleRef | null
+  selectedPanelId?: string | null
+  surfaces?: PanelSceneSurface[]
+  panelConnectors?: PanelSceneConnector[]
   /** Side of the selected one-wire span on the focused panel device. */
   selectedConnectionSide?: 'incoming' | 'outgoing'
   /** Other placed endpoint of the selected one-wire span, when present. */
@@ -100,6 +107,7 @@ interface RoutedWire {
   pathDebug?: WirePathDebug
   selectedEndpoint?: 'source' | 'target'
   remotePlacement?: ModulePlacement
+  remotePanelId?: string
   /** Cross-panel wires in the same bundle should share their trunk, not repel it. */
   overlapGroup?: string
 }
@@ -126,6 +134,63 @@ interface RoutedWireLabel {
 interface ComputeWiresResult {
   wires: RoutedWire[]
   labels: RoutedWireLabel[]
+}
+
+type RelationRoutingContext = Pick<RelationWiresProps,
+  'placements' | 'panel' | 'project' | 'dragOverride' | 'preserveRowForRefKeys' |
+  'supplyPanelRefKeys' | 'hierarchyRoute' | 'getHierarchyRoute' | 'mainBusRouteSide' |
+  'singlePanelCorridorY' | 'pathwayRegions' | 'pathwayLinks'>
+
+/** Query-local cache: hover and selection share routes until scene/drag geometry changes. */
+export function createRelationWireQuery(context: RelationRoutingContext) {
+  const cache = new Map<string, ComputeWiresResult>()
+  return (ref: PanelGridModuleRef, expandPhysicalTerminal = true,
+    dragOverride = context.dragOverride): ComputeWiresResult => {
+    const key = JSON.stringify([panelGridModuleRefKey(ref), expandPhysicalTerminal,
+      dragOverride ? [panelGridModuleRefKey(dragOverride.ref), dragOverride.x, dragOverride.y] : null])
+    const previous = cache.get(key)
+    if (previous) return previous
+    const { project } = context
+    if (!project) return { wires: [], labels: [] }
+    const startedAt = import.meta.env?.VITE_E2E === '1' ? performance.now() : 0
+    const result = computeWires(ref, context.placements, context.panel, project,
+      dragOverride, context.preserveRowForRefKeys, context.supplyPanelRefKeys,
+      context.hierarchyRoute, context.getHierarchyRoute, context.mainBusRouteSide,
+      context.singlePanelCorridorY, context.pathwayRegions, context.pathwayLinks, expandPhysicalTerminal)
+    if (import.meta.env?.VITE_E2E === '1') performance.measure('panel:relation-wire-routing', {
+      start: startedAt, end: performance.now(),
+    })
+    if (cache.size >= 32) cache.delete(cache.keys().next().value!)
+    cache.set(key, result)
+    return result
+  }
+}
+
+/** Drag feedback follows the terminals; corridor routing resumes after the project commits. */
+export function previewRelationWireDrag(
+  result: ComputeWiresResult,
+  selectedRef: PanelGridModuleRef,
+  placements: ModulePlacement[],
+  drag: RelationWiresProps['dragOverride'],
+): ComputeWiresResult {
+  if (!drag) return result
+  const matches = (placement: ModulePlacement, ref: PanelGridModuleRef) =>
+    panelGridModuleRefKey(placement.ref) === panelGridModuleRefKey(ref) ||
+    placement.terminalStripMemberRefs?.some((member) => panelGridModuleRefKey(member) === panelGridModuleRefKey(ref)) === true
+  const placement = placements.find((candidate) => matches(candidate, drag.ref))
+  if (!placement) return result
+  const dx = drag.x - placement.x, dy = drag.y - placement.y
+  if (!dx && !dy) return result
+  const selectedMoves = matches(placement, selectedRef)
+  return { ...result, wires: result.wires.map((wire) => {
+    const remoteMoves = wire.remotePlacement != null && matches(placement, wire.remotePlacement.ref)
+    if (!wire.selectedEndpoint || (!selectedMoves && !remoteMoves)) return wire
+    const points = selectedMoves && remoteMoves
+      ? wire.points.map((value, index) => value + (index % 2 === 0 ? dx : dy))
+      : moveRelationWireEndpoint(wire.points, selectedMoves ? wire.selectedEndpoint
+        : wire.selectedEndpoint === 'source' ? 'target' : 'source', dx, dy)
+    return { ...wire, points, pathDebug: undefined }
+  }) }
 }
 
 /** Console diagnostics when Settings → panel relation debug is on (UI-only). */
@@ -2356,6 +2421,7 @@ function computeWires(
           ),
           kind: 'mainProtectionToSecondaryPanelFeed',
           selectedEndpoint: 'source',
+          remotePanelId: childPanelId,
         })
         continue
       }
@@ -2388,6 +2454,7 @@ function computeWires(
         ),
         kind: 'mainProtectionToSecondaryPanelFeed',
         selectedEndpoint: 'source',
+        remotePanelId: childPanelId,
       })
     }
   }
@@ -2419,6 +2486,7 @@ function computeWires(
         points,
         kind: 'mainProtectionToSecondaryPanelFeed',
         selectedEndpoint: 'source',
+        remotePanelId: remotePanel.id,
       })
       const anchorY = points[points.length - 1] ?? 0
       const placeAbove = targetRoute?.panelTopY != null && anchorY < targetRoute.panelTopY
@@ -2451,6 +2519,7 @@ function computeWires(
         points,
         kind: 'mainProtectionToSecondaryPanelFeed',
         selectedEndpoint: 'target',
+        remotePanelId: remotePanel.id,
       })
       const anchorY = points[1] ?? 0
       const placeAbove = targetRoute?.panelTopY != null && anchorY < targetRoute.panelTopY
@@ -2462,6 +2531,11 @@ function computeWires(
       })
     }
   }
+  // Port candidates often contain the same route request. All placements,
+  // global pathways/links and routing policy are fixed for this computation;
+  // only these guide points, reserved runs and optional row lock can differ.
+  // Keep reuse query-local so a drag or domain edit always starts fresh.
+  const routedByInput = new Map<string, ReturnType<typeof routePanelWire>>()
   const routeCandidate = (candidate: ModulePortCandidate) => {
     const reservedRoutes: Array<{ segment: WirePathSegment; overlapGroup?: string }> = []
     let score = candidate.preferencePenalty
@@ -2551,13 +2625,18 @@ function computeWires(
             (reserved) => !option.overlapGroup || reserved.overlapGroup !== option.overlapGroup
           )
           .map((reserved) => reserved.segment)
-        const routed = routePanelWire(option.points, effective, {
-          preserveGuideTurns: pathwayRegions == null || pathwayRegions.length === 0,
-          reservedSegments,
-          pathwayRegions: lockedSameRowRegion ?? pathwayRegions,
-          pathwayLinks: lockedSameRowRegion ? undefined : pathwayLinks,
-          separateHorizontalLanes: true,
-        })
+        const routeKey = JSON.stringify([option.points, reservedSegments, lockedSameRowRegion ?? null])
+        let routed = routedByInput.get(routeKey)
+        if (!routed) {
+          routed = routePanelWire(option.points, effective, {
+            preserveGuideTurns: pathwayRegions == null || pathwayRegions.length === 0,
+            reservedSegments,
+            pathwayRegions: lockedSameRowRegion ?? pathwayRegions,
+            pathwayLinks: lockedSameRowRegion ? undefined : pathwayLinks,
+            separateHorizontalLanes: true,
+          })
+          routedByInput.set(routeKey, routed)
+        }
         return {
           wire: option,
           routed,
@@ -2646,9 +2725,101 @@ function computeWires(
   return { wires: routedResult.wires, labels }
 }
 
+/** One exterior preview per connected enclosure, independent of its internal bus fan-out. */
+export function computePanelFrameRelationWires(
+  context: Pick<RelationWiresProps, 'selectedPanelId' | 'surfaces' | 'panelConnectors' | 'project'>
+): ComputeWiresResult {
+  const { project, selectedPanelId, surfaces = [], panelConnectors = [] } = context
+  const selected = surfaces.find(
+    (surface) => surface.kind === 'panel' && surface.id === selectedPanelId
+  )
+  if (!project || !selected?.panel) return { wires: [], labels: [] }
+  const surfaceById = new Map(surfaces.map((surface) => [surface.id, surface]))
+  const surfaceByRef = new Map<string, string>()
+  for (const surface of surfaces) {
+    for (const placement of surface.placements) {
+      for (const ref of [placement.ref, ...(placement.terminalStripMemberRefs ?? [])]) {
+        surfaceByRef.set(panelGridModuleRefKey(ref), surface.id)
+      }
+    }
+  }
+  const connections = new Map<string, { sourceId: string; targetId: string; corridor?: number[] }>()
+  const add = (sourceId: string | undefined, targetId: string | undefined, corridor?: number[]) => {
+    if (
+      !sourceId ||
+      !targetId ||
+      sourceId === targetId ||
+      (sourceId !== selected.id && targetId !== selected.id) ||
+      !surfaceById.has(sourceId) ||
+      !surfaceById.has(targetId)
+    )
+      return
+    const key = JSON.stringify([sourceId, targetId])
+    const previous = connections.get(key)
+    connections.set(key, { sourceId, targetId, corridor: corridor ?? previous?.corridor })
+  }
+  const visited = new Set<string>()
+  for (const placement of selected.placements) {
+    for (const ref of [placement.ref, ...(placement.terminalStripMemberRefs ?? [])]) {
+      const key = panelGridModuleRefKey(ref)
+      if (visited.has(key)) continue
+      visited.add(key)
+      const owner = findPanelContainingModuleRef(ref, project) ?? selected.panel
+      const edges = getRelationEdges(ref, owner, project)
+      for (const parent of edges.parentRefs)
+        add(surfaceByRef.get(panelGridModuleRefKey(parent)), selected.id)
+      for (const child of edges.childRefs)
+        add(selected.id, surfaceByRef.get(panelGridModuleRefKey(child)))
+      for (const childId of edges.childPanelIds) add(selected.id, childId)
+    }
+  }
+  const surfaceAt = (x: number, y: number) =>
+    surfaces.find(
+      (surface) =>
+        x >= surface.x &&
+        x <= surface.x + surface.width &&
+        y >= surface.y &&
+        y <= surface.y + surface.height
+    )?.id
+  for (const connector of panelConnectors) {
+    const points = connector.points
+    if (points.length < 4) continue
+    const sourceId =
+      connector.sourceSurfaceId ??
+      connector.hierarchySourceSurfaceId ??
+      surfaceAt(points[0]!, points[1]!)
+    const targetId =
+      connector.targetSurfaceId ??
+      connector.hierarchyTargetSurfaceId ??
+      surfaceAt(points.at(-2)!, points.at(-1)!)
+    if (
+      connector.hierarchySourceSurfaceId &&
+      resolvePanelSupplyLinkForPanel(project, targetId ?? '')?.sourcePanel.id !== sourceId
+    )
+      continue
+    add(sourceId, targetId, points)
+  }
+  return {
+    wires: [...connections.values()].map(({ sourceId, targetId, corridor }) => ({
+      points: routePanelFramePreview(
+        panelPreviewFrame(surfaceById.get(sourceId)!),
+        panelPreviewFrame(surfaceById.get(targetId)!),
+        corridor
+      ),
+      kind: 'mainProtectionToSecondaryPanelFeed',
+      selectedEndpoint: sourceId === selected.id ? 'source' : 'target',
+      remotePanelId: sourceId === selected.id ? targetId : sourceId,
+    })),
+    labels: [],
+  }
+}
+
 export default function RelationWires({
   placements,
   selectedRef,
+  selectedPanelId,
+  surfaces,
+  panelConnectors,
   selectedConnectionSide,
   selectedConnectionPeerRef,
   hoveredRef,
@@ -2683,24 +2854,18 @@ export default function RelationWires({
   const canvasVisibleRef = useRef(true)
   const visibilityObserverRef = useRef<IntersectionObserver | null>(null)
 
+  const queryWires = useMemo(() => createRelationWireQuery({
+    placements, panel, project, preserveRowForRefKeys, supplyPanelRefKeys,
+    hierarchyRoute, getHierarchyRoute, mainBusRouteSide, singlePanelCorridorY, pathwayRegions, pathwayLinks,
+  }), [placements, panel, project, preserveRowForRefKeys, supplyPanelRefKeys,
+    hierarchyRoute, getHierarchyRoute, mainBusRouteSide, singlePanelCorridorY, pathwayRegions, pathwayLinks])
+
   const wireState = useMemo(() => {
     if (suppressRelationWires) return { wires: [], labels: [] as RoutedWireLabel[] }
+    if (selectedPanelId) return computePanelFrameRelationWires({ selectedPanelId, surfaces, panelConnectors, project })
     if (!selectedRef || !project) return { wires: [], labels: [] as RoutedWireLabel[] }
-    const result = computeWires(
-      selectedRef,
-      placements,
-      panel,
-      project,
-      dragOverride,
-      preserveRowForRefKeys,
-      supplyPanelRefKeys,
-      hierarchyRoute,
-      getHierarchyRoute,
-      mainBusRouteSide,
-      singlePanelCorridorY,
-      pathwayRegions,
-      pathwayLinks,
-      selectedConnectionSide == null
+    const result = previewRelationWireDrag(
+      queryWires(selectedRef, selectedConnectionSide == null), selectedRef, placements, dragOverride
     )
     if (!selectedConnectionSide) return result
     const selectedEndpoint = selectedConnectionSide === 'incoming' ? 'target' : 'source'
@@ -2718,9 +2883,13 @@ export default function RelationWires({
       labels: [],
     }
   }, [
+    queryWires,
     suppressRelationWires,
     placements,
     selectedRef,
+    selectedPanelId,
+    surfaces,
+    panelConnectors,
     selectedConnectionSide,
     selectedConnectionPeerRef,
     panel,
@@ -2740,26 +2909,14 @@ export default function RelationWires({
   const hoveredKey = hoveredRef ? panelGridModuleRefKey(hoveredRef) : null
   const hoverWireState = useMemo(() => {
     if (suppressRelationWires) return { wires: [], labels: [] as RoutedWireLabel[] }
-    if (selectedConnectionSide) return { wires: [], labels: [] as RoutedWireLabel[] }
+    if (selectedPanelId || selectedConnectionSide) return { wires: [], labels: [] as RoutedWireLabel[] }
     if (!hoveredRef || !project) return { wires: [], labels: [] as RoutedWireLabel[] }
     if (hoveredKey === selectedKey) return { wires: [], labels: [] as RoutedWireLabel[] }
-    return computeWires(
-      hoveredRef,
-      placements,
-      panel,
-      project,
-      dragOverride,
-      preserveRowForRefKeys,
-      supplyPanelRefKeys,
-      hierarchyRoute,
-      getHierarchyRoute,
-      mainBusRouteSide,
-      singlePanelCorridorY,
-      pathwayRegions,
-      pathwayLinks
-    )
+    return previewRelationWireDrag(queryWires(hoveredRef), hoveredRef, placements, dragOverride)
   }, [
+    queryWires,
     suppressRelationWires,
+    selectedPanelId,
     selectedConnectionSide,
     hoveredRef,
     hoveredKey,
@@ -3100,6 +3257,7 @@ export default function RelationWires({
         return (
           <Line
             key={i}
+            name="panel-relation-wire-selected"
             ref={(node) => {
               lineRefs.current[i] = node
             }}

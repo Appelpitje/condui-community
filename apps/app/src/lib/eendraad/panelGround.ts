@@ -68,14 +68,15 @@ export function getPanelGroundTrunkDevices(
 
 export function createLinkedEarthingSeparatorPair(
   startPosition = 0,
-  language?: string
+  language?: string,
+  newId: () => string = generateId
 ): TrunkDevice[] {
-  const pairId = generateId()
+  const pairId = newId()
   const label = getDomainTranslator(language)('symbols.names.earthing_separator', {
     defaultValue: 'PE',
   })
   return [0, 1].map((offset) => ({
-    id: generateId(),
+    id: newId(),
     type: 'earthing_separator',
     symbol: 'earthing_separator',
     label,
@@ -85,7 +86,11 @@ export function createLinkedEarthingSeparatorPair(
 }
 
 /** Create or complete the linked earth stem on a secondary board. */
-export function applySecondaryPanelEarthingStem(panel: Panel, language?: string): boolean {
+export function applySecondaryPanelEarthingStem(
+  panel: Panel,
+  language?: string,
+  newId: () => string = generateId
+): boolean {
   if (panel.isMain !== false) return false
   let changed = false
   if (panel.hasGround !== true) {
@@ -97,12 +102,12 @@ export function applySecondaryPanelEarthingStem(panel: Panel, language?: string)
   if (separators.length < 2) {
     const nextPosition =
       devices.reduce((max, device) => Math.max(max, device.trunkPosition ?? -1), -1) + 1
-    devices.push(...createLinkedEarthingSeparatorPair(nextPosition, language))
+    devices.push(...createLinkedEarthingSeparatorPair(nextPosition, language, newId))
     panel.groundTrunkDevices = devices
     return true
   }
   if (!separators.slice(0, 2).some((device) => device.earthingSeparatorPairId)) {
-    const pairId = generateId()
+    const pairId = newId()
     separators.slice(0, 2).forEach((device) => {
       device.earthingSeparatorPairId = pairId
     })

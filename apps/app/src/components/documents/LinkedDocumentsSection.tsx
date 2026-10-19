@@ -50,7 +50,10 @@ export default function LinkedDocumentsSection({
   if (documents.length === 0) return null
   const link = { type: targetType, id: targetId }
   const linked = documents.filter((document) => isProjectDocumentLinkedTo(document, link))
-  const attachable = documents.filter((document) => !isProjectDocumentLinkedTo(document, link))
+  // One-wire references (scanned pages) are drawings, not device documentation.
+  const attachable = documents.filter(
+    (document) => !document.oneWire && !isProjectDocumentLinkedTo(document, link)
+  )
   /** Units of the same make and model, so one datasheet attaches to all of them. */
   const attachToIdentical = (documentId: string, target: ProjectDocumentLink) => {
     const document = documents.find((candidate) => candidate.id === documentId)

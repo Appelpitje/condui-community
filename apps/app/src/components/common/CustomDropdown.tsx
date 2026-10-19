@@ -1,10 +1,13 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown } from 'lucide-react'
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 
 export type CustomDropdownOption = {
   value: string
   label: string
+  /** Explanation shown on hover and exposed to assistive technology. */
+  title?: string
   icon?: React.ReactNode
   textClassName?: string
   isBold?: boolean
@@ -47,23 +50,23 @@ const MENU_TRANSITION_MS = 100
 
 type ClippingRect = { top: number; left: number; right: number; bottom: number }
 
-function shouldUseNativeMobileSelect(): boolean {
-  if (typeof window === 'undefined') return false
-  const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+function shouldUseNativeMobileSelect(ownerWindow: Window): boolean {
+  if (typeof ownerWindow === 'undefined') return false
+  const coarsePointer = ownerWindow.matchMedia('(pointer: coarse)').matches
   if (!coarsePointer) return false
 
-  const width = window.innerWidth
-  const height = window.innerHeight
+  const width = ownerWindow.innerWidth
+  const height = ownerWindow.innerHeight
 
   // Keep iPad/tablet widths on the custom dropdown. Phones get the native OS picker:
   // portrait phones are narrow, landscape phones are short and still below tablet width.
   return width < 768 || (height < 500 && width < 950)
 }
 
-function getVisualViewportRect(): ClippingRect {
-  const vv = window.visualViewport
+function getVisualViewportRect(ownerWindow: Window): ClippingRect {
+  const vv = ownerWindow.visualViewport
   if (!vv) {
-    return { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight }
+    return { top: 0, left: 0, right: ownerWindow.innerWidth, bottom: ownerWindow.innerHeight }
   }
   return {
     top: vv.offsetTop,
@@ -82,10 +85,11 @@ function isOverflowClipping(value: string): boolean {
  * similar to native popovers staying inside scrollable panels.
  */
 function getClippingRect(container: HTMLElement): ClippingRect {
-  let clip: ClippingRect = getVisualViewportRect()
+  const ownerWindow = container.ownerDocument.defaultView ?? window
+  let clip: ClippingRect = getVisualViewportRect(ownerWindow)
   let el: HTMLElement | null = container.parentElement
   while (el) {
-    const s = window.getComputedStyle(el)
+    const s = ownerWindow.getComputedStyle(el)
     if (isOverflowClipping(s.overflowX) || isOverflowClipping(s.overflowY)) {
       const r = el.getBoundingClientRect()
       clip = {
@@ -171,6 +175,8 @@ export default function CustomDropdown({
   menuPortal = false,
   onOptionHover,
 }: CustomDropdownProps) {
+  const ownerWindow = useCanvasWindow()
+  const ownerDocument = ownerWindow.document
   const [isOpen, setIsOpen] = useState(false)
   const [openUpward, setOpenUpward] = useState(false)
   const [menuEnter, setMenuEnter] = useState(false)
@@ -181,20 +187,20 @@ export default function CustomDropdown({
     left: number
     width: number
   } | null>(null)
-  const [useNativeSelect, setUseNativeSelect] = useState(shouldUseNativeMobileSelect)
+  const [useNativeSelect, setUseNativeSelect] = useState(() => shouldUseNativeMobileSelect(ownerWindow))
   const containerRef = useRef<HTMLDivElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    const updateMode = () => setUseNativeSelect(shouldUseNativeMobileSelect())
+    const updateMode = () => setUseNativeSelect(shouldUseNativeMobileSelect(ownerWindow))
     updateMode()
-    window.addEventListener('resize', updateMode)
-    window.visualViewport?.addEventListener('resize', updateMode)
+    ownerWindow.addEventListener('resize', updateMode)
+    ownerWindow.visualViewport?.addEventListener('resize', updateMode)
     return () => {
-      window.removeEventListener('resize', updateMode)
-      window.visualViewport?.removeEventListener('resize', updateMode)
+      ownerWindow.removeEventListener('resize', updateMode)
+      ownerWindow.visualViewport?.removeEventListener('resize', updateMode)
     }
-  }, [])
+  }, [ownerWindow])
 
   useEffect(() => {
     if (disabled) setIsOpen(false)
@@ -222,7 +228,7 @@ export default function CustomDropdown({
       if (!container) return
 
       const c = container.getBoundingClientRect()
-      const clip = menuPortal ? getVisualViewportRect() : getClippingRect(container)
+      const clip = menuPortal ? getVisualViewportRect(ownerWindow) : getClippingRect(container)
       const menu = menuRef.current
 
       if (!menu) {
@@ -264,10 +270,10 @@ export default function CustomDropdown({
 
       if (withEnterAnimation) {
         setMenuEnter(false)
-        cancelAnimationFrame(raf1)
-        cancelAnimationFrame(raf2)
-        raf1 = requestAnimationFrame(() => {
-          raf2 = requestAnimationFrame(() => setMenuEnter(true))
+        ownerWindow.cancelAnimationFrame(raf1)
+        ownerWindow.cancelAnimationFrame(raf2)
+        raf1 = ownerWindow.requestAnimationFrame(() => {
+          raf2 = ownerWindow.requestAnimationFrame(() => setMenuEnter(true))
         })
       }
     }
@@ -275,19 +281,19 @@ export default function CustomDropdown({
     runMeasure(true)
 
     const onViewportChange = () => runMeasure(false)
-    window.addEventListener('scroll', onViewportChange, true)
-    const vv = window.visualViewport
+    ownerWindow.addEventListener('scroll', onViewportChange, true)
+    const vv = ownerWindow.visualViewport
     vv?.addEventListener('resize', onViewportChange)
     vv?.addEventListener('scroll', onViewportChange)
 
     return () => {
-      window.removeEventListener('scroll', onViewportChange, true)
+      ownerWindow.removeEventListener('scroll', onViewportChange, true)
       vv?.removeEventListener('resize', onViewportChange)
       vv?.removeEventListener('scroll', onViewportChange)
-      cancelAnimationFrame(raf1)
-      cancelAnimationFrame(raf2)
+      ownerWindow.cancelAnimationFrame(raf1)
+      ownerWindow.cancelAnimationFrame(raf2)
     }
-  }, [isOpen, options, menuPlacement, menuPortal])
+  }, [isOpen, options, menuPlacement, menuPortal, ownerWindow])
 
   useEffect(() => {
     if (!isOpen) return
@@ -300,14 +306,14 @@ export default function CustomDropdown({
       setIsOpen(false)
     }
 
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('touchstart', handleClickOutside)
+    ownerDocument.addEventListener('mousedown', handleClickOutside)
+    ownerDocument.addEventListener('touchstart', handleClickOutside)
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('touchstart', handleClickOutside)
+      ownerDocument.removeEventListener('mousedown', handleClickOutside)
+      ownerDocument.removeEventListener('touchstart', handleClickOutside)
     }
-  }, [isOpen])
+  }, [isOpen, ownerDocument])
 
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value),
@@ -342,6 +348,7 @@ export default function CustomDropdown({
           className={`${className} relative flex items-center pr-8 text-left cursor-default`}
           aria-disabled="true"
           aria-label={ariaLabel ?? placeholder}
+          title={selectedOption?.title}
         >
           {controlInner}
         </div>
@@ -359,6 +366,7 @@ export default function CustomDropdown({
           onPointerDown={onPointerDown}
           className={`${className} relative appearance-none pr-8`}
           aria-label={ariaLabel ?? placeholder}
+          title={selectedOption?.title}
         >
           {!selectedOption ? (
             <option value={value} disabled>
@@ -366,7 +374,7 @@ export default function CustomDropdown({
             </option>
           ) : null}
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option key={option.value} value={option.value} title={option.title}>
               {option.label}
             </option>
           ))}
@@ -415,6 +423,8 @@ export default function CustomDropdown({
             type="button"
             role="option"
             aria-selected={isActive}
+            title={option.title}
+            aria-label={option.title ? `${option.label}: ${option.title}` : undefined}
             onMouseEnter={() => onOptionHover?.(option.value)}
             onClick={() => {
               if (!isActive) onChange(option.value)
@@ -445,13 +455,14 @@ export default function CustomDropdown({
         onClick={toggleOpen}
         className={`${className} relative flex items-center pr-8 text-left touch-manipulation select-none`}
         aria-label={ariaLabel ?? placeholder}
+        title={selectedOption?.title}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
       >
         {controlInner}
       </button>
       {menuPortal && typeof document !== 'undefined'
-        ? createPortal(menuPanel, document.body)
+        ? createPortal(menuPanel, ownerDocument.body)
         : menuPanel}
     </div>
   )

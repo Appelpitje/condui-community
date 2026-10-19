@@ -1,4 +1,4 @@
-import type { Endpoint, Placement } from '@/types/schema'
+import type { Endpoint } from '@/types/schema'
 import type { QuadrantScores } from '@/utils/planAutoOrient'
 import type { WallObstacleRect } from '@/lib/plan/labelWallCollision'
 import type {
@@ -10,18 +10,16 @@ import {
   PLAN_SYMBOL_FALLBACK_PX,
   PLAN_LABEL_FONT_SIZE_AT_FALLBACK,
 } from '@/constants/planConstants'
-import { getPlacementWorldBounds } from '@/utils/plan/placementBounds'
+import {
+  getPlanLabelCandidates, getPlanLabelSymbolBounds,
+  type LabelDirection, type LabelPlacement,
+} from '@/lib/plan/labelPlacementGeometry'
+import type { LabelSolveResume } from '@/lib/plan/labelWallInvalidation'
 import { getLabelBoxSize, getPlanLabelClearance } from '@/lib/plan/planLabelMetrics'
+import { createLabelCollisionIndex } from '@/lib/plan/labelCollisionIndex'
 export { getLabelBoxSize } from '@/lib/plan/planLabelMetrics'
 
-export type LabelDirection = 'right' | 'left' | 'below' | 'above'
-
-type LabelPlacement = Placement & {
-  endpointId?: string
-  junctionPanelLabel?: string
-  /** Label of a plan-only symbol drawn like a board (a supply enclosure). */
-  planLabel?: string
-}
+export type { LabelDirection } from '@/lib/plan/labelPlacementGeometry'
 
 const OPPOSITE_DIR: Record<LabelDirection, LabelDirection> = {
   right: 'left',
@@ -69,14 +67,37 @@ export function calculateLabelPositions(
   /** Vector floor-plan walls (plan space); labels avoid overlapping their painted thickness. */
   wallObstacleRects: WallObstacleRect[] | null = null,
   /** Plan wire routes (plan space); labels prefer not to overlap wires (soft constraint). */
-  wireObstacleRects: WireObstacleRect[] | WireObstacleIndex | null = null
+  wireObstacleRects: WireObstacleRect[] | WireObstacleIndex | null = null,
+  /** Reuse unchanged labels in greedy order; local wall edits propagate only actual label moves. */
+  resume?: LabelSolveResume
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>()
-  const labelBoxes: Array<{ id: string; x: number; y: number; width: number; height: number }> = []
+  type LabelBox = { id: string; x: number; y: number; width: number; height: number }
+  const labelBoxes = createLabelCollisionIndex<LabelBox>(baseSymbolSizePx * 4)
+  const symbolBoxes = createLabelCollisionIndex<WireObstacleBounds>(baseSymbolSizePx * 4)
+  const addLabelBox = (box: LabelBox) => labelBoxes.insert(box, {
+    left: box.x, top: box.y, right: box.x + box.width, bottom: box.y + box.height,
+  })
   const labelFontSize =
     PLAN_LABEL_FONT_SIZE_AT_FALLBACK * (baseSymbolSizePx / PLAN_SYMBOL_FALLBACK_PX)
   const labelGap = getPlanLabelClearance(labelFontSize)
   const labelSpacing = labelFontSize / 3
+  const changedLabelBoxes = createLabelCollisionIndex<WireObstacleBounds>(baseSymbolSizePx * 4)
+  const recordPosition = (id: string, point: { x: number; y: number }, width: number, height: number) => {
+    positions.set(id, point)
+    const box = centerToBox(point.x, point.y, width, height)
+    addLabelBox({ id, ...box })
+    const prior = resume?.positions.get(id)
+    if (resume?.wallAffectedIds && (!prior || point.x !== prior.x || point.y !== prior.y)) {
+      for (const center of prior ? [prior, point] : [point]) {
+        const bounds = {
+          left: center.x - width / 2 - labelSpacing - 1e-6, right: center.x + width / 2 + labelSpacing + 1e-6,
+          top: center.y - height / 2 - labelSpacing - 1e-6, bottom: center.y + height / 2 + labelSpacing + 1e-6,
+        }
+        changedLabelBoxes.insert(bounds, bounds)
+      }
+    }
+  }
 
   const placementInfoById = new Map<
     string,
@@ -92,29 +113,20 @@ export function calculateLabelPositions(
       placementInfoById.set(placement.id, { endpoint, bounds: null })
       return
     }
-    const socketCount =
-      endpoint && endpoint.socketProps && typeof endpoint.socketProps.socketCount === 'number'
-        ? endpoint.socketProps.socketCount
-        : 1
-    const symbolType =
-      endpoint?.symbol ??
-      (placement.junctionPanelLabel != null
-        ? 'junction_panel'
-        : placement.planLabel != null
-          ? 'panel_distribution'
-          : undefined)
-    const bounds = getPlacementWorldBounds(
-      placement.pos,
-      placement.rotationDeg ?? 0,
-      placement.scale,
-      socketCount,
-      symbolType,
-      baseSymbolSizePx
-    )
+    const bounds = getPlanLabelSymbolBounds(placement, endpoint, baseSymbolSizePx)
     placementInfoById.set(placement.id, { endpoint, bounds })
   })
 
-  placements.forEach((placement) => {
+  for (const placement of placements) {
+    const bounds = placementInfoById.get(placement.id)?.bounds
+    if (bounds) {
+      const padded = { left: bounds.left - labelGap, top: bounds.top - labelGap,
+        right: bounds.right + labelGap, bottom: bounds.bottom + labelGap }
+      symbolBoxes.insert(padded, padded)
+    }
+  }
+
+  placements.forEach((placement, placementIndex) => {
     const info = placementInfoById.get(placement.id)
     const endpoint =
       info?.endpoint ?? (placement.endpointId ? getEndpointById(placement.endpointId) : null)
@@ -126,63 +138,25 @@ export function calculateLabelPositions(
       labelFontSize,
       fontFamily
     )
-    const halfLabelWidth = labelWidth / 2
-    const halfLabelHeight = labelHeight / 2
-    const cx = placement.pos.x
-    const cy = placement.pos.y
-
-    const isPanelLike =
-      endpoint?.symbol === 'panel_distribution' ||
-      placement.junctionPanelLabel != null ||
-      placement.planLabel != null
-
-    // Base distance from symbol center to label box center, per axis,
-    // derived from actual symbol bounds when available.
-    const bounds = info?.bounds ?? null
-    const extentRight = bounds ? bounds.right - cx : (baseSymbolSizePx * placement.scale) / 2
-    const extentLeft = bounds ? cx - bounds.left : (baseSymbolSizePx * placement.scale) / 2
-    const extentTop = bounds ? cy - bounds.top : (baseSymbolSizePx * placement.scale) / 2
-    const extentBottom = bounds ? bounds.bottom - cy : (baseSymbolSizePx * placement.scale) / 2
-
-    // Panels/junction panels are significantly wider than tall on plan. Keep labels further
-    // away horizontally so left/right placements do not sit on top of the symbol body.
-    const avgHorizontalExtent = (extentLeft + extentRight) / 2
-    const avgVerticalExtent = (extentTop + extentBottom) / 2
-    const panelHorizontalAspectBoost = isPanelLike
-      ? Math.max(0, (avgHorizontalExtent - avgVerticalExtent) * 0.9)
-      : 0
-    const panelExtraGapX = isPanelLike ? 12 + panelHorizontalAspectBoost : 0
-    const panelExtraGapY = isPanelLike ? 6 : 0
-
-    const offsetRight = extentRight + labelGap + panelExtraGapX + halfLabelWidth
-    const offsetLeft = extentLeft + labelGap + panelExtraGapX + halfLabelWidth
-    const offsetAbove = extentTop + labelGap + panelExtraGapY + halfLabelHeight
-    const offsetBelow = extentBottom + labelGap + panelExtraGapY + halfLabelHeight
-
-    // Build candidate positions grouped by direction (all positions are box centers).
-    const candidatesByDir: Record<LabelDirection, Array<{ x: number; y: number }>> = {
-      right: [
-        { x: cx + offsetRight, y: cy },
-        { x: cx + offsetRight, y: cy - halfLabelHeight },
-        { x: cx + offsetRight, y: cy + halfLabelHeight },
-      ],
-      left: [
-        { x: cx - offsetLeft, y: cy },
-        { x: cx - offsetLeft, y: cy - halfLabelHeight },
-        { x: cx - offsetLeft, y: cy + halfLabelHeight },
-      ],
-      below: [
-        { x: cx, y: cy + offsetBelow },
-        { x: cx - halfLabelWidth, y: cy + offsetBelow },
-        { x: cx + halfLabelWidth, y: cy + offsetBelow },
-      ],
-      above: [
-        { x: cx, y: cy - offsetAbove },
-        { x: cx - halfLabelWidth, y: cy - offsetAbove },
-        { x: cx + halfLabelWidth, y: cy - offsetAbove },
-      ],
+    const candidatesByDir = getPlanLabelCandidates(
+      placement, endpoint, info?.bounds ?? null, baseSymbolSizePx, labelWidth, labelHeight, labelGap
+    )
+    const prior = resume?.positions.get(placement.id)
+    const touchedByChangedLabel = resume?.wallAffectedIds && Object.values(candidatesByDir).some((points) =>
+      points.some((point) => {
+        const box = { left: point.x - labelWidth / 2, right: point.x + labelWidth / 2,
+          top: point.y - labelHeight / 2, bottom: point.y + labelHeight / 2 }
+        return changedLabelBoxes.query(box).some((changed) => box.left < changed.right &&
+          box.right > changed.left && box.top < changed.bottom && box.bottom > changed.top)
+      })
+    )
+    const reusable = resume?.wallAffectedIds
+      ? !resume.wallAffectedIds.has(placement.id) && !touchedByChangedLabel
+      : !!resume && placementIndex < resume.startIndex
+    if (prior && reusable) {
+      recordPosition(placement.id, prior, labelWidth, labelHeight)
+      return
     }
-
     // Determine preferred direction order
     let dirOrder: LabelDirection[]
     const scores = wallScoresByPlacementId?.get(placement.id)
@@ -239,14 +213,14 @@ export function calculateLabelPositions(
       let hasCollision = false
       let labelOverlapArea = 0
 
-      for (const existingBox of labelBoxes) {
-        const expandedBox = {
+      const expandedBox = {
           x: box.x - labelSpacing,
           y: box.y - labelSpacing,
           width: box.width + labelSpacing * 2,
           height: box.height + labelSpacing * 2,
         }
-
+      for (const existingBox of labelBoxes.query({ left: expandedBox.x, top: expandedBox.y,
+        right: expandedBox.x + expandedBox.width, bottom: expandedBox.y + expandedBox.height })) {
         const overlaps =
           expandedBox.x < existingBox.x + existingBox.width &&
           expandedBox.x + expandedBox.width > existingBox.x &&
@@ -269,19 +243,10 @@ export function calculateLabelPositions(
         }
       }
 
-      const symbolPadding = labelGap
       let hasSymbolCollision = false
       let symbolOverlapArea = 0
-      placements.forEach((otherPlacement) => {
-        const otherInfo = placementInfoById.get(otherPlacement.id)
-        const b = otherInfo?.bounds
-        if (!b) return
-        const expandedSymbol = {
-          left: b.left - symbolPadding,
-          right: b.right + symbolPadding,
-          top: b.top - symbolPadding,
-          bottom: b.bottom + symbolPadding,
-        }
+      for (const expandedSymbol of symbolBoxes.query({ left: box.x, top: box.y,
+        right: box.x + box.width, bottom: box.y + box.height })) {
         const overlaps =
           box.x < expandedSymbol.right &&
           box.x + box.width > expandedSymbol.left &&
@@ -300,7 +265,7 @@ export function calculateLabelPositions(
           )
           symbolOverlapArea += overlapX * overlapY
         }
-      })
+      }
 
       let hasWallCollision = false
       let wallOverlapArea = 0
@@ -377,33 +342,12 @@ export function calculateLabelPositions(
     }
 
     if (bestCleanCandidate) {
-      positions.set(placement.id, { x: bestCleanCandidate.x, y: bestCleanCandidate.y })
-      const boxBase = centerToBox(
-        bestCleanCandidate.x,
-        bestCleanCandidate.y,
-        labelWidth,
-        labelHeight
-      )
-      labelBoxes.push({
-        id: placement.id,
-        x: boxBase.x,
-        y: boxBase.y,
-        width: boxBase.width,
-        height: boxBase.height,
-      })
+      recordPosition(placement.id, { x: bestCleanCandidate.x, y: bestCleanCandidate.y }, labelWidth, labelHeight)
       foundPosition = true
     }
 
     if (!foundPosition) {
-      positions.set(placement.id, { x: bestCandidate.x, y: bestCandidate.y })
-      const boxBase = centerToBox(bestCandidate.x, bestCandidate.y, labelWidth, labelHeight)
-      labelBoxes.push({
-        id: placement.id,
-        x: boxBase.x,
-        y: boxBase.y,
-        width: boxBase.width,
-        height: boxBase.height,
-      })
+      recordPosition(placement.id, { x: bestCandidate.x, y: bestCandidate.y }, labelWidth, labelHeight)
     }
   })
 

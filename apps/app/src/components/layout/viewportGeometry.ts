@@ -37,6 +37,18 @@ const FULL_RECT: ViewportZoneRect = {
 
 export function getViewportPanelZones(layout: ViewportLayout): ViewportPanelZone[] {
   const { preset, panels, primaryRatio, secondaryRatio } = layout
+  if (preset === 'grid' && (layout.rows !== undefined || layout.columns !== undefined)) {
+    const rows = layout.rows ?? 2
+    const columns = layout.columns ?? 2
+    return panels.slice(0, rows * columns).map((panel, panelIndex) => ({
+      type: panel.canvas, panelIndex,
+      rect: {
+        left: (panelIndex % columns) / columns,
+        top: Math.floor(panelIndex / columns) / rows,
+        width: 1 / columns, height: 1 / rows,
+      },
+    }))
+  }
   const p0 = panels[0]
   const p1 = panels[1]
   const p2 = panels[2]
@@ -126,6 +138,7 @@ export function getViewportPanelZones(layout: ViewportLayout): ViewportPanelZone
 }
 
 export function getViewportDividerSpecs(layout: ViewportLayout): ViewportDividerSpec[] {
+  if (layout.preset === 'grid' && (layout.rows !== undefined || layout.columns !== undefined)) return []
   const { preset, primaryRatio, secondaryRatio, panels } = layout
   const out: ViewportDividerSpec[] = []
 

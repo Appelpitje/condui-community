@@ -1,5 +1,15 @@
 import { useMemo, useRef } from 'react'
 import { useProjectStore } from '@/stores/projectStore'
+import { usePlanDragVisualStore } from '@/stores/planDragVisualStore'
+import {
+  getSettledLabelKey,
+  getPlanLabelSamplingImageKey,
+  settledLabelPositionsCache,
+  type PlanLabelSamplingState,
+  type SettledLabelInputs,
+  type SettledLabelKey,
+} from '@/lib/plan/settledLabelPositionsCache'
+import { wallAffectedLabelIds, type LabelSolveResume } from '@/lib/plan/labelWallInvalidation'
 import { buildWallObstacleRects } from '@/lib/plan/labelWallCollision'
 import { buildPlanWireObstacleRects, buildWireObstacleIndex } from '@/lib/plan/labelWireCollision'
 import { getQuadrantWallScores, type QuadrantScores } from '@/utils/planAutoOrient'
@@ -46,53 +56,112 @@ export function usePlanLabelPositions(
   labelRecalcKey: number,
   enableImageWallSampling = true,
   wallCollision: PlanLabelWallCollisionInput | null = null,
-  wireCollision: PlanLabelWireCollisionInput | null = null
+  wireCollision: PlanLabelWireCollisionInput | null = null,
+  allowSettledCache = true,
+  deferRecalculation = false,
+  contextKey?: string
 ): Map<string, { x: number; y: number }> {
   const getEndpointById = useProjectStore(
     (s: ReturnType<typeof useProjectStore.getState>) => s.getEndpointById
   )
   const fontFamily = useCanvasFontFamily()
+  const electrical = useProjectStore((state) => state.currentProject?.disciplines.electrical)
+  const projectId = useProjectStore((state) => state.currentProject?.project.id)
+  const labelContext = contextKey ?? `${projectId ?? ''}:${[...new Set(placements.map((row) => row.floorId))].join(',')}`
 
-  const cacheRef = useRef<{
-    lastImageKey: string
-    lastPlacementGeomById: Map<string, string>
-    wallScoresByPlacementId: Map<string, QuadrantScores>
-  }>({
+  const cacheRef = useRef<PlanLabelSamplingState>({
     lastImageKey: '',
     lastPlacementGeomById: new Map(),
     wallScoresByPlacementId: new Map(),
   })
   const previousLabelPositionsRef = useRef(new Map<string, { x: number; y: number }>())
-
-  const wallObstacleRects = useMemo(() => {
-    if (!wallCollision || wallCollision.walls.length === 0) return null
-    return buildWallObstacleRects(
-      wallCollision.walls,
-      wallCollision.masterWallThickness,
-      wallCollision.pxPerMeter
-    )
-  }, [wallCollision])
-
-  const wireObstacleIndex = useMemo(() => {
-    if (!wireCollision || wireCollision.routes.length === 0) return null
-    const rects = buildPlanWireObstacleRects(
-      wireCollision.routes,
-      getEndpointById,
-      wireCollision.placementPositionOverrides,
-      2,
-      wireCollision.routeStyle
-    )
-    return buildWireObstacleIndex(rects)
-  }, [wireCollision, getEndpointById])
+  const previousSolveRef = useRef<{ key: SettledLabelKey | null; walls: PlanLabelWallCollisionInput | null } | null>(null)
+  const contextRef = useRef(labelContext)
 
   const labelPositions = useMemo(() => {
-    void labelRecalcKey
+    if (contextRef.current !== labelContext) {
+      contextRef.current = labelContext
+      previousLabelPositionsRef.current = new Map()
+      previousSolveRef.current = null
+      cacheRef.current = { lastImageKey: '', lastPlacementGeomById: new Map(), wallScoresByPlacementId: new Map() }
+    }
+    // Dimmed electrical content keeps its completed positions during floor-plan
+    // edits. A cold drawing mount intentionally does no label/electrical solve.
+    if (deferRecalculation) return previousLabelPositionsRef.current
+    const drag = usePlanDragVisualStore.getState()
+    const settledInputs: SettledLabelInputs = {
+      electrical,
+      getEndpointById,
+      placements,
+      image: planImage,
+      imagePosition: planImagePosition,
+      baseSymbolSizePx,
+      labelRecalcKey,
+      fontFamily,
+      enableImageWallSampling,
+      walls: wallCollision,
+      wires: wireCollision,
+      hasLiveDrag: drag.positions.size > 0 || drag.rotations.size > 0 || drag.labels.size > 0,
+      allowSettledCache,
+    }
+    const settledKey = getSettledLabelKey(settledInputs)
+    const geometryKey = settledKey ? getSettledLabelKey({ ...settledInputs, walls: null }) : null
+    const settled = settledLabelPositionsCache.read(settledKey)
+    if (settled) {
+      cacheRef.current = settled.sampling
+      const stable = reuseLabelPositions(previousLabelPositionsRef.current, settled.positions)
+      previousLabelPositionsRef.current = stable
+      previousSolveRef.current = { key: geometryKey, walls: wallCollision }
+      return stable
+    }
+    let resume: LabelSolveResume | undefined
+    const previous = previousSolveRef.current
+    if (previous?.key && geometryKey && previous.walls && wallCollision &&
+      previous.key.electrical === geometryKey.electrical &&
+      previous.key.getEndpointById === geometryKey.getEndpointById &&
+      previous.key.fingerprint === geometryKey.fingerprint) {
+      const affected = wallAffectedLabelIds(
+        previous.walls, wallCollision, placements, getEndpointById, baseSymbolSizePx, fontFamily
+      )
+      if (affected) resume = {
+        startIndex: 0, wallAffectedIds: affected, positions: previousLabelPositionsRef.current,
+      }
+      if (affected?.size === 0) {
+        previousSolveRef.current = { key: geometryKey, walls: wallCollision }
+        settledLabelPositionsCache.save(settledKey, previousLabelPositionsRef.current, cacheRef.current)
+        return previousLabelPositionsRef.current
+      }
+    }
+    const wallObstacleRects =
+      wallCollision && wallCollision.walls.length > 0
+        ? buildWallObstacleRects(
+            wallCollision.walls,
+            wallCollision.masterWallThickness,
+            wallCollision.pxPerMeter
+          )
+        : null
+    const wireObstacleIndex =
+      wireCollision && wireCollision.routes.length > 0
+        ? buildWireObstacleIndex(
+            buildPlanWireObstacleRects(
+              wireCollision.routes,
+              getEndpointById,
+              wireCollision.placementPositionOverrides,
+              2,
+              wireCollision.routeStyle,
+              wallCollision?.pxPerMeter
+            )
+          )
+        : null
     let wallScoresByPlacementId: Map<string, QuadrantScores> | null = null
     if (enableImageWallSampling && planImage && planImagePosition) {
       // Cache and filter quadrant scoring aggressively: only recompute for moved placements
       // and placements near moved ones. Recompute all only when plan image or imagePosition changes.
-      const imageKey = `${planImage.src}|${planImage.width}x${planImage.height}|${planImagePosition.x},${planImagePosition.y}|${baseSymbolSizePx}`
+      const imageKey = getPlanLabelSamplingImageKey(planImage, planImagePosition, baseSymbolSizePx)
       const imageChanged = cacheRef.current.lastImageKey !== imageKey
+      // Placements beyond the sampling budget must fall back to geometry, rather
+      // than retaining wall evidence from a different image/calibration.
+      if (imageChanged) cacheRef.current.wallScoresByPlacementId.clear()
       cacheRef.current.lastImageKey = imageKey
 
       // Detect moved placements by geometry change.
@@ -167,13 +236,16 @@ export function usePlanLabelPositions(
       baseSymbolSizePx,
       fontFamily,
       wallObstacleRects,
-      wireObstacleIndex
+      wireObstacleIndex,
+      resume
     )
     const stableLabelPositions = reuseLabelPositions(
       previousLabelPositionsRef.current,
       nextLabelPositions
     )
     previousLabelPositionsRef.current = stableLabelPositions
+    previousSolveRef.current = { key: geometryKey, walls: wallCollision }
+    settledLabelPositionsCache.save(settledKey, stableLabelPositions, cacheRef.current)
     return stableLabelPositions
   }, [
     placements,
@@ -184,8 +256,12 @@ export function usePlanLabelPositions(
     baseSymbolSizePx,
     fontFamily,
     enableImageWallSampling,
-    wallObstacleRects,
-    wireObstacleIndex,
+    wallCollision,
+    wireCollision,
+    electrical,
+    allowSettledCache,
+    deferRecalculation,
+    labelContext,
   ])
 
   return labelPositions

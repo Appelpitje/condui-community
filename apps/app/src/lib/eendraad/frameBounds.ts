@@ -51,9 +51,14 @@ function findProtectionInPanel(panelLayout: BottomUpPanelLayout, protectionId: s
 
 /** Supply devices on a horizontal run caption below the wire unless placed explicitly. */
 function supplyDeviceLabelPosition(
-  device: TrunkDevice | undefined
+  device: TrunkDevice | undefined,
+  panelLayout: Pick<BottomUpPanelLayout, 'supplyChangeoverGridSource'>
 ): ReturnType<typeof getSymbolLabelPosition> | undefined {
-  if (!device || isVerticalSupplyDevice(device)) return undefined
+  if (
+    !device ||
+    isVerticalSupplyDevice(device, { changeoverGridSource: panelLayout.supplyChangeoverGridSource })
+  )
+    return undefined
   return device.symbolLabelDisplay?.position ?? 'bottom'
 }
 
@@ -229,7 +234,7 @@ export function computeEendraadFrameBounds({
           device,
           positionedDevice.position.x,
           positionedDevice.position.y,
-          isSupplyDevice ? supplyDeviceLabelPosition(device) : undefined
+          isSupplyDevice ? supplyDeviceLabelPosition(device, panelLayout) : undefined
         )
         if (labelExtents) extents.push(labelExtents)
       }
@@ -310,7 +315,7 @@ export function collectEendraadDeviceLabelRects(
       device,
       x,
       y,
-      supply ? supplyDeviceLabelPosition(device as TrunkDevice) : undefined
+      supply ? supplyDeviceLabelPosition(device as TrunkDevice, panelLayout) : undefined
     )
     return extents
       ? [

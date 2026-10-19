@@ -201,6 +201,26 @@ function fail(message: string): never {
   throw new CommandError('check_failed', message, { reason: 'invalid_panel_layout' })
 }
 
+function sameModuleMembers(left: PanelGridSlot[], right: PanelGridSlot[]): boolean {
+  if (left.length !== right.length) return false
+  const keys = left.map(slot => panelGridModuleRefKey(slot.module)).sort()
+  return right.map(slot => panelGridModuleRefKey(slot.module)).sort().every((key, i) => key === keys[i])
+}
+
+/** Coordinate/width edits cannot require initialization of unrelated cabinets. */
+function coordinateOnlyPanelIds(project: ProjectV2, input: PanelEditLayoutInput): string[] | null {
+  if (!input.panels?.length || Object.entries(input).some(
+    ([key, value]) => key !== 'panels' && value !== undefined
+  )) return null
+  for (const edit of input.panels) {
+    const panel = findPanelById(getProjectElectricalPanels(project), edit.panelId)
+    if (!panel?.gridView || edit.grid != null ||
+        (edit.mainSlots != null && !sameModuleMembers(panel.gridView.slots, edit.mainSlots)) ||
+        (edit.supplySlots != null && !sameModuleMembers(panel.gridView.supplyPanelSlots ?? [], edit.supplySlots))) return null
+  }
+  return [...new Set(input.panels.map(edit => edit.panelId))]
+}
+
 function validateSlots(
   project: ProjectV2,
   slots: PanelGridSlot[],
@@ -489,6 +509,7 @@ export const panelEditLayout = defineProjectCommand({
     }
   },
   apply(draft, input, env) {
+    const localPanelIds = coordinateOnlyPanelIds(draft as ProjectV2, input)
     const project = draft as ProjectV2,
       changed: EntityRef[] = [],
       created: EntityRef[] = []
@@ -661,14 +682,25 @@ export const panelEditLayout = defineProjectCommand({
         ...input.createAuxiliary.deviceIds.map((id) => ({ kind: 'trunkDevice' as const, id }))
       )
     }
-    if (changed.length || created.length) {
-      const persist = (panels: ReturnType<typeof getProjectElectricalPanels>) => {
-        for (const panel of panels) {
-          persistAutomaticPanelSlotsInProject(project, panel.id)
-          persist(panel.subPanels)
+    // Opening a legacy board asks to initialize only the named boards. Re-running
+    // every board's layout through an Immer draft is both unrelated and expensive.
+    // Same-board coordinate edits repair only those boards. Membership/mounting
+    // changes still perform their full coupled follow-ups.
+    const reconcileOnly = input.reconcilePanelIds != null && Object.entries(input).every(
+      ([key, value]) => key === 'reconcilePanelIds' || value === undefined
+    )
+    if ((changed.length || created.length) && !reconcileOnly) {
+      if (localPanelIds) {
+        for (const id of localPanelIds) persistAutomaticPanelSlotsInProject(project, id)
+      } else {
+        const persist = (panels: ReturnType<typeof getProjectElectricalPanels>) => {
+          for (const panel of panels) {
+            persistAutomaticPanelSlotsInProject(project, panel.id)
+            persist(panel.subPanels)
+          }
         }
+        persist(getProjectElectricalPanels(project))
       }
-      persist(getProjectElectricalPanels(project))
     }
     return { created, changed, removed: [], ...(created.length ? { select: created } : {}) }
   },

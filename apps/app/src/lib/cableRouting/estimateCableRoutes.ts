@@ -25,7 +25,7 @@ import {
   selectProjectAuxiliaryElectricalEnclosures,
   selectProjectSupplyAssemblies,
 } from '@/lib/projectV2/electrical'
-import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { findMainPanel } from '@/lib/panel/panelTree'
 import { resolveAssemblyPanelInput } from '@/lib/supplyAssembly/electricalTopology'
 import type { AuxiliaryElectricalEnclosure, SupplyNode } from '@/types/supplyAssembly'
@@ -123,6 +123,12 @@ export const DEFAULT_CABLE_ROUTE_SETTINGS: CableRouteSettings = {
   horizontalDetourFactor: 1.2,
   drawnDetourFactor: 1.1,
   wallProximityM: 0.35,
+}
+
+/** Local measured heights override category defaults only when physically meaningful. */
+function measuredPlacementHeight(placement: Placement): number | undefined {
+  const value = placement.mountingHeightM
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
 /** The project's own mounting heights (cable list settings) over the defaults. */
@@ -769,10 +775,12 @@ export function estimateCableRoutes(
     const placements = holder ? (holder.entity.placements ?? []) : endpoint.placements
     return placements.filter(onPlan).map((placement) => {
       const ceilingHeightM = floors.get(placement.floorId)!.heightM
-      const ceiling =
-        isCeilingSymbol(endpoint) ||
-        (endpoint.type === 'light_point' && !geometry.isNearWall(placement.floorId, placement.pos))
-      const heightM = ceiling ? ceilingHeightM : wallMountedHeightM(endpoint)
+      const measured = measuredPlacementHeight(placement)
+      const hasMeasuredHeight = measured !== undefined
+      const ceiling = (isCeilingSymbol(endpoint) ||
+        (endpoint.type === 'light_point' && !geometry.isNearWall(placement.floorId, placement.pos))) &&
+        (!hasMeasuredHeight || Math.abs(measured - ceilingHeightM) < 0.01)
+      const heightM = hasMeasuredHeight ? measured : ceiling ? ceilingHeightM : wallMountedHeightM(endpoint)
       return {
         floorId: placement.floorId,
         pos: placement.pos,
@@ -811,7 +819,7 @@ export function estimateCableRoutes(
     return {
       floorId: placement.floorId,
       pos: placement.pos,
-      heightM: settings.panelHeightM,
+      heightM: measuredPlacementHeight(placement) ?? settings.panelHeightM,
       ceiling: false,
       nodeType: 'panel',
       symbolId: 'panel_distribution',
@@ -991,7 +999,7 @@ export function estimateCableRoutes(
     return {
       floorId: placement.floorId,
       pos: placement.pos,
-      heightM: settings.panelHeightM,
+      heightM: measuredPlacementHeight(placement) ?? settings.panelHeightM,
       ceiling: false,
       placementId: placement.id,
       endpointId: enclosure.id,
@@ -1069,7 +1077,7 @@ export function estimateCableRoutes(
     const assemblies = selectProjectSupplyAssemblies(project)
     if (assemblies.length === 0) return []
     const deviceById = new Map(
-      getAllSupplyTrunkDevices(project).map((device) => [device.id, device])
+      queryAllSupplyTrunkDevices(project).map((device) => [device.id, device])
     )
     const mainPanel = findMainPanel(getProjectElectricalPanels(project))
     const panelNameById = (panelId: string | undefined) =>
@@ -1294,6 +1302,15 @@ export function estimateCableRoutes(
   /** Cables from a protection on one board to another board (`panel-feed` edges). */
   function estimateBoardFeeders(): CableRouteEstimate[] {
     const nodeById = new Map(snapshot.nodes.map((node) => [node.id, node]))
+    const orderedAnchorsBySource = new Map<string, string[]>()
+    for (const relationship of snapshot.relationships) {
+      if (relationship.kind !== 'ordered-before') continue
+      const anchor = relationship.properties?.wireAnchor
+      if (typeof anchor !== 'string') continue
+      const anchors = orderedAnchorsBySource.get(relationship.from) ?? []
+      anchors.push(anchor)
+      orderedAnchorsBySource.set(relationship.from, anchors)
+    }
     const feeders: CableRouteEstimate[] = []
     for (const relationship of snapshot.relationships) {
       if (relationship.kind !== 'panel-feed') continue
@@ -1320,13 +1337,8 @@ export function estimateCableRoutes(
       const highM = complete ? builder.horizontalHighM + fixedM : 0
       const wire = relationship.properties?.wire as { lengthM?: number } | undefined
       // The wire on the source board that leads into this cable is the same physical run.
-      const aliasAnchors = snapshot.relationships.flatMap((edge) =>
-        edge.kind === 'ordered-before' &&
-        edge.from === relationship.from &&
-        typeof edge.properties?.wireAnchor === 'string' &&
-        edge.properties.wireAnchor !== anchor
-          ? [edge.properties.wireAnchor]
-          : []
+      const aliasAnchors = (orderedAnchorsBySource.get(relationship.from) ?? []).filter(
+        (candidate) => candidate !== anchor
       )
       feeders.push({
         anchor,
@@ -1728,18 +1740,41 @@ export function estimateCableRoutes(
     const drawnFeederOf = drawnFeeders(circuit.id)
     const links: Link[] = []
     const pending = [...units]
+    const pendingUnits = new Set(units)
+    const unitByPlacement = new Map(units.flatMap((unit) => unit.flatMap((stop) =>
+      stop.locations.flatMap((location) => location.placementId
+        ? [[location.placementId, unit] as const] : []))))
+    // The point a drawn wire from outside the unit enters at: usually its first point, but a
+    // board in the middle of a branch may feed a later point so the branch splits both ways.
+    const drawnEntryOf = (unit: ChainStop[]) => {
+      for (const [position, stop] of unit.entries()) {
+        for (const location of stop.locations) {
+          const drawn = location.placementId ? drawnFeederOf.get(location.placementId) : undefined
+          if (drawn && unitByPlacement.get(drawn) !== unit) return { position, drawn }
+        }
+      }
+      return undefined
+    }
     while (pending.length > 0) {
       let unitIndex = 0
+      let entryPosition = 0
       let feeder: Reached | undefined
       let best = Infinity
       pending.forEach((unit, candidate) => {
         const entry = unit[0]!.locations[0]!
         const group = rootFor(unit[0]!).group
-        const drawn = entry.placementId ? drawnFeederOf.get(entry.placementId) : undefined
+        const drawnEntry = drawnEntryOf(unit)
+        const drawn = drawnEntry?.drawn
         const drawnFeeder = drawn ? reachedByPlacement.get(`${group}:${drawn}`) : undefined
+        // A drawn feed can start at a light in another lighting group. Reach that
+        // group first; proximity must not replace the user's chosen feeder.
+        const sourceUnit = drawn ? unitByPlacement.get(drawn) : undefined
+        if (!drawnFeeder && sourceUnit && sourceUnit !== unit && pendingUnits.has(sourceUnit) &&
+          rootFor(sourceUnit[0]!).group === group) return
         if (drawnFeeder && best > -Infinity) {
           best = -Infinity
           unitIndex = candidate
+          entryPosition = drawnEntry!.position
           feeder = drawnFeeder
           return
         }
@@ -1751,29 +1786,33 @@ export function estimateCableRoutes(
           if (cost < best) {
             best = cost
             unitIndex = candidate
+            entryPosition = 0
             feeder = point
           }
         }
       })
       const [unit] = pending.splice(unitIndex, 1)
+      pendingUnits.delete(unit!)
       const group = rootFor(unit![0]!).group
       // Only cables between units count; a switch's own wire to its lights is not a branch.
       if (feeder && wiresAtLive.has(feeder)) wiresAtLive.set(feeder, wiresAtLive.get(feeder)! + 1)
       const lightingUnit = unit!.some((stop) => isLightingSide(stop.endpoint))
-      let previous = feeder
-      unit!.forEach((stop, position) => {
+      const reachedInUnit = new Map<number, Reached>()
+      const place = (position: number, from: Reached | undefined) => {
+        const stop = unit![position]!
         const index = links.length
+        const entering = reachedInUnit.size === 0
         const role: CableRouteRole =
-          position > 0
+          !entering
             ? 'wire'
-            : previous?.link === -1
+            : from?.link === -1
               ? 'home-run'
               : lightingUnit
                 ? 'branch-feed'
                 : 'wire'
-        links.push({ stop, feeder: previous?.link, from: previous?.location, role })
+        links.push({ stop, feeder: from?.link, from: from?.location, role })
         const point = { location: stop.locations[stop.locations.length - 1]!, link: index, group }
-        if (!lightingUnit || position === 0) {
+        if (!lightingUnit || entering) {
           live.push(point)
           wiresAtLive.set(point, 1)
         }
@@ -1783,8 +1822,50 @@ export function estimateCableRoutes(
             reachedByPlacement.set(`${group}:${location.placementId}`, point)
           }
         }
-        previous = point
-      })
+        reachedInUnit.set(position, point)
+      }
+      place(entryPosition, feeder)
+      // The rest of the unit: a wire drawn inside it decides where a point hangs; otherwise a
+      // point hangs off its nearest reached neighbour in branch order, so the branch runs outward
+      // from where the cable enters (in order when that is its first point).
+      const internalFeederOf = (position: number) => {
+        for (const location of unit![position]!.locations) {
+          const drawn = location.placementId ? drawnFeederOf.get(location.placementId) : undefined
+          if (drawn && unitByPlacement.get(drawn) === unit) return drawn
+        }
+        return undefined
+      }
+      while (reachedInUnit.size < unit!.length) {
+        const waiting: number[] = []
+        let next: { position: number; from: Reached } | undefined
+        for (let position = 0; position < unit!.length && !next; position += 1) {
+          if (reachedInUnit.has(position)) continue
+          const drawn = internalFeederOf(position)
+          if (!drawn) continue
+          const from = [...reachedInUnit.values()].find((point) =>
+            reachedByPlacement.get(`${group}:${drawn}`) === point)
+          if (from) next = { position, from }
+          else waiting.push(position)
+        }
+        if (!next) {
+          let nearest = Infinity
+          for (const allowWaiting of [false, true]) {
+            for (let position = 0; position < unit!.length; position += 1) {
+              if (reachedInUnit.has(position)) continue
+              if (!allowWaiting && waiting.includes(position)) continue
+              for (const [reachedPosition, point] of reachedInUnit) {
+                const distance = Math.abs(position - reachedPosition)
+                if (distance < nearest) {
+                  nearest = distance
+                  next = { position, from: point }
+                }
+              }
+            }
+            if (next) break
+          }
+        }
+        place(next!.position, next!.from)
+      }
     }
 
     // Pass 2, each link's route.

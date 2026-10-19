@@ -1,3 +1,6 @@
+import { DEFAULT_LAYOUTS } from '@/lib/viewport/viewportLayouts'
+import { createViewportLayoutActions } from '@/lib/viewport/viewportLayoutActions'
+export { DEFAULT_LAYOUTS, isLayoutPresetAvailable } from '@/lib/viewport/viewportLayouts'
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
@@ -14,21 +17,19 @@ import type {
   ViewportLayout,
   LayoutPreset,
   CanvasType,
-  ViewportPanel,
   PlanToolMode,
 } from '@/types/ui'
 import type { ExportOptions } from '@/lib/export/types'
 import type { SymbolMetadata } from '@/lib/symbols'
-import { VIEWPORT_RATIO_MAX, VIEWPORT_RATIO_MIN } from '@/constants/layoutConstants'
 import type { PlanDropKind } from '@/lib/plan/planDropPicker'
+import type { ChangeoverGridSource } from '@/lib/supplyAssembly/changeoverGridSource'
 import { trackGoogleAnalyticsEvent } from '@/lib/analytics/googleAnalytics'
+import { areSelectionsEqual } from '@/utils/selection'
 import {
   trackValidationPanelVisibility,
   type ValidationPanelAnalyticsSource,
 } from '@/lib/analytics/validationPanelAnalytics'
 
-import { getResponsiveEditorMode } from '@/hooks/useResponsiveEditorMode'
-import { getAvailableCanvasTypes } from '@/lib/viewport/availableCanvasTypes'
 
 /** Plan canvas view state (zoom, pan, grid) — alias for ViewState */
 export type PlanView = ViewState
@@ -41,6 +42,10 @@ export type LeftDockPanel =
   | 'quickPlacer'
   | 'schematicAssistant'
   
+export interface ChangeoverGridSourcePreviewRequest {
+  panelId: string
+  source: ChangeoverGridSource
+}
 export type ProjectVersionsWindowTab = 'timeline' | 'qr' | 'sharing'
 export interface FloatingPanelDragSeed {
   panel: LeftDockPanel
@@ -58,100 +63,6 @@ export interface FloatingPanelDragSeed {
 // Enable Immer MapSet plugin to support Map and Set in Immer state
 enableMapSet()
 
-// --- Viewport layout helpers ---
-
-export const DEFAULT_LAYOUTS: Record<LayoutPreset, () => ViewportLayout> = {
-  single: () => ({
-    preset: 'single',
-    panels: [{ canvas: 'eendraad' }],
-    primaryRatio: 1,
-    secondaryRatio: 0.5,
-    focusReturnLayout: null,
-  }),
-  sideBySide: () => ({
-    preset: 'sideBySide',
-    panels: [{ canvas: 'eendraad' }, { canvas: 'plan' }],
-    primaryRatio: 0.5,
-    secondaryRatio: 0.5,
-    focusReturnLayout: null,
-  }),
-  stacked: () => ({
-    preset: 'stacked',
-    panels: [{ canvas: 'eendraad' }, { canvas: 'plan' }],
-    primaryRatio: 0.5,
-    secondaryRatio: 0.5,
-    focusReturnLayout: null,
-  }),
-  topPairBottomWide: () => ({
-    preset: 'topPairBottomWide',
-    panels: [{ canvas: 'eendraad' }, { canvas: 'plan' }, { canvas: 'panel' }],
-    primaryRatio: 0.5,
-    secondaryRatio: 0.5,
-    focusReturnLayout: null,
-  }),
-  topWideBottomPair: () => ({
-    preset: 'topWideBottomPair',
-    panels: [{ canvas: 'eendraad' }, { canvas: 'plan' }, { canvas: 'panel' }],
-    primaryRatio: 0.5,
-    secondaryRatio: 0.5,
-    focusReturnLayout: null,
-  }),
-  grid: () => {
-    const canvases = getAvailableCanvasTypes()
-    return {
-      preset: 'grid',
-      panels: [
-        { canvas: 'eendraad' },
-        { canvas: 'plan' },
-        { canvas: 'panel' },
-        { canvas: canvases.includes('documents') ? 'documents' : (canvases[3] ?? 'eendraad') },
-      ],
-      primaryRatio: 0.5,
-      secondaryRatio: 0.5,
-      focusReturnLayout: null,
-    }
-  },
-}
-
-/** A two-by-two layout needs four distinct canvases. */
-export function isLayoutPresetAvailable(preset: LayoutPreset): boolean {
-  return preset !== 'grid' || getAvailableCanvasTypes().length >= 4
-}
-
-const CANVAS_TYPES: CanvasType[] = getAvailableCanvasTypes()
-
-function cloneLayoutForFocusReturn(layout: ViewportLayout): ViewportLayout {
-  const cloned = JSON.parse(JSON.stringify(layout)) as ViewportLayout
-  cloned.focusReturnLayout = null
-  return cloned
-}
-
-/** Each viewport panel must show a distinct canvas type. */
-function ensureUniquePanelCanvases(panels: ViewportPanel[]): void {
-  const used = new Set<CanvasType>()
-  for (const panel of panels) {
-    if (!used.has(panel.canvas)) {
-      used.add(panel.canvas)
-      continue
-    }
-    const replacement = CANVAS_TYPES.find((canvas) => !used.has(canvas))
-    if (replacement) {
-      panel.canvas = replacement
-      used.add(replacement)
-    }
-  }
-}
-
-/** Derive the old ViewMode from viewport layout for backward compat */
-function deriveViewMode(layout: ViewportLayout): ViewMode {
-  // Documents is not a drawing view; the legacy view mode follows the drawing canvases beside it.
-  const types = layout.panels.map((p) => p.canvas).filter((canvas) => canvas !== 'documents')
-  if (types.length === 1) return types[0] as ViewMode
-  if (types.length === 2 && types.includes('eendraad') && types.includes('plan')) return 'both'
-  if (types.length === 2 && types.includes('panel') && types.includes('plan')) return 'panelAndPlan'
-  if (types.length >= 2) return 'both'
-  return 'eendraad'
-}
 
 export interface UIState {
   /** @deprecated — kept for backward compat, derived from viewportLayout */
@@ -163,6 +74,11 @@ export interface UIState {
   renderedCanvases: CanvasType[] | null
   selection: Selection
   hover: Selection
+  /**
+   * Session-only hover/focus preview of where a changeover's port 1 would be fed from.
+   * Never persisted and never written into the project.
+   */
+  changeoverGridSourcePreview: ChangeoverGridSourcePreviewRequest | null
   eendraadView: ViewState
   planView: ViewState
   /** Live Konva scale per canvas during wheel/pinch; null when in sync with that canvas view store. */
@@ -237,6 +153,7 @@ export interface UIState {
   /** @deprecated — use setViewportLayout instead */
   setViewMode: (mode: ViewMode) => void
   setViewportLayout: (layout: ViewportLayout) => void
+  setLayoutGrid: (rows: number, columns: number) => void
   setLastInteractedCanvas: (canvas: CanvasType | null) => void
   setRenderedCanvases: (canvases: CanvasType[] | null) => void
   setLayoutPreset: (preset: LayoutPreset, options?: { sourcePanelIndex?: number }) => void
@@ -253,6 +170,7 @@ export interface UIState {
   clearSelection: () => void
   setHover: (hover: Selection) => void
   clearHover: () => void
+  setChangeoverGridSourcePreview: (preview: ChangeoverGridSourcePreviewRequest | null) => void
   setEendraadView: (view: Partial<ViewState>) => void
   setPlanView: (view: Partial<ViewState>) => void
   setCanvasGestureZoom: (canvas: CanvasType, zoom: number | null) => void
@@ -319,6 +237,7 @@ const initialState = {
   renderedCanvases: null as CanvasType[] | null,
   selection: { type: null, ids: [] } as Selection,
   hover: { type: null, ids: [] } as Selection,
+  changeoverGridSourcePreview: null as ChangeoverGridSourcePreviewRequest | null,
   eendraadView: {
     zoom: 2,
     pan: { x: 0, y: 0 },
@@ -387,6 +306,10 @@ const initialState = {
     switchesVisible: true,
     panelsVisible: true,
     fixedAppliancesVisible: true,
+    dcVisible: true,
+    energyConversionVisible: true,
+    earthingVisible: true,
+    otherVisible: true,
   },
   eendraadDateMarkingVisibility: {
     installDatesVisible: true,
@@ -435,6 +358,10 @@ function pickPersistedPlanVisibility(pv: PlanVisibilityState): PlanVisibilitySta
     switchesVisible: pv.switchesVisible,
     panelsVisible: pv.panelsVisible,
     fixedAppliancesVisible: pv.fixedAppliancesVisible,
+    dcVisible: pv.dcVisible ?? true,
+    energyConversionVisible: pv.energyConversionVisible ?? true,
+    earthingVisible: pv.earthingVisible ?? true,
+    otherVisible: pv.otherVisible ?? true,
   }
 }
 
@@ -458,7 +385,7 @@ const dedupedLocalStorage: StateStorage = {
 
 export const useUIStore = create<UIState>()(
   persist(
-    immer((set) => ({
+    immer((set, get) => ({
       ...initialState,
 
       setLastInteractedCanvas: (canvas) => {
@@ -503,178 +430,7 @@ export const useUIStore = create<UIState>()(
           }
         }),
 
-      setViewportLayout: (layout) =>
-        set((state) => {
-          state.viewportLayout = layout
-          state.viewMode = deriveViewMode(layout)
-        }),
-
-      setLayoutPreset: (preset, options) =>
-        set((state) => {
-          const previousPreset = state.viewportLayout.preset
-          const oldLayout = state.viewportLayout
-          const oldCanvasSet = new Set(oldLayout.panels.map((p) => p.canvas))
-          const oldCanvases = oldLayout.panels.map((p) => p.canvas)
-          const sourcePanelIndex = options?.sourcePanelIndex
-          const newLayout = DEFAULT_LAYOUTS[preset]()
-          const savedReturnLayout = oldLayout.focusReturnLayout
-          const canRestoreReturnLayout =
-            oldLayout.preset === 'single' &&
-            preset !== 'single' &&
-            savedReturnLayout != null &&
-            savedReturnLayout.panels.length === newLayout.panels.length
-
-          if (canRestoreReturnLayout) {
-            for (let i = 0; i < newLayout.panels.length; i++) {
-              newLayout.panels[i]!.canvas = savedReturnLayout.panels[i]!.canvas
-            }
-            newLayout.primaryRatio = savedReturnLayout.primaryRatio
-            newLayout.secondaryRatio = savedReturnLayout.secondaryRatio
-          } else if (preset === 'single' && oldLayout.panels.length > 1) {
-            newLayout.focusReturnLayout = cloneLayoutForFocusReturn(oldLayout)
-            const focusIndex =
-              sourcePanelIndex != null &&
-              sourcePanelIndex >= 0 &&
-              sourcePanelIndex < oldCanvases.length
-                ? sourcePanelIndex
-                : 0
-            newLayout.panels[0]!.canvas = oldCanvases[focusIndex]!
-          } else {
-            for (let i = 0; i < newLayout.panels.length && i < oldCanvases.length; i++) {
-              newLayout.panels[i]!.canvas = oldCanvases[i]!
-            }
-            if (
-              preset === 'single' &&
-              sourcePanelIndex != null &&
-              sourcePanelIndex >= 0 &&
-              sourcePanelIndex < oldCanvases.length
-            ) {
-              newLayout.panels[0]!.canvas = oldCanvases[sourcePanelIndex]!
-            }
-            if (newLayout.panels.length > 1) {
-              ensureUniquePanelCanvases(newLayout.panels)
-            }
-            if (preset === 'single') {
-              newLayout.focusReturnLayout = oldLayout.focusReturnLayout
-            }
-          }
-          // Fit-to-view any canvases that weren't previously visible
-          const newlyVisible: CanvasType[] = []
-          for (const p of newLayout.panels) {
-            if (!oldCanvasSet.has(p.canvas)) {
-              newlyVisible.push(p.canvas)
-            }
-          }
-          state.viewportLayout = newLayout
-          state.viewMode = deriveViewMode(newLayout)
-          for (const c of newlyVisible) {
-            state.fitToViewTrigger[c] = (state.fitToViewTrigger[c] ?? 0) + 1
-          }
-          if (previousPreset !== preset) {
-            trackGoogleAnalyticsEvent('layout_preset_change', {
-              from_preset: previousPreset,
-              to_preset: preset,
-              panel_count: newLayout.panels.length,
-            })
-          }
-        }),
-
-      setPanelCanvas: (panelIndex, canvas) =>
-        set((state) => {
-          const panels = state.viewportLayout.panels
-          const target = panels[panelIndex]
-          if (!target) return
-          const previousCanvas = target.canvas
-          const existingIdx = panels.findIndex((p, i) => i !== panelIndex && p.canvas === canvas)
-          const existing = existingIdx !== -1 ? panels[existingIdx] : null
-          const canvasesToFit: CanvasType[] = [canvas]
-          if (existing) {
-            canvasesToFit.push(target.canvas)
-            existing.canvas = target.canvas
-          }
-          target.canvas = canvas
-          state.viewMode = deriveViewMode(state.viewportLayout)
-          for (const c of canvasesToFit) {
-            state.fitToViewTrigger[c] = (state.fitToViewTrigger[c] ?? 0) + 1
-          }
-          if (previousCanvas !== canvas) {
-            trackGoogleAnalyticsEvent('canvas_switch', {
-              panel_index: panelIndex,
-              from_canvas: previousCanvas,
-              to_canvas: canvas,
-              swapped_duplicate: Boolean(existing),
-            })
-          }
-        }),
-
-      setLayoutPrimaryRatio: (ratio) =>
-        set((state) => {
-          state.viewportLayout.primaryRatio = Math.max(
-            VIEWPORT_RATIO_MIN,
-            Math.min(VIEWPORT_RATIO_MAX, ratio)
-          )
-        }),
-
-      setLayoutSecondaryRatio: (ratio) =>
-        set((state) => {
-          state.viewportLayout.secondaryRatio = Math.max(
-            VIEWPORT_RATIO_MIN,
-            Math.min(VIEWPORT_RATIO_MAX, ratio)
-          )
-        }),
-
-      focusPanel: (panelIndex) =>
-        set((state) => {
-          const layout = state.viewportLayout
-          if (layout.panels.length <= 1) return
-          const panel = layout.panels[panelIndex]
-          if (!panel) return
-          const canvas = panel.canvas
-          const returnLayout = JSON.parse(JSON.stringify(layout)) as ViewportLayout
-          returnLayout.focusReturnLayout = null
-          state.viewportLayout = {
-            preset: 'single',
-            panels: [{ canvas }],
-            primaryRatio: 1,
-            secondaryRatio: 0.5,
-            focusReturnLayout: returnLayout,
-          }
-          state.viewMode = canvas as ViewMode
-          trackGoogleAnalyticsEvent('canvas_focus', {
-            panel_index: panelIndex,
-            canvas,
-          })
-        }),
-
-      unfocusPanel: () =>
-        set((state) => {
-          const returnLayout = state.viewportLayout.focusReturnLayout
-          if (!returnLayout) return
-          const focusedCanvas = state.viewportLayout.panels[0]?.canvas
-          state.viewportLayout = returnLayout
-          state.viewMode = deriveViewMode(returnLayout)
-          trackGoogleAnalyticsEvent('canvas_unfocus', {
-            canvas: focusedCanvas,
-            panel_count: returnLayout.panels.length,
-          })
-        }),
-
-      toggleViewportPanelFocus: (panelIndex) => {
-        const layout = useUIStore.getState().viewportLayout
-        if (layout.focusReturnLayout) {
-          useUIStore.getState().unfocusPanel()
-          return
-        }
-        if (layout.panels.length > 1) {
-          if (panelIndex != null) {
-            useUIStore.getState().focusPanel(panelIndex)
-          }
-          return
-        }
-        const preset =
-          getResponsiveEditorMode().mode === 'compactPortrait' ? 'stacked' : 'sideBySide'
-        useUIStore.getState().setLayoutPreset(preset)
-      },
+      ...createViewportLayoutActions((): UIState => useUIStore.getState(), (recipe) => set(recipe)),
 
       requestFitToView: (canvases) =>
         set((state) => {
@@ -693,15 +449,14 @@ export const useUIStore = create<UIState>()(
           state.cancelPlanResetScaleTrigger = (state.cancelPlanResetScaleTrigger ?? 0) + 1
         }),
 
-      setSelection: (selection) =>
+      setSelection: (selection) => {
+        if (areSelectionsEqual(get().selection, selection)) return
         set((state) => {
           state.selection = selection
-        }),
+        })
+      },
 
-      clearSelection: () =>
-        set((state) => {
-          state.selection = { type: null, ids: [], wireMetadata: undefined }
-        }),
+      clearSelection: (): void => { get().setSelection({ type: null, ids: [] }) },
 
       setHover: (hover) =>
         set((state) => {
@@ -712,6 +467,21 @@ export const useUIStore = create<UIState>()(
         set((state) => {
           state.hover = { type: null, ids: [] }
         }),
+
+      setChangeoverGridSourcePreview: (preview) => {
+        const current = useUIStore.getState().changeoverGridSourcePreview
+        if (
+          current === preview ||
+          (current &&
+            preview &&
+            current.panelId === preview.panelId &&
+            current.source === preview.source)
+        )
+          return
+        set((state) => {
+          state.changeoverGridSourcePreview = preview ? { ...preview } : null
+        })
+      },
 
       setEendraadView: (view) =>
         set((state) => {

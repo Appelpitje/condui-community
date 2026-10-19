@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-64.2 -118.5 141.3 141.3" role="img" aria-label="Lichtpunt">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M-3.0 -56.5C-3.0 -80.5 11.0 -90.5 17.0 -108.5" fill="none" stroke-width="7"/><path d="M-3.0 -56.5C-3.0 -80.5 11.0 -90.5 17.0 -108.5" fill="none" stroke="#92400e" stroke-width="4"/>
+  <path d="M3.0 -56.5C3.0 -80.5 29.0 -90.5 35.0 -108.5" fill="none" stroke-width="7"/><path d="M3.0 -56.5C3.0 -80.5 29.0 -90.5 35.0 -108.5" fill="none" stroke="#2563eb" stroke-width="4"/>
+  <path d="M-22.0 -40.0V0.0A22.0 12.7 0 0 0 22.0 0.0V-40.0Z" fill="#f1f5f9"/>
+  <path d="M-22.0 -8.0A22.0 12.7 0 0 0 22.0 -8.0" fill="none" stroke-width="1"/>
+  <path d="M-22.0 -16.0A22.0 12.7 0 0 0 22.0 -16.0" fill="none" stroke-width="1"/>
+  <path d="M-22.0 -24.0A22.0 12.7 0 0 0 22.0 -24.0" fill="none" stroke-width="1"/>
+  <path d="M-22.0 -40.0C-22.0 -56.5 -8.8 -58.5 0.0 -58.5C8.8 -58.5 22.0 -56.5 22.0 -40.0A22.0 12.7 0 0 1 -22.0 -40.0Z" fill="#ffffff"/>
+  <ellipse cx="0.0" cy="-57.5" rx="6" ry="3" fill="#cbd5e1" stroke-width="1"/>
+</g>
+</svg>

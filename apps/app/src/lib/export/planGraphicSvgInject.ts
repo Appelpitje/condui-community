@@ -287,7 +287,7 @@ export async function collectAndRemovePlanGraphicElementsForExport(
       strokeColor,
     })
 
-    group.remove()
+    group.destroy()
   }
 
   return descriptors

@@ -1,4 +1,7 @@
-import type { Issue, ValidationProject } from './core/types'
+import type { Issue, ValidationProject, ValidationCoverageEntry, ValidationCoverageReport } from './core/types'
+import type { ValidationProjectRun } from './core/engine'
+import { buildValidationCoverageReport } from './coverage'
+import { selectProjectJunctionAssets } from '@/lib/projectV2/electrical'
 
 /**
  * Read-only, store-independent entry point for the editor's electrical rule pack.
@@ -9,10 +12,49 @@ import type { Issue, ValidationProject } from './core/types'
  * so native query helpers can normalize their private candidate without changing
  * the supplied project, including a frozen editor snapshot.
  */
-export async function validateElectricalProject(project: ValidationProject): Promise<Issue[]> {
+export async function validateElectricalProject(
+  project: ValidationProject,
+  options?: {
+    language?: string
+    /** Headless hosts supply their edition policy explicitly instead of evaluating Vite flags. */
+    collectJunctionIssues?: (
+      project: ValidationProject,
+      translate: (key: string, options?: Record<string, unknown>) => string
+    ) => Issue[]
+  }
+): Promise<Issue[]> {
+  return (await runElectricalProjectValidation(project, options, false)).issues
+}
+
+/** Read-only electrical validation with explicit rule/check/scope execution coverage. */
+export async function validateElectricalProjectWithCoverage(
+  project: ValidationProject,
+  options?: {
+    language?: string
+    collectJunctionIssues?: (
+      project: ValidationProject,
+      translate: (key: string, options?: Record<string, unknown>) => string
+    ) => Issue[]
+  }
+): Promise<ValidationProjectRun> {
+  const result = await runElectricalProjectValidation(project, options, true)
+  return { issues: result.issues, coverage: result.coverage! }
+}
+
+async function runElectricalProjectValidation(
+  project: ValidationProject,
+  options: {
+    language?: string
+    collectJunctionIssues?: (
+      project: ValidationProject,
+      translate: (key: string, options?: Record<string, unknown>) => string
+    ) => Issue[]
+  } | undefined,
+  includeCoverage: boolean
+): Promise<{ issues: Issue[]; coverage?: ValidationCoverageReport }> {
   const snapshot = structuredClone(project)
   const [
-    { validateProject },
+    validationEngine,
     { beAreiBook1_2025 },
     { loadRulePack },
     { default: validationI18n, setValidationLanguage },
@@ -27,10 +69,38 @@ export async function validateElectricalProject(project: ValidationProject): Pro
   // Identical language selection to the editor worker client and previous fallback.
   // Setting language and running the synchronous validator share one JS turn.
   setValidationLanguage(
-    typeof document === 'undefined' ? 'nl-BE' : document.documentElement?.lang || 'nl-BE'
+    options?.language ??
+      (typeof document === 'undefined' ? 'nl-BE' : document.documentElement?.lang || 'nl-BE')
   )
-  return [
-    ...validateProject(snapshot, { packs: [loadRulePack(beAreiBook1_2025)] }),
-    ...collectJunctionValidationIssuesForEdition(snapshot, validationI18n.t.bind(validationI18n)),
+  const baseRun = includeCoverage
+    ? validationEngine.validateProjectWithCoverage(snapshot, { packs: [loadRulePack(beAreiBook1_2025)] })
+    : undefined
+  const baseIssues = baseRun?.issues ?? validationEngine.validateProject(snapshot, { packs: [loadRulePack(beAreiBook1_2025)] })
+  const junctionIssues = (options?.collectJunctionIssues ?? collectJunctionValidationIssuesForEdition)(
+    snapshot,
+    validationI18n.t.bind(validationI18n)
+  )
+  const issues = [...baseIssues, ...junctionIssues]
+  if (!includeCoverage || !baseRun) return { issues }
+  const hasJunctionAssets = selectProjectJunctionAssets(snapshot).length > 0
+  const coverageEntries: ValidationCoverageEntry[] = [
+    ...baseRun.coverage.entries,
+    ...junctionIssues.map((issue) => ({
+      ruleId: issue.ruleId,
+      checkName: 'junction-edition-validation',
+      scope: issue.scope,
+      status: 'failed' as const,
+      issueIds: [issue.id],
+    })),
+    {
+      ruleId: 'validation.junction-edition',
+      scope: { type: 'junction' as const, id: 'edition-validation' },
+      status: hasJunctionAssets ? 'unavailable' : 'skipped',
+      reason: hasJunctionAssets
+        ? 'junction-validator-does-not-report-per-check-coverage'
+        : 'no-junction-assets-in-project',
+      issueIds: junctionIssues.map((issue) => issue.id),
+    },
   ]
+  return { issues, coverage: buildValidationCoverageReport(coverageEntries) }
 }

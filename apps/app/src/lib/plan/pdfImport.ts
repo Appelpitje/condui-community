@@ -161,6 +161,7 @@ interface PdfPageProxyLike {
   objs: unknown
   getViewport(options: { scale: number }): PdfViewportLike
   render(options: {
+    canvas: HTMLCanvasElement | OffscreenCanvas
     canvasContext: CanvasRenderingContext2D
     viewport: PdfViewportLike
     background?: string
@@ -250,7 +251,7 @@ async function renderPageToDataUrl(page: PdfPageProxyLike, scale: number): Promi
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Failed to create canvas context')
   context.clearRect(0, 0, canvas.width, canvas.height)
-  await page.render({ canvasContext: context, viewport, background: 'transparent' }).promise
+  await page.render({ canvas, canvasContext: context, viewport, background: 'transparent' }).promise
   return canvas.toDataURL('image/png')
 }
 

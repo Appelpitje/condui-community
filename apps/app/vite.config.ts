@@ -38,7 +38,7 @@ function pdfjsWasmDirectory(): string {
   return path.join(path.dirname(requireFromApp.resolve('pdfjs-dist/package.json')), 'wasm')
 }
 
-function createPdfjsWasmPlugin() {
+export function createPdfjsWasmPlugin() {
   return {
     name: 'pdfjs-wasm-assets',
     configureServer(server: {
@@ -244,6 +244,8 @@ function stripDisabledElectricalVisionScanSource(source: string): string {
 const aliases = {
   '@/components/import/TrikMergeMenuItem': './src/editions/community/communityTrikMergeMenuItem.tsx',
   '@/lib/junction/junctionHostedHooks': './src/editions/community/communityJunctionHooks.ts',
+  '@/lib/junction/junctionCommandHooks': './src/editions/community/communityJunctionCommandHooks.ts',
+  '@/lib/junction/junctionEditorUiHooks': './src/editions/community/communityJunctionEditorUiHooks.ts',
   '@/components/junctionEditor/junctionEditorHostedFeatures':
     './src/editions/community/communityJunctionEditor.tsx',
   '@/stores/wallScanStore': './src/editions/community/communityWallScan.tsx',
@@ -299,7 +301,7 @@ function cleanOutput() {
   }
 }
 
-function createCommunitySourceBoundaryPlugin() {
+export function createCommunitySourceBoundaryPlugin() {
   return {
     name: 'community-source-boundary',
     enforce: 'pre' as const,

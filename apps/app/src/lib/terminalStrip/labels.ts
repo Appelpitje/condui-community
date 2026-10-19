@@ -1,3 +1,11 @@
+import {
+  getProjectElectrical,
+  getProjectElectricalPanels,
+  getProjectElectricalInstallation,
+  selectProjectSupplyAssemblies,
+  type ProjectWithOptionalV2Electrical,
+} from '@/lib/projectV2/electrical'
+
 type TerminalStripEntity = {
   symbol?: unknown
   label?: unknown
@@ -14,6 +22,8 @@ export interface TerminalStripOccurrence {
   side: 'incoming' | 'outgoing'
   stripId: string
   pin: number
+  /** Electrical ownership; repeated numbers are legal only inside this circuit. */
+  circuitId?: string
 }
 
 export function terminalStripOccurrenceId(entityId: string, side: 'incoming' | 'outgoing'): string {
@@ -76,16 +86,16 @@ export function getTerminalStripDisplayLabel(
 
 export function collectTerminalStripOccurrences(project: unknown): TerminalStripOccurrence[] {
   const occurrences: TerminalStripOccurrence[] = []
-  const missingOutgoing: Array<{ entityId: string; stripId: string }> = []
   const seen = new Set<object>()
-  const visit = (value: unknown): void => {
+  const visit = (value: unknown, circuitId?: string): void => {
     if (!value || typeof value !== 'object' || seen.has(value as object)) return
     seen.add(value as object)
     if (Array.isArray(value)) {
-      value.forEach(visit)
+      value.forEach((child) => visit(child, circuitId))
       return
     }
     const entity = value as TerminalStripEntity & Record<string, unknown>
+    if (typeof entity.id === 'string' && Array.isArray(entity.endpoints)) circuitId = entity.id
     if (entity.symbol === 'terminal_strip') {
       const stripId = getTerminalStripId(entity)
       const pin = getTerminalStripPin(entity)
@@ -96,43 +106,43 @@ export function collectTerminalStripOccurrences(project: unknown): TerminalStrip
           id: terminalStripOccurrenceId(entityId, 'incoming'),
           entityId,
           side: 'incoming',
+          ...(circuitId ? { circuitId } : {}),
           stripId,
           pin,
         })
-        const outgoingPin = getTerminalStripOutgoingPin(entity)
-        if (outgoingPin != null) {
+        const outgoingPin = getTerminalStripOutgoingPin(entity) ?? pin
+        if (
+          getTerminalStripOutgoingPin(entity) != null ||
+          typeof entity.trunkPosition === 'number'
+        ) {
           occurrences.push({
             id: terminalStripOccurrenceId(entityId, 'outgoing'),
             entityId,
             side: 'outgoing',
+            ...(circuitId ? { circuitId } : {}),
             stripId,
             pin: outgoingPin,
           })
-        } else if (typeof entity.trunkPosition === 'number') {
-          missingOutgoing.push({ entityId, stripId })
         }
       }
     }
-    Object.values(entity).forEach(visit)
+    Object.values(entity).forEach((child) => visit(child, circuitId))
   }
-  visit(project)
-  for (const missing of missingOutgoing) {
-    const used = new Set(
-      occurrences
-        .filter((occurrence) => occurrence.stripId.toUpperCase() === missing.stripId.toUpperCase())
-        .map((occurrence) => occurrence.pin)
-    )
-    let pin = 1
-    while (used.has(pin)) pin += 1
-    occurrences.push({
-      id: terminalStripOccurrenceId(missing.entityId, 'outgoing'),
-      entityId: missing.entityId,
-      side: 'outgoing',
-      stripId: missing.stripId,
-      pin,
-    })
+  const document = project as ProjectWithOptionalV2Electrical | null | undefined
+  if (document && getProjectElectrical(document)) {
+    // Panel occurrences own their circuit context. Ignore flattened device projections and snapshots.
+    visit(getProjectElectricalPanels(document))
+    visit(getProjectElectricalInstallation(document))
+    visit(selectProjectSupplyAssemblies(document))
+  } else {
+    visit(project)
   }
-  return occurrences
+  const ids = new Set<string>()
+  return occurrences.filter((occurrence) => {
+    if (ids.has(occurrence.id)) return false
+    ids.add(occurrence.id)
+    return true
+  })
 }
 
 export function getNextTerminalStripPin(project: unknown, stripId = '1'): number {
@@ -156,15 +166,17 @@ export function getNextTerminalStripId(project: unknown): string {
   return String(number)
 }
 
-/** Returns the legacy combined designation used by automatic endpoint labels. */
-export function getNextTerminalStripLabel(project: unknown, stripId?: string): string {
-  const normalizedId = normalizeTerminalStripId(stripId) || getNextTerminalStripId(project)
-  return `${normalizedId}-${getNextTerminalStripPin(project, normalizedId)}`
-}
-
-export function getTerminalStripCreationProps(project: unknown, stripId?: string) {
-  const normalizedId = normalizeTerminalStripId(stripId) || getNextTerminalStripId(project)
-  const pin = getNextTerminalStripPin(project, normalizedId)
+/** Reuse this circuit's group on the strip; other circuits reserve their own number. */
+export function getTerminalStripCreationProps(project: unknown, stripId = '1', circuitId?: string) {
+  const normalizedId = normalizeTerminalStripId(stripId) || '1'
+  const existing = circuitId
+    ? collectTerminalStripOccurrences(project).find(
+        (occurrence) =>
+          occurrence.circuitId === circuitId &&
+          occurrence.stripId.toUpperCase() === normalizedId.toUpperCase()
+      )
+    : undefined
+  const pin = existing?.pin ?? getNextTerminalStripPin(project, normalizedId)
   return {
     label: `${normalizedId}-${pin}`,
     junctionIdentity: normalizedId,
@@ -172,144 +184,80 @@ export function getTerminalStripCreationProps(project: unknown, stripId?: string
   }
 }
 
-export function getTerminalStripTrunkCreationProps(project: unknown, stripId?: string) {
-  const incoming = getTerminalStripCreationProps(project, stripId)
-  const outgoing = getNextTerminalStripPin(
-    {
-      project,
-      reserved: {
-        id: '__new-terminal-incoming',
-        symbol: 'terminal_strip',
-        junctionIdentity: incoming.junctionIdentity,
-        terminalStripPin: incoming.terminalStripPin,
-      },
-    },
-    incoming.junctionIdentity
-  )
-  return { ...incoming, terminalStripOutgoingPin: outgoing }
+/** Returns the legacy combined designation used by automatic endpoint labels. */
+export function getNextTerminalStripLabel(
+  project: unknown,
+  stripId?: string,
+  circuitId?: string
+): string {
+  return getTerminalStripCreationProps(project, stripId, circuitId).label
 }
 
-export function getTerminalStripTrunkConnectionProps(project: unknown, stripId?: string) {
-  const { label: _label, ...connectionProps } = getTerminalStripTrunkCreationProps(project, stripId)
+export function getTerminalStripTrunkCreationProps(
+  project: unknown,
+  stripId?: string,
+  circuitId?: string
+) {
+  const incoming = getTerminalStripCreationProps(project, stripId, circuitId)
+  return { ...incoming, terminalStripOutgoingPin: incoming.terminalStripPin }
+}
+
+export function getTerminalStripTrunkConnectionProps(
+  project: unknown,
+  stripId?: string,
+  circuitId?: string
+) {
+  const { label: _label, ...connectionProps } = getTerminalStripTrunkCreationProps(
+    project,
+    stripId,
+    circuitId
+  )
   return connectionProps
 }
 
 export function getEffectiveTerminalStripOutgoingPin(
-  project: unknown,
+  _project: unknown,
   entity: TerminalStripEntity
 ): number {
-  const entityId = typeof entity.id === 'string' ? entity.id : ''
-  const inferred = collectTerminalStripOccurrences(project).find(
-    (occurrence) =>
-      occurrence.entityId === entityId &&
-      occurrence.side === 'outgoing' &&
-      occurrence.stripId.toUpperCase() === getTerminalStripId(entity).toUpperCase()
-  )?.pin
-  return (
-    getTerminalStripOutgoingPin(entity) ??
-    inferred ??
-    getNextTerminalStripPin(
-      {
-        project,
-        reserved: {
-          id: '__terminal-incoming-reservation',
-          symbol: 'terminal_strip',
-          junctionIdentity: getTerminalStripId(entity),
-          terminalStripPin: getTerminalStripPin(entity),
-        },
-      },
-      getTerminalStripId(entity)
-    )
-  )
-}
-
-/** Pick one replacement for the occurrence displaced by a direct pin conflict. */
-export function getDisplacedTerminalStripPin(
-  occupiedPins: Iterable<number>,
-  requestedPin: number,
-  vacatedPin?: number
-): number {
-  const occupied = new Set(occupiedPins)
-  occupied.delete(requestedPin)
-  if (vacatedPin != null && vacatedPin > 0 && !occupied.has(vacatedPin)) return vacatedPin
-  for (let distance = 1; ; distance += 1) {
-    const higher = requestedPin + distance
-    if (!occupied.has(higher)) return higher
-    const lower = requestedPin - distance
-    if (lower > 0 && !occupied.has(lower)) return lower
-  }
+  return getTerminalStripOutgoingPin(entity) ?? getTerminalStripPin(entity) ?? 1
 }
 
 export function planTerminalStripPinAssignment(
-  project: unknown,
+  _project: unknown,
   occurrenceId: string,
   stripId: string,
   requestedPin: number,
-  vacatedPin?: number
+  _vacatedPin?: number
 ): Array<{ id: string; stripId: string; pin: number }> {
-  const normalizedId = normalizeTerminalStripId(stripId) || '1'
-  const normalizedPin = Math.max(1, Math.round(requestedPin))
-  const peers = collectTerminalStripOccurrences(project).filter(
-    (occurrence) => occurrence.stripId.toUpperCase() === normalizedId.toUpperCase()
-  )
-  const conflict = peers.find(
-    (occurrence) => occurrence.id !== occurrenceId && occurrence.pin === normalizedPin
-  )
-  const updates = [{ id: occurrenceId, stripId: normalizedId, pin: normalizedPin }]
-  if (!conflict) return updates
-  const occupied = peers
-    .filter((occurrence) => occurrence.id !== occurrenceId && occurrence.id !== conflict.id)
-    .map((occurrence) => occurrence.pin)
-  updates.push({
-    id: conflict.id,
-    stripId: normalizedId,
-    pin: getDisplacedTerminalStripPin(occupied, normalizedPin, vacatedPin),
-  })
-  return updates
+  // Preserve manual sharing. Validation reports cross-circuit conflicts without renumbering peers.
+  return [
+    {
+      id: occurrenceId,
+      stripId: normalizeTerminalStripId(stripId) || '1',
+      pin: Math.max(1, Math.round(requestedPin)),
+    },
+  ]
 }
 
 export function planTerminalStripPairAssignment(
-  project: unknown,
+  _project: unknown,
   entityId: string,
   stripId: string,
   incomingPin: number,
   outgoingPin: number
 ): Array<{ id: string; stripId: string; pin: number }> {
-  const normalizedId = normalizeTerminalStripId(stripId) || '1'
-  const original = collectTerminalStripOccurrences(project)
-  const working = new Map(original.map((occurrence) => [occurrence.id, { ...occurrence }]))
-  const assign = (side: 'incoming' | 'outgoing', requested: number) => {
-    const id = terminalStripOccurrenceId(entityId, side)
-    const previous = working.get(id)
-    const pin = Math.max(1, Math.round(requested))
-    const peers = [...working.values()].filter(
-      (occurrence) => occurrence.stripId.toUpperCase() === normalizedId.toUpperCase()
-    )
-    const conflict = peers.find((occurrence) => occurrence.id !== id && occurrence.pin === pin)
-    working.set(id, { id, entityId, side, stripId: normalizedId, pin })
-    if (!conflict) return
-    const occupied = [...working.values()]
-      .filter(
-        (occurrence) =>
-          occurrence.stripId.toUpperCase() === normalizedId.toUpperCase() &&
-          occurrence.id !== conflict.id
-      )
-      .map((occurrence) => occurrence.pin)
-    conflict.pin = getDisplacedTerminalStripPin(
-      occupied,
-      pin,
-      previous?.stripId.toUpperCase() === normalizedId.toUpperCase() ? previous.pin : undefined
-    )
-    working.set(conflict.id, conflict)
-  }
-
-  assign('incoming', incomingPin)
-  assign('outgoing', outgoingPin === incomingPin ? incomingPin + 1 : outgoingPin)
-  const originalById = new Map(original.map((occurrence) => [occurrence.id, occurrence]))
-  return [...working.values()]
-    .filter((occurrence) => {
-      const before = originalById.get(occurrence.id)
-      return !before || before.stripId !== occurrence.stripId || before.pin !== occurrence.pin
-    })
-    .map(({ id, stripId: plannedStripId, pin }) => ({ id, stripId: plannedStripId, pin }))
+  return [
+    ...planTerminalStripPinAssignment(
+      _project,
+      terminalStripOccurrenceId(entityId, 'incoming'),
+      stripId,
+      incomingPin
+    ),
+    ...planTerminalStripPinAssignment(
+      _project,
+      terminalStripOccurrenceId(entityId, 'outgoing'),
+      stripId,
+      outgoingPin
+    ),
+  ]
 }

@@ -60,6 +60,10 @@ import {
   TrunkDeviceProperties,
 } from './editors/TrunkSupplyGroundProperties'
 import { StructuralReadOnlyProperties } from './StructuralReadOnlyProperties'
+/* @vision-scan-strip-start */
+import { OneWireReferenceProperties } from './OneWireReferenceProperties'
+import { isElectricalVisionScanEnabled } from '@/lib/vision/availability'
+/* @vision-scan-strip-end */
 /* @project-documents-strip-start */
 import LinkedDocumentsSection from '@/components/documents/LinkedDocumentsSection'
 import DocumentProperties from '@/components/documents/DocumentProperties'
@@ -314,6 +318,7 @@ export default function PropertiesPanel({
                   key={`${target.deviceId}:${id}`}
                   deviceId={target.deviceId}
                   placementId={id}
+                  readOnly={readOnly}
                 />
               )
             }
@@ -340,7 +345,9 @@ export default function PropertiesPanel({
             onUpdate={updateCircuitProperties}
           />
         )}
-        {selection.type === 'trunkDevice' && <TrunkDeviceProperties key={id} deviceId={id} />}
+        {selection.type === 'trunkDevice' && (
+          <TrunkDeviceProperties key={id} deviceId={id} readOnly={readOnly} />
+        )}
         {selection.type === 'junctionPanelTerminal' && selection.junctionPanelTerminalOwnerId ? (
           <JunctionPanelTerminalProperties ownerDeviceId={selection.junctionPanelTerminalOwnerId} />
         ) : null}
@@ -460,6 +467,11 @@ export default function PropertiesPanel({
             <StructuralReadOnlyProperties metadata={selection.structuralMetadata} />
           )
         ) : null}
+        {/* @vision-scan-strip-start */}
+        {isElectricalVisionScanEnabled() && selection.type === 'oneWireReference' && (
+          <OneWireReferenceProperties key={id} itemId={id} readOnly={readOnly} />
+        )}
+        {/* @vision-scan-strip-end */}
         {/* @project-documents-strip-start */}
         {isProjectDocumentsEnabled() && selection.type === 'document' && (
           <DocumentProperties key={id} documentId={id} />

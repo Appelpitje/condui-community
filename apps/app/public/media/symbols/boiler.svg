@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-81.3 -121.6 162.6 162.6" role="img" aria-label="Boiler">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M-26.9 -96.0V0.0A26.9 15.6 0 0 0 26.9 0.0V-96.0Z" fill="#f1f5f9"/>
+  <path d="M-26.9 -10.0A26.9 15.6 0 0 0 26.9 -10.0" fill="none" stroke-width="1"/>
+  <path d="M-26.9 -86.0A26.9 15.6 0 0 0 26.9 -86.0" fill="none" stroke-width="1"/>
+  <ellipse cx="0.0" cy="-96.0" rx="26.9" ry="15.6" fill="#ffffff"/>
+  <path d="M-5.2 13.0V31.0" stroke-width="6"/><path d="M-5.2 13.0V31.0" stroke="#3b82f6" stroke-width="3.5"/>
+  <path d="M5.2 13.0V31.0" stroke-width="6"/><path d="M5.2 13.0V31.0" stroke="#ef4444" stroke-width="3.5"/>
+  <circle cx="-14.0" cy="-26.0" r="4" fill="#e2e8f0" stroke-width="1"/>
+</g>
+</svg>

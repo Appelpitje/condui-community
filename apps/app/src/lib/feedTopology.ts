@@ -252,7 +252,11 @@ function resolvePanelIncomingSupplyCable(
   return rootFeed?.cable ?? sharedFeed.cable ?? installation.mainSupply.cable
 }
 
-export function ensureInstallationFeedTopology(installation: Installation, panels: Panel[]): FeedTopology {
+export function ensureInstallationFeedTopology(
+  installation: Installation,
+  panels: Panel[],
+  newId: () => string = generateId,
+): FeedTopology {
   const cached = feedTopologyCache.get(installation)
   if (cached && cachedTopologyMatches(cached, installation, panels)) return cached.result
 
@@ -340,7 +344,7 @@ export function ensureInstallationFeedTopology(installation: Installation, panel
     return rememberFeedTopology(installation, panels, topology)
   }
 
-  const connectorId = generateId()
+  const connectorId = newId()
   const topology: FeedTopology = {
     version: 1,
     rootConnector: {
@@ -428,6 +432,16 @@ export function getPanelSupplyTrunkDevices(
   panel: Panel,
 ): TrunkDevice[] {
   return getPanelFeedProjection(installation, panels, panel)?.devices ?? []
+}
+
+/** Stored primary-feed inventory for read-only projections; never initializes topology. */
+export function queryPanelSupplyTrunkDevices(installation: Installation, panel: Panel): TrunkDevice[] {
+  if (panel.isMain !== true) return []
+  const shared = installation.mainSupply.supplyTrunkDevices ?? installation.feedTopology?.sharedFeed.trunkDevices ?? []
+  const primary = getPrimaryPanelBusSectionId(panel)
+  const root = installation.feedTopology?.rootFeeds.find((feed) =>
+    feed.panelId === panel.id && (feed.busSectionId ?? primary) === primary)
+  return [...shared, ...(root?.trunkDevices ?? [])]
 }
 
 export function getSupplyFeedDevicesForPanel(

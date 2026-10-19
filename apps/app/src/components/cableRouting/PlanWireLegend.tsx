@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Eye, EyeOff } from 'lucide-react'
-import { CABLE_CATEGORY_COLORS } from '@/lib/cableRouting/cableRoutePlanWires'
+import { planWireColors } from '@/lib/plan/planColors'
 import { PLAN_WIRE_SELECTED_STROKE, resolvePlanWiringVisibility } from '@/lib/plan/planWiring'
 import { PLAN_WIRE_CATEGORIES } from '@/lib/cableRouting/planWireCategoryVisibility'
 import { selectProjectPlanWiringVisibility } from '@/lib/projectV2/planWiring'
@@ -26,6 +26,7 @@ export function PlanWireLegend({ readOnly = false }: { readOnly?: boolean }) {
     () => resolvePlanWiringVisibility({ version: 1, routes: [], visibility: storedVisibility }),
     [storedVisibility]
   )
+  const palette = planWireColors(visibility.symbolColors)
   const updateVisibility = useProjectStore((s) => s.updatePlanWiringVisibility)
   const buttonClass =
     'flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500 disabled:cursor-default disabled:opacity-50 dark:hover:bg-gray-700'
@@ -65,7 +66,7 @@ export function PlanWireLegend({ readOnly = false }: { readOnly?: boolean }) {
             <span
               className={`flex flex-1 items-center gap-2 ${wiresVisible && visible ? '' : 'opacity-50'}`}
             >
-              <Swatch color={CABLE_CATEGORY_COLORS[category]} />
+              <Swatch color={palette[category]} />
               {label}
             </span>
             <button

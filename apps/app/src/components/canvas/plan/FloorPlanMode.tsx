@@ -1,8 +1,12 @@
+import { isKeyboardTypingTarget } from '@/lib/ui/keyboardTypingTarget'
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
+import { useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Group, Line, Rect, Circle, Text } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import { useUIStore } from '@/stores/uiStore'
+import { useViewportUIStore as useUIStore } from '@/components/viewport/ViewportUIStore'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { snapToGrid } from '@/utils/plan/gridSnap'
 import {
@@ -68,6 +72,7 @@ import {
 import { buildStairGeometry } from '@/components/canvas/plan/StairRenderer'
 import { getStairRenderMetrics } from '@/lib/plan/stairPlanScale'
 import { PlanGraphicElementShape } from '@/components/canvas/plan/PlanGraphicElementRenderer'
+import { PlanProjectionGuides, type PlanProjectionGuide } from './PlanProjectionGuides'
 import { planFloorDrawingConsumesTabRef } from '@/lib/plan/planFloorDrawingKeyboardGate'
 import { resolveFloorPlanToolContextMenuAction } from '@/lib/plan/floorPlanToolContextMenu'
 import {
@@ -114,10 +119,8 @@ interface FloorPlanModeProps {
   selectedGraphicAssetId: string
   /** Report wall under cursor for hover highlight/trim preview; geometry is rendered by PlanCanvas. */
   onWallHover?: (wallId: string | null, pointer: Point2 | null) => void
-  /** Report projected snap guides so parent can render them in a top overlay layer. */
-  onProjectedSnapGuidesChange?: (
-    guides: Array<{ from: Point2; to: Point2; hideDistanceLabel?: boolean }>
-  ) => void
+  /** Main-layer tools publish guides so they stay above the static plan geometry. */
+  onProjectedSnapGuidesChange?: (guides: PlanProjectionGuide[]) => void
   /** Notifies parent when a door/window placement is successfully inserted. */
   onOpeningInserted?: (kind: 'door' | 'window') => void
   /** Overrides the parent ghost opening preview while drag-sizing insertion. */
@@ -155,16 +158,22 @@ export function FloorPlanMode({
   onOpeningInserted,
   onOpeningPreviewOverrideChange,
 }: FloorPlanModeProps) {
+  const window = useCanvasWindow()
+  const isActiveViewport = useIsActiveViewport()
+  const viewportSize = useUIStore((s) => s.planCanvasViewportPx)
+  // Drawing must own the visible viewport even on large plans far from (0, 0).
+  const hitZoom = Math.max(0.0001, planView.zoom)
+  const hitPadding = 64
+  const hitArea = {
+    x: (-planView.pan.x - hitPadding) / hitZoom,
+    y: (-planView.pan.y - hitPadding) / hitZoom,
+    width: ((viewportSize?.width ?? window.innerWidth) + hitPadding * 2) / hitZoom,
+    height: ((viewportSize?.height ?? window.innerHeight) + hitPadding * 2) / hitZoom,
+  }
   const selection = useUIStore((s) => s.selection)
   const setSelection = useSetSelectionStore()
   const getWallsByFloor = useProjectStore((s: ProjectState) => s.getWallsByFloor)
-  const addWall = useProjectStore((s: ProjectState) => s.addWall)
   const wallDrawingThicknessCm = useUIStore((s) => s.planWallDrawingThicknessCm)
-  const addDoor = useProjectStore((s: ProjectState) => s.addDoor)
-  const addWindow = useProjectStore((s: ProjectState) => s.addWindow)
-  const addStair = useProjectStore((s: ProjectState) => s.addStair)
-  const addPlanGraphicElement = useProjectStore((s: ProjectState) => s.addPlanGraphicElement)
-  const withSingleUndoEntry = useProjectStore((s: ProjectState) => s.withSingleUndoEntry)
   const theme = useSettingsStore((s) => s.theme)
   const canvasPxPerMeter = useMemo(
     () =>
@@ -429,30 +438,36 @@ export function FloorPlanMode({
 
   const commitWallWithUndo = useCallback(
     (floorId: string, points: Point2[], curve?: Wall['curve']) => {
-      withSingleUndoEntry(
-        () => {
-          addWall(floorId, { floorId, points, curve, thickness: wallDrawingThicknessCm })
-          return true
+      runProjectCommand(
+        'plan.createBuildingGeometry',
+        {
+          kind: 'wall',
+          floorId,
+          points,
+          curve,
+          thickness: wallDrawingThicknessCm,
         },
-        { sessionLabel: 'add wall' }
+        { label: 'add wall', source: 'floor-plan-drawing' }
       )
       clearDrawingUndoStacks()
     },
-    [addWall, clearDrawingUndoStacks, wallDrawingThicknessCm, withSingleUndoEntry]
+    [clearDrawingUndoStacks, wallDrawingThicknessCm]
   )
 
   const commitStairWithUndo = useCallback(
     (floorId: string, stair: Omit<Stair, 'id'>) => {
-      withSingleUndoEntry(
-        () => {
-          addStair(floorId, stair)
-          return true
+      runProjectCommand(
+        'plan.createBuildingGeometry',
+        {
+          kind: 'stair',
+          ...stair,
+          floorId,
         },
-        { sessionLabel: 'add stair' }
+        { label: 'add stair', source: 'floor-plan-drawing' }
       )
       clearDrawingUndoStacks()
     },
-    [addStair, clearDrawingUndoStacks, withSingleUndoEntry]
+    [clearDrawingUndoStacks]
   )
 
   const commitCurrentPenDrawing = useCallback(() => {
@@ -559,9 +574,10 @@ export function FloorPlanMode({
       const draggedLargeEnough = draggedWidth >= 4 && draggedHeight >= 4
 
       if (useDraggedSize && draggedLargeEnough && !asset.sizeLocked) {
-        addPlanGraphicElement(activeFloorId, {
+        runProjectCommand('plan.createBuildingGeometry', {
+          kind: 'graphicElement',
           floorId: activeFloorId,
-          kind: asset.kind,
+          elementKind: asset.kind,
           assetId: asset.id,
           pos: { x: left + draggedWidth / 2, y: top + draggedHeight / 2 },
           width: draggedWidth,
@@ -583,9 +599,21 @@ export function FloorPlanMode({
         defaultPos,
         canvasPxPerMeter
       )
-      if (draft) addPlanGraphicElement(activeFloorId, draft)
+      if (draft) {
+        const { floorId, kind, ...element } = draft
+        runProjectCommand(
+          'plan.createBuildingGeometry',
+          {
+            kind: 'graphicElement',
+            floorId,
+            elementKind: kind,
+            ...element,
+          },
+          { label: 'add plan graphic', source: 'floor-plan-drawing' }
+        )
+      }
     },
-    [activeFloorId, addPlanGraphicElement, canvasPxPerMeter, selectedGraphicAssetId]
+    [activeFloorId, canvasPxPerMeter, selectedGraphicAssetId]
   )
 
   const rememberStageContainer = useCallback((e: FloorPlanInputEvent) => {
@@ -806,22 +834,15 @@ export function FloorPlanMode({
       dragSizingLatched = false
     ) => {
       if (!activeFloorId) return
-      const floorPlan = (
-        currentProject ? readLegacyCompatibilityFloors(currentProject) : []
-      ).find((f: { id: string }) => f.id === activeFloorId)?.floorPlan
+      const floorPlan = (currentProject ? readLegacyCompatibilityFloors(currentProject) : []).find(
+        (f: { id: string }) => f.id === activeFloorId
+      )?.floorPlan
       const doors = floorPlan?.doors ?? []
       const windows = floorPlan?.windows ?? []
-      const placement = computeOpeningDragPlacement(
-        wall,
-        anchor,
-        current,
-        defaultWidth,
-        6,
-        {
-          ...getOpeningPlacementOptions(kind),
-          forceDragSizing: dragSizingLatched,
-        }
-      )
+      const placement = computeOpeningDragPlacement(wall, anchor, current, defaultWidth, 6, {
+        ...getOpeningPlacementOptions(kind),
+        forceDragSizing: dragSizingLatched,
+      })
       const fitted = fitOpeningPlacementForPreview(wall, placement, doors, windows)
       const validation = validateOpeningPlacement(
         wall,
@@ -844,32 +865,45 @@ export function FloorPlanMode({
         if (orientation) {
           doorPlacementOpenSideRef.current = orientation.openSide
         }
-        addDoor(activeFloorId, {
-          ...result.door,
-          position: fitted.position,
-          ...(orientation ? { swing: orientation.swing, direction: orientation.direction } : {}),
-        })
+        const outcome = runProjectCommand(
+          'plan.createBuildingGeometry',
+          {
+            kind: 'door',
+            floorId: activeFloorId,
+            wallId: wall.id,
+            position: fitted.position,
+            width: result.door.width,
+            ...(orientation ? { swing: orientation.swing, direction: orientation.direction } : {}),
+          },
+          { label: 'add door', source: 'floor-plan-drawing' }
+        )
+        if (!outcome?.changed) return
         onOpeningInserted?.('door')
-        const latestDoors =
-          useProjectStore.getState().getFloorById(activeFloorId)?.floorPlan?.doors ?? []
-        const insertedDoor = latestDoors[latestDoors.length - 1]
+        const insertedDoor = outcome.results[0]?.created.find((ref) => ref.kind === 'door')
         if (insertedDoor) setSelection({ type: 'door', ids: [insertedDoor.id] })
         return
       }
 
       const result = handleInsertWindow(wall, placement.centerPoint, fitted.width)
-      addWindow(activeFloorId, { ...result.window, position: fitted.position })
+      const outcome = runProjectCommand(
+        'plan.createBuildingGeometry',
+        {
+          kind: 'window',
+          floorId: activeFloorId,
+          wallId: wall.id,
+          position: fitted.position,
+          width: result.window.width,
+        },
+        { label: 'add window', source: 'floor-plan-drawing' }
+      )
+      if (!outcome?.changed) return
       onOpeningInserted?.('window')
-      const latestWindows =
-        useProjectStore.getState().getFloorById(activeFloorId)?.floorPlan?.windows ?? []
-      const insertedWindow = latestWindows[latestWindows.length - 1]
+      const insertedWindow = outcome.results[0]?.created.find((ref) => ref.kind === 'window')
       if (insertedWindow) setSelection({ type: 'window', ids: [insertedWindow.id] })
     },
     [
       activeFloorId,
       currentProject,
-      addDoor,
-      addWindow,
       setSelection,
       onOpeningInserted,
       resolvePlacementDoorOrientation,
@@ -1324,6 +1358,7 @@ export function FloorPlanMode({
     canvasPxPerMeter,
     scheduleMousePreviewPosition,
     wallDrawingState.currentPoints,
+    window,
   ])
 
   // Auto-lock rectangle X dimension
@@ -1372,6 +1407,7 @@ export function FloorPlanMode({
     canvasPxPerMeter,
     clearRectConstraints,
     scheduleMousePreviewPosition,
+    window,
   ])
 
   // Auto-lock rectangle Y dimension
@@ -1420,11 +1456,13 @@ export function FloorPlanMode({
     canvasPxPerMeter,
     clearRectConstraints,
     scheduleMousePreviewPosition,
+    window,
   ])
 
   // Track Shift globally so pointer/touch handlers can reliably read modifier state.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActiveViewport()) return
       if (e.key === 'Shift') {
         isShiftPressedRef.current = true
       }
@@ -1446,7 +1484,7 @@ export function FloorPlanMode({
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [])
+  }, [isActiveViewport, window])
 
   useEffect(() => {
     planFloorDrawingUndoRef.current = {
@@ -1509,6 +1547,31 @@ export function FloorPlanMode({
     penLockedLengthMeters,
   ])
 
+  const cancelDrawingTool = useCallback(() => {
+    setOpeningPointerState(null)
+    onOpeningPreviewOverrideChange?.(null)
+    onWallHover?.(null, null)
+    if (wallDrawingState.isDrawing || wallDrawingState.rectStartPoint) resetDrawingState()
+    if (activeTool === 'drawWall') suppressAutoCommitRef.current = true
+    if (activeTool === 'drawStair') {
+      suppressStairAutoCommitRef.current = true
+      setStairDrawingPoints([])
+      stairLastClickTimeRef.current = 0
+      resetDrawingState()
+    }
+    if (activeTool !== 'select') setActiveTool('select')
+    else onExitDrawMode()
+  }, [
+    activeTool,
+    wallDrawingState.isDrawing,
+    wallDrawingState.rectStartPoint,
+    resetDrawingState,
+    onOpeningPreviewOverrideChange,
+    onWallHover,
+    setActiveTool,
+    onExitDrawMode,
+  ])
+
   const drawDimensionEditor = useMemo<FloorPlanDrawDimensionEditor | null>(() => {
     if (!currentMousePosition) return null
 
@@ -1540,7 +1603,7 @@ export function FloorPlanMode({
         onChange: (_id, value) => setPenDimensionText(value),
         onEnter: commitPenDimensionInput,
         onTab: () => undefined,
-        onEscape: () => undefined,
+        onEscape: cancelDrawingTool,
       }
     }
 
@@ -1597,12 +1660,13 @@ export function FloorPlanMode({
         },
         onEnter: () => undefined,
         onTab: () => setRectActiveAxis((axis) => (axis === 'x' ? 'y' : 'x')),
-        onEscape: () => undefined,
+        onEscape: cancelDrawingTool,
       }
     }
 
     return null
   }, [
+    cancelDrawingTool,
     activeTool,
     currentMousePosition,
     wallDrawingState.isDrawing,
@@ -1644,38 +1708,17 @@ export function FloorPlanMode({
   // Handle keyboard events for floor plan mode
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActiveViewport()) return
       const target = e.target
       const isNativeDimensionInput =
-        target instanceof HTMLElement && target.dataset.floorPlanDimensionInput === 'true'
+        (target as HTMLElement | null)?.nodeType === 1 && (target as HTMLElement).dataset.floorPlanDimensionInput === 'true'
       if (isNativeDimensionInput && e.key !== 'Escape') return
+      if (isKeyboardTypingTarget(target) && !isNativeDimensionInput) return
 
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
-        setOpeningPointerState(null)
-        onOpeningPreviewOverrideChange?.(null)
-        onWallHover?.(null, null)
-        // Cancel current drawing operation for both pen and rectangle tools
-        if (wallDrawingState.isDrawing || wallDrawingState.rectStartPoint) {
-          resetDrawingState()
-        }
-        // Clear selection or exit tool back to the implicit select+move tool
-        if (activeTool === 'drawWall') {
-          // Exit pen tool without committing the current polyline
-          suppressAutoCommitRef.current = true
-        }
-        if (activeTool === 'drawStair') {
-          // Escape cancels the draft; leaving through the toolbar still commits it.
-          suppressStairAutoCommitRef.current = true
-          setStairDrawingPoints([])
-          stairLastClickTimeRef.current = 0
-          resetDrawingState()
-        }
-        if (activeTool !== 'select') {
-          setActiveTool('select')
-        } else {
-          onExitDrawMode()
-        }
+        cancelDrawingTool()
         return
       }
 
@@ -1747,6 +1790,7 @@ export function FloorPlanMode({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
+    cancelDrawingTool,
     wallDrawingState.isDrawing,
     wallDrawingState.currentPoints,
     wallDrawingState.rectStartPoint,
@@ -1767,6 +1811,8 @@ export function FloorPlanMode({
     onOpeningPreviewOverrideChange,
     onWallHover,
     onExitDrawMode,
+    window,
+    isActiveViewport,
   ])
 
   useEffect(() => {
@@ -1774,9 +1820,7 @@ export function FloorPlanMode({
   }, [projectedSnapGuides, onProjectedSnapGuidesChange])
 
   useEffect(() => {
-    return () => {
-      onProjectedSnapGuidesChange?.([])
-    }
+    return () => onProjectedSnapGuidesChange?.([])
   }, [onProjectedSnapGuidesChange])
 
   useEffect(() => {
@@ -2390,10 +2434,7 @@ export function FloorPlanMode({
       let hovered: string | null = null
 
       for (const wall of walls) {
-        if (
-          isCurvedWall(wall) &&
-          getCurvedWallToolHoverFeedback(activeTool) === 'suppressed'
-        ) {
+        if (isCurvedWall(wall) && getCurvedWallToolHoverFeedback(activeTool) === 'suppressed') {
           continue
         }
         const pathPoints = getWallPathPoints(wall)
@@ -2463,10 +2504,7 @@ export function FloorPlanMode({
           12
         )
         const distanceFromPrevious = previousPointerDown
-          ? Math.hypot(
-              canvasPoint.x - previousPointerDown.x,
-              canvasPoint.y - previousPointerDown.y
-            )
+          ? Math.hypot(canvasPoint.x - previousPointerDown.x, canvasPoint.y - previousPointerDown.y)
           : Number.POSITIVE_INFINITY
         const isDoubleDown =
           now - penLastPointerDownTimeRef.current < FLOOR_PLAN_DRAW_DOUBLE_CLICK_MS &&
@@ -2830,7 +2868,13 @@ export function FloorPlanMode({
 
     window.addEventListener('touchmove', handleWindowTouchMove, { capture: true, passive: false })
     return () => window.removeEventListener('touchmove', handleWindowTouchMove, true)
-  }, [openingPointerState, clientCoordsToCanvasPoint, getDefaultOpeningWidth, getOpeningPlacementOptions])
+  }, [
+    openingPointerState,
+    clientCoordsToCanvasPoint,
+    getDefaultOpeningWidth,
+    getOpeningPlacementOptions,
+    window,
+  ])
 
   useEffect(() => {
     if (!onOpeningPreviewOverrideChange) return
@@ -3316,15 +3360,21 @@ export function FloorPlanMode({
           {/* Transparent hit area to capture clicks on empty space */}
           <Rect
             name="floor-plan-hit-area"
-            x={-10000}
-            y={-10000}
-            width={20000}
-            height={20000}
+            {...hitArea}
             fill="transparent"
             listening={true}
             perfectDrawEnabled={false}
           />
         </Group>
+      )}
+      {!onProjectedSnapGuidesChange && (
+        <PlanProjectionGuides
+          guides={projectedSnapGuides}
+          zoom={planView.zoom}
+          pxPerMeter={canvasPxPerMeter}
+          fontFamily={fontFamily}
+          themeMode={theme.mode}
+        />
       )}
     </>
   )

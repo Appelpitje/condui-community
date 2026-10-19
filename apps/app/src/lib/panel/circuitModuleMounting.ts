@@ -150,6 +150,18 @@ function removeFromAllGrids(project: ProjectWithOptionalV2Electrical, key: strin
     enclosure.gridView.slots = enclosure.gridView.slots.filter(keep)
 }
 
+/** Return a circuit module to its circuit's default location before a board/field choice. */
+export function releaseCircuitModuleMountingInProject(
+  project: ProjectWithOptionalV2Electrical,
+  ref: PanelGridModuleRef
+): boolean {
+  const occurrence = findRemountableCircuitModule(project, ref)
+  if (!occurrence?.entity.panelMounting) return false
+  removeFromAllGrids(project, panelGridModuleRefKey(ref))
+  delete occurrence.entity.panelMounting
+  return true
+}
+
 function showInGrid(grid: PanelGridConfig, key: string): void {
   if (grid.hiddenModuleKeys) {
     grid.hiddenModuleKeys = grid.hiddenModuleKeys.filter((candidate) => candidate !== key)

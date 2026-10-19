@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { symbols } from '@/lib/symbols'
 import type { SymbolKey } from '@/types/schema'
+import { addressCountrySchema } from './addressCountry'
 
 const nullable = <T extends z.ZodType>(schema: T) => schema.nullable()
 const str = nullable(z.string())
@@ -175,6 +176,11 @@ export const domoticaProps = patchObject({
   baseSymbol: str,
 })
 export const energyConversionProps = patchObject({
+  transformerRole: z.literal('supply').nullable(),
+  transformerPrimaryVoltageV: z.number().finite().positive().nullable(),
+  transformerSecondaryVoltageV: z.number().finite().positive().nullable(),
+  transformerRatedPowerKva: z.number().finite().positive().nullable(),
+  transformerShortCircuitVoltagePercent: z.number().finite().positive().max(100).nullable(),
   dcConnectionCount: positiveCount,
   acPhaseAssignment: phaseAssignment.nullable(),
   acPhaseAssignments: nullable(z.array(phaseAssignment)),
@@ -284,6 +290,7 @@ export const protectionPatchSchema = patchObject({
 })
 
 export const circuitPatchSchema = patchObject({
+  scanReview: z.null(),
   code: z.string(),
   kind: z.enum([
     'lighting',
@@ -424,11 +431,12 @@ export const installDatePatchSchema = installationDatePatchSchema
 
 export const installationPropertiesSchema = patchObject({
   installationProfile: enumOrNull(['household', 'non_household']),
+  connectionCurrentA: z.number().finite().int().positive().nullable(),
   address: patchObject({
     street: z.string(),
     postalCode: z.string(),
     city: z.string(),
-    country: z.string(),
+    country: addressCountrySchema,
   }),
   nominalVoltage: patchObject({
     system: z.enum(['1~', '2~', '1N~', '3~', '3N~', 'DC']),

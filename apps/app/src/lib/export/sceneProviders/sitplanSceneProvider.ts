@@ -1,3 +1,4 @@
+import { prepareIsolatedExportScene } from './isolatedExportScene'
 import { logger } from '@/lib/logger'
 /**
  * Sitplan scene provider
@@ -29,6 +30,7 @@ import {
 import { collectAndRemoveSymbolImagesForExport } from '../symbolSvgInject'
 import { adjustSymbolImagesForExport } from './symbolImageExport'
 import { stripInteractiveOverlaysForExport } from '../interactiveOverlayExport'
+import { acquireCanvasDescendantsMaterialization } from '@/lib/canvas/groupMaterialization'
 
 const SITPLAN_EXPORT_BOUNDS_PADDING = 80
 
@@ -99,14 +101,13 @@ export async function prepareSitplanScene(
   }
 
   // 2. Get stage from registry (now always returns stage if canvas is mounted)
-  const canvasRegistry = useCanvasRegistryStore.getState().registry
-  let stage = canvasRegistry.sitplan?.getStage(floorId)
+  let stage = useCanvasRegistryStore.getState().registry.sitplan?.getStage(floorId)
 
   // Retry a few times in case stage isn't immediately available
   if (!stage) {
     for (let i = 0; i < 5; i++) {
       await new Promise((resolve) => requestAnimationFrame(resolve))
-      stage = canvasRegistry.sitplan?.getStage(floorId)
+      stage = useCanvasRegistryStore.getState().registry.sitplan?.getStage(floorId)
       if (stage) break
     }
   }
@@ -146,89 +147,88 @@ export async function prepareSitplanScene(
   exportLog(`[Export] Found canvas-content group for floor ${floorId}`)
 
   // 4. Clone into isolated temporary stage
-  const tempStage = new Konva.Stage({
-    container: document.createElement('div'),
-    width: stage.width(),
-    height: stage.height(),
-  })
-
-  const tempLayer = new Konva.Layer()
-  tempStage.add(tempLayer)
-
-  // Clone canvas-content Group (deep clone, no live references)
-  const clonedGroup = canvasContentGroup.clone({
-    // Clone all children recursively
-    deep: true,
-  })
-
-  // Reset transforms to identity (scene space is canvas-content space)
-  clonedGroup.x(0)
-  clonedGroup.y(0)
-  clonedGroup.scaleX(1)
-  clonedGroup.scaleY(1)
-  clonedGroup.rotation(0)
-
-  stripWallPointHandlesForExport(clonedGroup)
-  stripPlanWireEditOverlayForExport(clonedGroup)
-  stripInteractiveOverlaysForExport(clonedGroup)
-
-  const planGraphicExports = await collectAndRemovePlanGraphicElementsForExport(
-    clonedGroup,
-    targetTheme
-  )
-
-  const symbolExports = collectAndRemoveSymbolImagesForExport(clonedGroup)
-
-  if (sourceTheme !== targetTheme) {
-    applyExportThemeToKonvaNodes(clonedGroup, sourceTheme, targetTheme)
+  const releaseMaterialization = await acquireCanvasDescendantsMaterialization(canvasContentGroup)
+  let clonedGroup: Konva.Group
+  try {
+    clonedGroup = canvasContentGroup.clone({ deep: true })
+  } finally {
+    releaseMaterialization()
   }
+  clonedGroup.find('.plan-placement-logical-bounds').forEach((node) => node.destroy())
+  return prepareIsolatedExportScene(clonedGroup, async (createStage) => {
+    const tempStage = createStage(stage.width(), stage.height())
+    const tempLayer = new Konva.Layer()
+    tempStage.add(tempLayer)
 
-  // Embed non-symbol images (floor plan backgrounds) for SVG/PDF export.
-  await adjustSymbolImagesForExport(clonedGroup, sourceTheme, targetTheme, {
-    shouldInvertImage: (imageNode) => {
-      if (sourceTheme === targetTheme) return false
-      if (isInsideEndpointGroup(imageNode)) return false
-      if (isSitplanSymbolImageForExport(imageNode)) return false
-      const floorId = getPlanBackgroundFloorId(imageNode)
-      if (!floorId) return false
-      return isFloorPlanBackgroundDarkModeAware(floorId)
-    },
+    // Reset transforms to identity (scene space is canvas-content space)
+    clonedGroup.x(0)
+    clonedGroup.y(0)
+    clonedGroup.scaleX(1)
+    clonedGroup.scaleY(1)
+    clonedGroup.rotation(0)
+
+    stripWallPointHandlesForExport(clonedGroup)
+    stripPlanWireEditOverlayForExport(clonedGroup)
+    stripInteractiveOverlaysForExport(clonedGroup)
+
+    const planGraphicExports = await collectAndRemovePlanGraphicElementsForExport(
+      clonedGroup,
+      targetTheme
+    )
+
+    const symbolExports = collectAndRemoveSymbolImagesForExport(clonedGroup)
+
+    if (sourceTheme !== targetTheme) {
+      applyExportThemeToKonvaNodes(clonedGroup, sourceTheme, targetTheme)
+    }
+
+    // Embed non-symbol images (floor plan backgrounds) for SVG/PDF export.
+    await adjustSymbolImagesForExport(clonedGroup, sourceTheme, targetTheme, {
+      shouldInvertImage: (imageNode) => {
+        if (sourceTheme === targetTheme) return false
+        if (isInsideEndpointGroup(imageNode)) return false
+        if (isSitplanSymbolImageForExport(imageNode)) return false
+        const floorId = getPlanBackgroundFloorId(imageNode)
+        if (!floorId) return false
+        return isFloorPlanBackgroundDarkModeAware(floorId)
+      },
+    })
+
+    tempLayer.add(clonedGroup)
+    tempStage.draw()
+
+    // 5. Calculate bounds in scene coordinate space.
+    // Fallback to stage size when getClientRect returns invalid (e.g. plan with images + vector walls).
+    const fullBounds = expandSceneBounds(
+      unionSceneBoundsWithPlanGraphicExports(
+        calculateSceneBounds(clonedGroup, {
+          x: 0,
+          y: 0,
+          width: tempStage.width(),
+          height: tempStage.height(),
+          space: 'scene',
+        }),
+        planGraphicExports
+      ),
+      SITPLAN_EXPORT_BOUNDS_PADDING
+    )
+    // A panel filter controls which electrical symbols appear, never which part of
+    // the building plan is exported. Symbol proximity alone cannot distinguish an
+    // attached room from a detached outbuilding, and trimming on that basis loses
+    // essential inspection context. Keep the complete plan until a future,
+    // explicitly modelled detached-building boundary can make this decision safely.
+    const bounds = fullBounds
+
+    // 6. Return isolated scene
+    return {
+      id: `sitplan-${floorId}`,
+      kind: 'sitplan',
+      renderedTheme: targetTheme,
+      rootNode: clonedGroup, // Isolated clone, safe to export
+      bounds,
+      preferredOrientation: 'portrait', // Will be determined by bounds
+      planGraphicExports: planGraphicExports.length > 0 ? planGraphicExports : undefined,
+      symbolExports: symbolExports.length > 0 ? symbolExports : undefined,
+    }
   })
-
-  tempLayer.add(clonedGroup)
-  tempStage.draw()
-
-  // 5. Calculate bounds in scene coordinate space.
-  // Fallback to stage size when getClientRect returns invalid (e.g. plan with images + vector walls).
-  const fullBounds = expandSceneBounds(
-    unionSceneBoundsWithPlanGraphicExports(
-      calculateSceneBounds(clonedGroup, {
-        x: 0,
-        y: 0,
-        width: tempStage.width(),
-        height: tempStage.height(),
-        space: 'scene',
-      }),
-      planGraphicExports
-    ),
-    SITPLAN_EXPORT_BOUNDS_PADDING
-  )
-  // A panel filter controls which electrical symbols appear, never which part of
-  // the building plan is exported. Symbol proximity alone cannot distinguish an
-  // attached room from a detached outbuilding, and trimming on that basis loses
-  // essential inspection context. Keep the complete plan until a future,
-  // explicitly modelled detached-building boundary can make this decision safely.
-  const bounds = fullBounds
-
-  // 6. Return isolated scene
-  return {
-    id: `sitplan-${floorId}`,
-    kind: 'sitplan',
-    renderedTheme: targetTheme,
-    rootNode: clonedGroup, // Isolated clone, safe to export
-    bounds,
-    preferredOrientation: 'portrait', // Will be determined by bounds
-    planGraphicExports: planGraphicExports.length > 0 ? planGraphicExports : undefined,
-    symbolExports: symbolExports.length > 0 ? symbolExports : undefined,
-  }
 }

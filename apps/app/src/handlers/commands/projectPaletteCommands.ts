@@ -2,14 +2,22 @@ import { createElement } from 'react'
 import i18n from '@/i18n'
 import { CommandInputDialog } from '@/components/commands/CommandInputDialog'
 import { getProjectPaletteActions } from '@/lib/commands/ui/projectPaletteActions'
-import type { CommandDefinition } from '@/lib/commands/ui/types'
+import type { CommandContext, CommandDefinition } from '@/lib/commands/ui/types'
 import { CommandError } from '@/lib/commands/project'
 import { liveProjectSession } from '@/stores/liveProjectCommandSession'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useDialogStore } from '@/stores/dialogStore'
+import { canOpenRoomPlanScan, openRoomPlanScan } from '@/handlers/plan/roomPlanScan'
+import type { Selection } from '@/types/ui'
+import { useCanvasRegistryStore } from '@/stores/canvasRegistryStore'
+import {
+  canOpenSelectedJunctionEditorForEdition,
+  openSelectedJunctionEditorForEdition,
+} from '@/lib/junction/junctionEditorUiHooks'
 
 const bindings = [
+  ['electrical.addSupplyTransformer', 'addSupplyTransformer'],
   ['electrical.assignEndpoints', 'moveToCircuit'],
   ['electrical.reorderBranch', 'reorderBranch'],
   ['electrical.moveProtectionOnBus', 'moveOnBus'],
@@ -22,6 +30,41 @@ const bindings = [
   ['panel.autoArrange', 'autoArrange'],
   ['floor.rename', 'renameFloor'],
   ['circuit.createEmpty', 'addCircuit'],
+  ['document.removeFromOneWire', 'removeFromOneWire'],
+  ['document.showOnOneWire', 'showOnOneWire'],
+  ['floor.create', 'addFloor'],
+  ['floor.delete', 'deleteFloor'],
+  ['plan.transformBackground', 'transformBackground'],
+  ['plan.detachBackground', 'removeBackground'],
+  ['plan.addWall', 'addPlanWall'],
+  ['plan.splitWall', 'splitWall'],
+  ['plan.addDoor', 'addPlanDoor'],
+  ['plan.addWindow', 'addPlanWindow'],
+  ['plan.addStair', 'addPlanStair'],
+  ['plan.addGraphicElement', 'addPlanGraphic'],
+  ['plan.placeExisting', 'placeExistingOnPlan'],
+  ['panel.hideAllModules', 'hideAllPanelModules'],
+  ['panel.showAllModules', 'showAllPanelModules'],
+  ['panel.showAuxiliaryEnclosures', 'showAuxiliaryEnclosures'],
+  ['panel.hideAuxiliaryEnclosures', 'hideAuxiliaryEnclosures'],
+  ['plan.addNote', 'planAddNote'],
+  ['eendraad.addNote', 'eendraadAddNote'],
+  ['eendraad.createFrame', 'eendraadCreateFrame'],
+  ['plan.insertWireWaypoint', 'planInsertWireWaypoint'],
+  ['plan.moveWireWaypoint', 'planMoveWireWaypoint'],
+  ['plan.removeWireWaypoint', 'planRemoveWireWaypoint'],
+  ['plan.moveWireRiser', 'planMoveWireRiser'],
+  ['plan.disconnectOutgoingWires', 'planDisconnectOutgoingWires'],
+  ['cable.acceptAllLengthEstimates', 'cableAcceptLengthEstimates'],
+  ['electrical.moveSupplyTrunkDevice', 'moveSupplyDevice'],
+  ['electrical.moveCircuitTrunkDevice', 'moveCircuitTrunkDevice'],
+  ['panel.setFeedOrganization', 'setPanelFeedOrganization'],
+  ['panel.setBusFeedBoundary.grid', 'setGridFeedBoundary'],
+  ['panel.setBusFeedBoundary.backup', 'setBackupFeedBoundary'],
+  ['panel.moveSupply', 'movePanelSupply'],
+  ['panel.ensureEarthingStem', 'ensureSecondaryPanelEarthingStem'],
+  ['panel.ejectSecondaryBusProtections', 'ejectSecondaryBusProtections'],
+  ['supply.disconnectInverterGridInput', 'disconnectInverterGridInput'],
 ] as const
 
 let cached:
@@ -57,8 +100,49 @@ function actions() {
   return cached.actions
 }
 
+function planActions(ctx: CommandContext) {
+  const registry = useCanvasRegistryStore.getState()
+  if (!ctx.viewport) return registry.registry.sitplan
+  const { viewport } = ctx
+  const panels = viewport.ui.getState().viewportLayout.panels
+  const invokingIndex = ctx.pointerPanelIndex ?? ctx.targetPanelIndex
+  const index = invokingIndex != null && panels[invokingIndex]?.canvas === 'plan'
+    ? invokingIndex
+    : panels.findIndex((panel) => panel.canvas === 'plan')
+  const panelUI = index >= 0 ? viewport.getPanelUI(index) : undefined
+  return panelUI ? registry.getSitplanForViewport(panelUI) : null
+}
+
 export function createProjectPaletteCommands(): CommandDefinition[] {
   return [
+    {
+      id: 'ui.junction.openEditor',
+      labelKey: 'junctionEditor.openEditor',
+      isEnabled: (ctx) =>
+        ctx.capabilities.canEditProject && canOpenSelectedJunctionEditorForEdition(),
+      run: () => openSelectedJunctionEditorForEdition(),
+    },
+    ...(
+      [
+        ['ui.plan.importBackground', 'importPlanBackground', 'importBackground'],
+        ['ui.plan.calibrateScale', 'calibratePlan', 'calibrateScale'],
+      ] as const
+    ).map(([id, label, action]): CommandDefinition => ({
+      id,
+      labelKey: `commandPalette.${label}`,
+      isEnabled: (ctx) =>
+        ctx.capabilities.canEditProject &&
+        !!useProjectStore.getState().currentProject &&
+        !!planActions(ctx)?.[action],
+      run: (ctx) => planActions(ctx)?.[action]?.(),
+    })),
+    {
+      id: 'plan.scanRoom',
+      labelKey: 'nativeRoomScan.start',
+      searchKey: 'nativeRoomScan.search',
+      isEnabled: (ctx) => ctx.capabilities.canEditProject && canOpenRoomPlanScan(),
+      run: () => openRoomPlanScan('palette'),
+    },
     {
       id: 'properties.edit',
       labelKey: 'contextMenu.editProperties',
@@ -76,7 +160,9 @@ export function createProjectPaletteCommands(): CommandDefinition[] {
           labelKey: `commandPalette.${label}`,
           searchKey: id === 'panel.rewire' ? 'commandPalette.rewire' : undefined,
           isEnabled: (ctx) =>
-            ctx.capabilities.canEditProject && actions().some((action) => action.id === id),
+            ctx.capabilities.canEditProject &&
+            (id !== 'electrical.addSupplyTransformer' || ctx.capabilities.canPlaceSymbols) &&
+            actions().some((action) => action.id === id),
           run: () => {
             const action = actions().find((action) => action.id === id)
             if (!action) return false
@@ -118,18 +204,31 @@ export function createProjectPaletteCommands(): CommandDefinition[] {
                       'protection',
                       'trunkDevice',
                       'panel',
+                      'wall',
+                      'door',
+                      'window',
+                      'stair',
+                      'graphicElement',
+                      'note',
+                      'frame',
                     ].includes(kind)
                   )
                     useUIStore.getState().setSelection({
-                      type: kind as
-                        | 'endpoint'
-                        | 'placement'
-                        | 'circuit'
-                        | 'protection'
-                        | 'trunkDevice'
-                        | 'panel',
+                      type: kind as Selection['type'],
                       ids: suggested.map((ref) => ref.id),
                     })
+                }
+                if (id === 'document.removeFromOneWire') useUIStore.getState().clearSelection()
+                if (id === 'floor.create') {
+                  const floor = outcome.results[0]?.created.find((ref) => ref.kind === 'floor')
+                  if (floor) useUIStore.getState().setActiveFloor(floor.id)
+                }
+                if (id === 'floor.delete') {
+                  const project = useProjectStore.getState().currentProject
+                  const active = useUIStore.getState().activeFloorId
+                  if (project && !project.building.floors.some((floor) => floor.id === active))
+                    useUIStore.getState().setActiveFloor(project.building.floors[0]?.id ?? null)
+                  useUIStore.getState().clearSelection()
                 }
                 if (id === 'circuit.createEmpty') {
                   const created = outcome.results[0]?.created.find((ref) => ref.kind === 'circuit')

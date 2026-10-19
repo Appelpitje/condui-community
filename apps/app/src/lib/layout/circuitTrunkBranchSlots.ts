@@ -194,9 +194,24 @@ export interface CircuitTrunkBranchSlotOptions {
 export function findCircuitTrunkBranchSlot(
   tree: LayoutTree,
   position: Point,
+  options: CircuitTrunkBranchSlotOptions = {}
+): CircuitTrunkBranchSlot | null {
+  return findSlotInColumns(collectTrunkColumns(tree), position, options)
+}
+
+/** One read-only target collection can resolve many slots from the same drawing. */
+export function createCircuitTrunkBranchSlotFinder(tree: LayoutTree) {
+  const columns = collectTrunkColumns(tree)
+  return (position: Point, options: CircuitTrunkBranchSlotOptions = {}) =>
+    findSlotInColumns(columns, position, options)
+}
+
+function findSlotInColumns(
+  columns: TrunkColumn[],
+  position: Point,
   { includeBranchRows = true }: CircuitTrunkBranchSlotOptions = {}
 ): CircuitTrunkBranchSlot | null {
-  const matches = collectTrunkColumns(tree).filter((column) =>
+  const matches = columns.filter((column) =>
     columnContains(column, position, includeBranchRows)
   )
   if (matches.length === 0) return null

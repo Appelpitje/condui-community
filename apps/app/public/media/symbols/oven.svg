@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-62.2 -68.0 133.0 133.0" role="img" aria-label="Oven">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-43.3,25.0 8.7,55.0 8.7,-3.0 -43.3,-33.0" fill="#f1f5f9"/>
+  <polygon points="52.0,30.0 8.7,55.0 8.7,-3.0 52.0,-28.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-58.0 52.0,-28.0 8.7,-3.0 -43.3,-33.0" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -43.30 25.00)"><circle cx="10" cy="-52" r="3.2" fill="#ffffff" stroke-width="1"/><path d="M10 -55.2V-52.96" stroke-width="1"/><circle cx="50" cy="-52" r="3.2" fill="#ffffff" stroke-width="1"/><path d="M50 -55.2V-52.96" stroke-width="1"/>
+<rect x="22" y="-55" width="16" height="6" rx="1" fill="#1e293b"/>
+<rect x="8" y="-43" width="44" height="3" rx="1.5" fill="#94a3b8" stroke-width="1"/>
+<rect x="10" y="-36" width="40" height="28" rx="2" fill="#1e293b"/></g>
+</g>
+</svg>

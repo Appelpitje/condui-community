@@ -1,3 +1,6 @@
+import { isKeyboardTypingTarget as isTypingTarget } from '@/lib/ui/keyboardTypingTarget'
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
+import { useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Circle, Ellipse, Group, Line, Path, Rect, RegularPolygon, Text } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
@@ -68,15 +71,6 @@ interface PlanGraphicElementRendererProps {
 type DimensionField = 'width' | 'height'
 type PlanGraphicPointerEvent = KonvaEventObject<MouseEvent | TouchEvent | PointerEvent>
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  return (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
-    target.isContentEditable
-  )
-}
 
 function fitX(value: number, viewBoxWidth: number, width: number): number {
   return -width / 2 + (value / viewBoxWidth) * width
@@ -407,6 +401,8 @@ function GraphicElementNode({
   const asset = getPlanGraphicElementAsset(element.assetId)
   const selectionColor = getThemeColor(themeMode, 'selectionColor')
   const locked = element.sizeLocked || asset?.sizeLocked
+  const window = useCanvasWindow()
+  const isActiveViewport = useIsActiveViewport()
   const [editingField, setEditingField] = useState<DimensionField | null>(null)
   const [draftText, setDraftText] = useState('')
   const [interactionDraft, setInteractionDraft] = useState<PlanGraphicElement | null>(null)
@@ -444,6 +440,7 @@ function GraphicElementNode({
   useEffect(() => {
     if (!editingField || locked) return
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isActiveViewport()) return
       if (isTypingTarget(event.target)) return
       if (/^[0-9]$/.test(event.key)) {
         event.preventDefault()
@@ -484,7 +481,7 @@ function GraphicElementNode({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [canvasPxPerMeter, draftText, editingField, element, locked, onResize])
+  }, [canvasPxPerMeter, draftText, editingField, element, isActiveViewport, locked, onResize, window])
 
   const strokeWidth = screenPxToCanvasUnits(
     zoom,

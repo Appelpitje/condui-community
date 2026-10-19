@@ -1,7 +1,7 @@
-import { memo, useRef, useState, useCallback, useEffect, type ReactNode } from 'react'
+import { memo, useRef, useState, useCallback, useEffect, useId, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Star } from 'lucide-react'
-import type { SymbolMetadata } from '@/lib/symbols'
+import { getSymbolIconPath, type SymbolMetadata } from '@/lib/symbols'
 import { logger } from '@/lib/logger'
 import {
   getCachedThemedSymbolBlobUrl,
@@ -15,8 +15,7 @@ import {
 import { useUIStore } from '@/stores/uiStore'
 import { getCenteredTouchDragPreviewStyle } from '@/lib/canvas/touchDragPreview'
 import { setLibrarySymbolDragImage } from '@/lib/ui/libraryDragImage'
-import { clamp } from '@/lib/geometry'
-import { DomoticaIcon } from '@/components/icons/UiIcons'
+import { SymbolHoverCard } from './SymbolHoverCard'
 
 const DRAG_THRESHOLD_PX = 10
 const DRAG_AXIS_BIAS_PX = 6
@@ -71,7 +70,7 @@ function lockLibraryScroll(container: HTMLDivElement) {
 interface SymbolItemProps {
   symbol: SymbolMetadata
   localizedName: string
-  /** Short description shown on hover; omit to hide the tooltip. */
+  /** Fallback description for symbols without an AREI reference. */
   tooltip?: string
   isFavorite: boolean
   onToggleFavorite: (symbolId: string) => void
@@ -95,8 +94,10 @@ function SymbolItem({
   const lastPointerTypeRef = useRef<string>('mouse')
   const iconRef = useRef<HTMLDivElement>(null)
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tooltipId = useId()
   const [showTooltip, setShowTooltip] = useState(false)
-  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [tooltipAnchor, setTooltipAnchor] = useState<DOMRect | null>(null)
   const itemRef = useRef<HTMLDivElement>(null)
   
   // Touch drag state (for preview portal)
@@ -106,34 +107,66 @@ function SymbolItem({
   const moveHandlerRef = useRef<((ev: TouchEvent) => void) | null>(null)
   const endHandlerRef = useRef<((ev: TouchEvent) => void) | null>(null)
 
-  const handleMouseEnter = useCallback(
-    (e: React.MouseEvent) => {
-      if (!tooltip) return
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-      setTooltipPos({ x: rect.right + 8, y: rect.top + rect.height / 2 })
-      tooltipTimerRef.current = setTimeout(() => {
-        setShowTooltip(true)
-      }, 500)
-    },
-    [tooltip],
-  )
-
-  const handleMouseLeave = useCallback(() => {
+  const clearTooltipTimers = useCallback(() => {
     if (tooltipTimerRef.current) {
       clearTimeout(tooltipTimerRef.current)
       tooltipTimerRef.current = null
     }
-    setShowTooltip(false)
-  }, [])
-
-  // Clean up timer on unmount
-  useEffect(() => {
-    return () => {
-      if (tooltipTimerRef.current) {
-        clearTimeout(tooltipTimerRef.current)
-      }
+    if (tooltipCloseTimerRef.current) {
+      clearTimeout(tooltipCloseTimerRef.current)
+      tooltipCloseTimerRef.current = null
     }
   }, [])
+
+  const dismissTooltip = useCallback(() => {
+    clearTooltipTimers()
+    setShowTooltip(false)
+  }, [clearTooltipTimers])
+
+  const keepTooltipOpen = useCallback(() => {
+    clearTooltipTimers()
+  }, [clearTooltipTimers])
+
+  const handleMouseEnter = useCallback(() => {
+    clearTooltipTimers()
+    if (!tooltip || showTooltip) return
+    tooltipTimerRef.current = setTimeout(() => {
+      if (!itemRef.current) return
+      setTooltipAnchor(itemRef.current.getBoundingClientRect())
+      setShowTooltip(true)
+    }, 1000)
+  }, [tooltip, showTooltip, clearTooltipTimers])
+
+  const handleMouseLeave = useCallback(() => {
+    clearTooltipTimers()
+    // Allow crossing the gap between the gallery tile and its interactive card.
+    tooltipCloseTimerRef.current = setTimeout(() => setShowTooltip(false), 200)
+  }, [clearTooltipTimers])
+
+  useEffect(() => clearTooltipTimers, [clearTooltipTimers])
+
+  useEffect(() => {
+    if (!tooltip) return
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !showTooltip) return
+      const card = document.getElementById(tooltipId)
+      if (card?.contains(document.activeElement)) itemRef.current?.focus()
+      dismissTooltip()
+      event.stopPropagation()
+    }
+    const handleScroll = (event: Event) => {
+      if (event.target instanceof Node && document.getElementById(tooltipId)?.contains(event.target)) return
+      dismissTooltip()
+    }
+    window.addEventListener('keydown', handleEscape, true)
+    window.addEventListener('scroll', handleScroll, true)
+    window.addEventListener('resize', dismissTooltip)
+    return () => {
+      window.removeEventListener('keydown', handleEscape, true)
+      window.removeEventListener('scroll', handleScroll, true)
+      window.removeEventListener('resize', dismissTooltip)
+    }
+  }, [tooltip, showTooltip, tooltipId, dismissTooltip])
 
   const cleanupGesture = useCallback(() => {
     const gesture = gestureRef.current
@@ -165,6 +198,7 @@ function SymbolItem({
   }, [cleanupGesture])
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    dismissTooltip()
     // A drag that starts on the preview <img> can arrive with the browser's
     // native image payload (blob URL, text/html, etc.). Keep this an app-owned
     // drag regardless of whether the user grabs the glyph or the label.
@@ -240,12 +274,22 @@ function SymbolItem({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Tab' && !e.shiftKey && showTooltip) {
+        const link = document.getElementById(tooltipId)?.querySelector('a')
+        if (link) {
+          e.preventDefault()
+          e.stopPropagation()
+          link.focus()
+          return
+        }
+      }
       if (e.target !== e.currentTarget) return
       if (e.key !== 'Enter' && e.key !== ' ') return
       e.preventDefault()
+      dismissTooltip()
       toggleArmed()
     },
-    [toggleArmed]
+    [toggleArmed, showTooltip, tooltipId, dismissTooltip]
   )
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
@@ -406,18 +450,29 @@ function SymbolItem({
         role="button"
         tabIndex={0}
         aria-pressed={isArmed}
+        aria-haspopup={tooltip ? 'dialog' : undefined}
+        aria-controls={showTooltip ? tooltipId : undefined}
         data-armed={isArmed || undefined}
         draggable
         onPointerDown={(e) => {
           lastPointerTypeRef.current = e.pointerType
+          dismissTooltip()
         }}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onTouchStart={handleTouchStart}
-        onMouseEnter={handleMouseEnter}
+        onMouseEnter={(event) => {
+          if (event.buttons === 0 && lastPointerTypeRef.current !== 'touch') handleMouseEnter()
+        }}
         onMouseLeave={handleMouseLeave}
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) handleMouseEnter()
+        }}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) handleMouseLeave()
+        }}
         className={
           compact
             ? `flex h-full w-24 flex-shrink-0 cursor-pointer select-none flex-col items-center justify-start gap-1 rounded px-2 py-1.5 transition-colors group relative outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${armedClass}`
@@ -433,7 +488,7 @@ function SymbolItem({
             : 'border-gray-200 bg-gray-100 dark:border-gray-600 dark:bg-gray-700'
         }`}
       >
-        <SymbolPreview svgPath={symbol.svgPath} symbolId={symbol.id} />
+        <SymbolPreview svgPath={getSymbolIconPath(symbol)} symbolId={symbol.id} />
       </div>
 
       {/* Symbol Name */}
@@ -456,11 +511,19 @@ function SymbolItem({
         <Star className="w-4 h-4" fill={isFavorite ? 'currentColor' : 'none'} />
       </button>
 
-      {/* Delayed descriptive tooltip (not the symbol name) */}
-      {showTooltip && tooltip && (
-        <Tooltip text={tooltip} x={tooltipPos.x} y={tooltipPos.y} />
-      )}
     </div>
+
+    {showTooltip && tooltip && tooltipAnchor && (
+      <SymbolHoverCard
+        id={tooltipId}
+        symbolId={symbol.id}
+        name={localizedName}
+        fallback={tooltip}
+        anchor={tooltipAnchor}
+        onEnter={keepTooltipOpen}
+        onLeave={handleMouseLeave}
+      />
+    )}
     
     {/* Touch drag preview */}
     {touchDragActive && touchDragPos && createPortal(
@@ -469,7 +532,7 @@ function SymbolItem({
         style={getCenteredTouchDragPreviewStyle(touchDragPos)}
       >
         <div className="w-10 h-10 flex items-center justify-center bg-white dark:bg-gray-800 rounded border-2 border-sky-500 shadow-lg opacity-80">
-          <SymbolPreview svgPath={symbol.svgPath} symbolId={symbol.id} />
+          <SymbolPreview svgPath={getSymbolIconPath(symbol)} symbolId={symbol.id} />
         </div>
       </div>,
       document.body
@@ -606,11 +669,6 @@ const LIBRARY_ICON_CUSTOM: Record<string, () => ReactNode> = {
   double_socket_gnd_child: () => <DoubleSocketLibraryIcon showGround />,
   double_socket_child: () => <DoubleSocketLibraryIcon showGround={false} />,
   modular_socket: () => <ModularSocketLibraryIcon />,
-  domotica: () => (
-    <div className="w-8 h-8 flex items-center justify-center text-black dark:text-white">
-      <DomoticaIcon className="h-7 w-7 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" />
-    </div>
-  ),
 }
 
 export function SymbolPreview({ svgPath, symbolId }: SymbolPreviewProps) {
@@ -707,34 +765,5 @@ function ThemedSymbolPreviewImg({ svgPath }: { svgPath: string }) {
         className="pointer-events-none h-full w-full object-contain"
       />
     </div>
-  )
-}
-
-interface TooltipProps {
-  text: string
-  x: number
-  y: number
-}
-
-function Tooltip({ text, x, y }: TooltipProps) {
-  // Clamp so the tooltip doesn't overflow the viewport
-  const maxWidth = 280
-  const clampedY = clamp(y, 8, window.innerHeight - 48)
-  const clampedX = Math.min(x, window.innerWidth - maxWidth - 12)
-
-  return createPortal(
-    <div
-      className="fixed z-[9999] pointer-events-none max-w-[280px] px-3 py-1.5 rounded-md text-xs font-medium shadow-lg
-        bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900
-        animate-in fade-in duration-150"
-      style={{
-        left: clampedX,
-        top: clampedY,
-        transform: 'translateY(-50%)',
-      }}
-    >
-      {text}
-    </div>,
-    document.body,
   )
 }

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-68.9 -86.4 137.8 137.8" role="img" aria-label="Aarding">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="0.0,-34.0 58.9,0.0 0.0,34.0 -58.9,0.0" fill="#e2e8f0"/>
+  <polygon points="-5.2,0.0 0.0,3.0 0.0,-49.0 -5.2,-52.0" fill="#c2803a"/>
+  <polygon points="5.2,0.0 0.0,3.0 0.0,-49.0 5.2,-52.0" fill="#a86a2c"/>
+  <polygon points="0.0,-55.0 5.2,-52.0 0.0,-49.0 -5.2,-52.0" fill="#c2803a"/>
+  <polygon points="-10.4,-34.0 0.0,-28.0 0.0,-36.0 -10.4,-42.0" fill="#f1f5f9"/>
+  <polygon points="10.4,-34.0 0.0,-28.0 0.0,-36.0 10.4,-42.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-48.0 10.4,-42.0 0.0,-36.0 -10.4,-42.0" fill="#ffffff"/>
+  <path d="M-5.2 -35.0C-25.2 -35.0 -45.2 -51.0 -51.2 -69.0" fill="none" stroke-width="7"/><path d="M-5.2 -35.0C-25.2 -35.0 -45.2 -51.0 -51.2 -69.0" fill="none" stroke="#16a34a" stroke-width="4"/><path d="M-5.2 -35.0C-25.2 -35.0 -45.2 -51.0 -51.2 -69.0" fill="none" stroke="#facc15" stroke-width="4" stroke-dasharray="5 5" stroke-linecap="butt"/>
+</g>
+</svg>

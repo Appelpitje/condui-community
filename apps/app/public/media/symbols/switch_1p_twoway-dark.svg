@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-31.8 -66.0 107.0 107.0" role="img" aria-label="Schakelaar">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-5.2,3.0 43.3,31.0 43.3,-25.0 -5.2,-53.0" fill="#283548"/>
+  <polygon points="48.5,28.0 43.3,31.0 43.3,-25.0 48.5,-28.0" fill="#1e293b"/>
+  <polygon points="0.0,-56.0 48.5,-28.0 43.3,-25.0 -5.2,-53.0" fill="#334155"/>
+  <polygon points="34.6,16.0 32.9,17.0 29.4,-17.0 34.6,-20.0" fill="#1e293b"/>
+  <polygon points="3.5,-38.0 34.6,-20.0 29.4,-17.0 -1.7,-35.0" fill="#334155"/>
+  <polygon points="1.7,-1.0 32.9,17.0 29.4,-17.0 -1.7,-35.0" fill="#283548"/>
+</g>
+</svg>

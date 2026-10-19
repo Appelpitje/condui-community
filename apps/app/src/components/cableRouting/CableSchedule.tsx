@@ -11,10 +11,10 @@ import {
 } from '@/lib/cableRouting/cableSchedule'
 import { cableRouteFloorId, formatCableMetres } from '@/lib/cableRouting/cableRouteSelection'
 import type { CableRoutePoint } from '@/lib/cableRouting/estimateCableRoutes'
-import { getSymbolById } from '@/lib/symbols'
+import { getSymbolById, getSymbolIconPath } from '@/lib/symbols'
 import { useProjectStore } from '@/stores/projectStore'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { useUIStore } from '@/stores/uiStore'
-import { acceptedEstimateLengthM } from './useWireLengthSuggestion'
 import { useCableRouteEstimation } from './useCableRouteEstimation'
 import { useCableHoverStore } from './cableHoverStore'
 import {
@@ -47,7 +47,7 @@ function PointCell({ point, fallback }: { point?: CableRoutePoint; fallback: str
     >
       {meta ? (
         <img
-          src={meta.svgPath}
+          src={getSymbolIconPath(meta)}
           alt=""
           className="h-5 w-5 shrink-0 object-contain dark:invert"
           draggable={false}
@@ -91,7 +91,6 @@ function useCableScheduleModel() {
   const { t } = useTranslation()
   const estimation = useCableRouteEstimation()
   const projectName = useProjectStore((s) => s.currentProject?.project.name ?? '')
-  const acceptEstimates = useProjectStore((s) => s.acceptWireLengthEstimates)
   const schedule = useMemo(() => buildCableSchedule(estimation?.routes ?? []), [estimation])
 
   const sourceLabel = (source: CableScheduleLengthSource) =>
@@ -108,13 +107,9 @@ function useCableScheduleModel() {
     (row) => (row.lengthSource === 'estimate' || row.lengthSource === 'stale') && row.cable && row.estimateHighM != null
   )
   const accept = (rows: CableScheduleRow[]) =>
-    acceptEstimates(
-      rows.map((row) => ({
-        anchor: row.anchor,
-        cable: row.cable!,
-        lengthM: acceptedEstimateLengthM(row.estimateHighM!),
-      }))
-    )
+    runProjectCommand('cable.acceptLengthEstimates', {
+      anchors: rows.map((row) => row.anchor),
+    }, { source: 'cable-schedule' })
 
   const exportCsv = () => {
     const title = t('cableSchedule.title', 'Cable schedule')

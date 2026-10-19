@@ -9,7 +9,7 @@ import { useEffect, useRef, useMemo, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Search, X } from 'lucide-react'
 import { useLibraryStore } from '@/stores/libraryStore'
-import type { SymbolMetadata } from '@/lib/symbols'
+import { getSymbolIconPath, type SymbolMetadata } from '@/lib/symbols'
 import type { Point } from '@/types/ui'
 import { canSymbolAppearOnSituationPlan } from '@/lib/plan/situationPlanSymbolEligibility'
 import { isSymbolAvailableInLibrary } from '@/lib/supplyTopologyFeature'
@@ -187,7 +187,7 @@ export default function AddElementPicker({
                 >
                   <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded">
                     <img
-                      src={symbol.svgPath}
+                      src={getSymbolIconPath(symbol)}
                       alt=""
                       className="w-6 h-6 object-contain dark:invert"
                     />

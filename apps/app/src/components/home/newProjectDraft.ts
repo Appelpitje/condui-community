@@ -4,6 +4,7 @@ import {
   type SupplyVoltageSystem,
 } from '@/constants/nominalVoltage'
 import { DEFAULT_INSTALLATION_PROFILE } from '@/lib/installationProfile'
+import { DEFAULT_CONNECTION_CURRENT_A } from '@/lib/electrical/supplyConnection'
 import type { InstallationProfile } from '@/types/schema'
 
 export const NEW_PROJECT_DRAFT_STORAGE_KEY = 'eendra.newProjectDraft.v1'
@@ -19,6 +20,7 @@ export type NewProjectDraft = {
     country: 'BE' | 'FR' | 'NL'
   }
   voltageSystem: SupplyVoltageSystem
+  connectionCurrentA?: number
   installationProfile: InstallationProfile
 }
 
@@ -34,6 +36,7 @@ export function createEmptyNewProjectDraft(): NewProjectDraft {
       country: 'BE',
     },
     voltageSystem: DEFAULT_SUPPLY_VOLTAGE_SYSTEM,
+    connectionCurrentA: DEFAULT_CONNECTION_CURRENT_A,
     installationProfile: DEFAULT_INSTALLATION_PROFILE,
   }
 }
@@ -72,6 +75,9 @@ export function readNewProjectDraft(): NewProjectDraft {
       voltageSystem: isSupplyVoltageSystem(parsed.voltageSystem)
         ? parsed.voltageSystem
         : DEFAULT_SUPPLY_VOLTAGE_SYSTEM,
+      ...(typeof parsed.connectionCurrentA === 'number' && Number.isSafeInteger(parsed.connectionCurrentA) && parsed.connectionCurrentA > 0
+        ? { connectionCurrentA: parsed.connectionCurrentA }
+        : {}),
       installationProfile:
         parsed.installationProfile === 'non_household'
           ? 'non_household'

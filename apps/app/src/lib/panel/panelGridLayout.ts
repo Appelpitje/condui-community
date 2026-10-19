@@ -11,6 +11,7 @@ import {
 } from '@/lib/panel/panelGridModuleWidth'
 export { getModuleWidthInCols } from '@/lib/panel/panelGridModuleWidth'
 import { clamp } from '@/lib/geometry'
+import { PanelGridRowOccupancy } from './panelGridRowOccupancy'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'
 import {
@@ -244,14 +245,26 @@ export function getPanelGridPlacements(
   const mainContentHeight = rows * CELL_H + Math.max(0, rows - 1) * ROW_GAP
 
   const placements: ModulePlacement[] = []
-  const gridUsed = new Map<string, boolean>()
-  const cellKey = (area: string, r: number, c: number) => `${area}:${r},${c}`
-  const mark = (area: string, r: number, c: number, w: number) => {
-    for (let i = 0; i < w; i++) gridUsed.set(cellKey(area, r, c + i), true)
+  const gridUsed = {
+    main: new Map<number, PanelGridRowOccupancy>(),
+    top: new Map<number, PanelGridRowOccupancy>(),
+    bottom: new Map<number, PanelGridRowOccupancy>(),
   }
-  const isRowColFree = (area: string, r: number, c: number, w: number) => {
-    for (let i = 0; i < w; i++) if (gridUsed.get(cellKey(area, r, c + i))) return false
-    return true
+  const mark = (area: keyof typeof gridUsed, r: number, c: number, w: number) => {
+    let occupied = gridUsed[area].get(r)
+    if (!occupied) gridUsed[area].set(r, (occupied = new PanelGridRowOccupancy()))
+    occupied.reserve(c, w)
+  }
+  const findFree = (
+    area: keyof typeof gridUsed,
+    row: number,
+    start: number,
+    width: number,
+    maxStart: number
+  ): number | null => {
+    if (start > maxStart) return null
+    const occupied = gridUsed[area].get(row)
+    return occupied ? occupied.findFree(start, width, maxStart) : start
   }
 
   const place = (
@@ -287,16 +300,10 @@ export function getPanelGridPlacements(
 
   /** Find first free position on a given row starting from startCol. */
   const findOnRow = (row: number, startCol: number, w: number): number | null => {
-    for (let c = startCol; c <= colUnits - w; c++) {
-      if (isRowColFree('main', row, c, w)) return c
-    }
-    return null
+    return findFree('main', row, startCol, w, colUnits - w)
   }
   const findOnRail = (rail: 'top' | 'bottom', w: number): number | null => {
-    for (let c = 0; c <= colUnits - w; c++) {
-      if (isRowColFree(rail, 0, c, w)) return c
-    }
-    return null
+    return findFree(rail, 0, 0, w, colUnits - w)
   }
 
   /** Find first available spot anywhere in the grid, searching outward from preferredRow. */
@@ -332,11 +339,10 @@ export function getPanelGridPlacements(
     w: number
   ) => {
     for (let r = 0; r < rows; r++) {
-      for (let c = overflowStartCol; c < overflowStartCol + colUnits; c++) {
-        if (isRowColFree('main', r, c, w)) {
-          place(ref, terminalStripMemberRefs, r, c, w, true)
-          return
-        }
+      const c = findFree('main', r, overflowStartCol, w, overflowStartCol + colUnits - 1)
+      if (c != null) {
+        place(ref, terminalStripMemberRefs, r, c, w, true)
+        return
       }
     }
     place(ref, terminalStripMemberRefs, 0, overflowStartCol, w, true)

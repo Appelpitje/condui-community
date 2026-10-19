@@ -130,14 +130,22 @@ function getRcdProtectionDetailsForCircuit(
   }))
 }
 
-function getRcdSensitivitiesForCircuit(
-  query: InstallationQueryAPI,
-  project: ValidationProject,
-  circuitId: string,
-): number[] {
-  return getRcdProtectionDetailsForCircuit(query, project, circuitId)
-    .map((rcd) => rcd.sensitivityMa)
-    .filter((sensitivity): sensitivity is number => sensitivity != null)
+function unknownRcdSensitivity(circuitId: string, circuitCode: string, panelKey: string): CheckResult {
+  return {
+    passed: false,
+    offenders: [{ kind: 'circuit', id: circuitId, viewHint: 'eendraad' }],
+    mergeBucket: `${panelKey}:unknown-sensitivity`,
+    coverage: {
+      status: 'missing-information',
+      reason: 'upstream-rcd-sensitivity-not-entered',
+      missingFacts: ['upstream RCD/RCBO residual-current sensitivity (mA)'],
+    },
+    message: i18n.t('validation.primitives.circuitHasRcdProtection.sensitivityMissing.message', {
+      circuitCode: validationCircuitCode(circuitCode),
+    }),
+    details: i18n.t('validation.primitives.circuitHasRcdProtection.sensitivityMissing.details'),
+    remediation: i18n.t('validation.primitives.circuitHasRcdProtection.sensitivityMissing.remediation'),
+  }
 }
 
 /**
@@ -218,7 +226,7 @@ function circuitHasRcdProtection(
   const owningPanel = findPanelOwningCircuit(projectPanels(project), scope.id)
   const panelKey = owningPanel?.id ?? 'unknown-panel'
 
-  if (allRcdsSensitivity.length === 0) {
+  if (rcdProtections.length === 0) {
     return {
       passed: false,
       offenders: [{ kind: 'circuit', id: circuit.id, viewHint: 'eendraad' }],
@@ -237,6 +245,9 @@ function circuitHasRcdProtection(
   }
 
   const has30mA = allRcdsSensitivity.some((s) => s <= 30)
+  if (!has30mA && rcdProtections.some((rcd) => rcd.sensitivityMa == null)) {
+    return unknownRcdSensitivity(circuit.id, circuit.code, panelKey)
+  }
   if (has30mA) {
     if (kind !== 'ev') return { passed: true }
 
@@ -336,9 +347,13 @@ function wetRoomRequires30mAFromCircuitNotes(
     return { passed: true }
   }
 
-  const sensitivities = getRcdSensitivitiesForCircuit(query, project, scope.id)
-  if (sensitivities.length > 0 && sensitivities.some((s) => s <= 30)) {
+  const rcds = getRcdProtectionDetailsForCircuit(query, project, scope.id)
+  if (rcds.some((rcd) => rcd.sensitivityMa != null && rcd.sensitivityMa <= 30)) {
     return { passed: true }
+  }
+  if (rcds.some((rcd) => rcd.sensitivityMa == null)) {
+    const panel = findPanelOwningCircuit(projectPanels(project), circuit.id)
+    return unknownRcdSensitivity(circuit.id, circuit.code, panel?.id ?? 'unknown-panel')
   }
 
   return {

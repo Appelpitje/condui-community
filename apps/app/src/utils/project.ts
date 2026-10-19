@@ -40,9 +40,12 @@ import {
 } from '@/lib/projectV2/electrical'
 import { findPanelById, walkPanels } from '@/lib/panel/panelTree'
 import { DEFAULT_INSTALLATION_PROFILE } from '@/lib/installationProfile'
+import { DEFAULT_CONNECTION_CURRENT_A } from '@/lib/electrical/supplyConnection'
 import { applyNonHouseholdPanelDefaults } from '@/lib/panel/panelEarthingSync'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import { validatePanelBusSectionTopology } from '@/lib/panel/panelBusSectionValidation'
+import { findCircuitForEndpointInPanel } from '@/lib/eendraad/findCircuitForEndpointInPanel'
+export { findCircuitForEndpointInPanel } from '@/lib/eendraad/findCircuitForEndpointInPanel'
 
 type ValidatableProject = ProjectWithOptionalV2Building &
   ProjectWithOptionalV2Electrical &
@@ -106,6 +109,7 @@ function getDefaultInstallation(): Installation {
   const installation: Installation = {
     ...DEFAULT_EENDRAAD_INSTALLATION_OPTIONS,
     installationProfile: DEFAULT_INSTALLATION_PROFILE,
+    connectionCurrentA: DEFAULT_CONNECTION_CURRENT_A,
     address: { street: '', postalCode: '', city: '', country: 'BE' },
     nominalVoltage: { system: '2~', uLineToNeutral: 230, uLineToLine: 230 },
     mainSupply: {
@@ -137,7 +141,7 @@ function supplyPoleCount(system: '1~' | '2~' | '1N~' | '3~' | '3N~' | 'DC'): num
 /**
  * Add default supply/ground trunk devices and main-panel grid layout.
  * Two earthing separators on ground wire; on supply wire (in flow order from supply
- * origin to bus): 40A MCB, energy meter, 300mA RCD.
+ * origin to bus): connection-rated MCB, energy meter, 300mA RCD.
  *
  * Feed scope split (controls the dashed supply separator on the eendraadsschema):
  *   - Shared feed (utility / supply panel side): first MCB + energy meter.
@@ -178,7 +182,7 @@ function addDefaultTrunkDevicesAndPanelGrid(installation: Installation, mainPane
       protectionType: 'MCB',
       ...mcbDefaults,
       ...hiddenSupplyProtectionNameLabel,
-      ratingA: 40,
+      ratingA: installation.connectionCurrentA,
       trunkPosition: 0,
     },
     {
@@ -730,32 +734,6 @@ export function generateEndpointNameFromPanels(
 
 /** Trunk device anywhere in the project: main supply, ground bus, and all panel/sub-panel circuits. */
 export { findTrunkDeviceInProject } from '@/lib/eendraad/findTrunkDeviceInProject'
-
-/** Find circuit, panel and optional protection for an endpoint (recursive sub-panels). */
-export function findCircuitForEndpointInPanel(
-  panel: Panel,
-  endpointId: string
-): { circuit: Circuit; panel: Panel; protection?: ProtectionDevice } | undefined {
-  for (const circuit of panel.circuits) {
-    if (circuit.endpoints.some((e) => e.id === endpointId)) {
-      return { circuit, panel }
-    }
-  }
-  for (const protection of panel.protections) {
-    if (protection.circuits) {
-      for (const circuit of protection.circuits) {
-        if (circuit.endpoints.some((e) => e.id === endpointId)) {
-          return { circuit, panel, protection }
-        }
-      }
-    }
-  }
-  for (const subPanel of panel.subPanels) {
-    const found = findCircuitForEndpointInPanel(subPanel, endpointId)
-    if (found) return found
-  }
-  return undefined
-}
 
 export function findCircuitForEndpointInProject(
   project: ProjectWithOptionalV2Electrical,

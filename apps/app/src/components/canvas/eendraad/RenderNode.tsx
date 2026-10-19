@@ -1,4 +1,7 @@
-import { memo, useMemo, useRef } from 'react'
+import { Fragment, memo, useContext, useMemo, useRef } from 'react'
+import { DiagramDetailContext } from './DiagramDetailContext'
+import { ViewportDetailRegion } from './ViewportDetailRegion'
+import { diagramDetailBounds } from '@/lib/eendraad/diagramDetailBounds'
 import type { TFunction } from 'i18next'
 import { Group, Text } from 'react-konva'
 import { getLayoutNodeIdentityKey, type LayoutNode } from '@/lib/layout/layoutTree'
@@ -77,6 +80,8 @@ interface RenderNodeProps {
   renderSelectedEndpoint?: boolean
   /** Internal guard used when this node is already rendered inside a translated island. */
   disablePositionIsland?: boolean
+  /** This node already owns its viewport window; descendants can still create their own. */
+  disableViewportIsland?: boolean
 }
 
 function localizeLayoutNode(node: LayoutNode, originX: number, originY: number): LayoutNode {
@@ -118,7 +123,8 @@ function renderNodePropsEqual(previous: RenderNodeProps, next: RenderNodeProps):
     previous.onGroundDragEnd !== next.onGroundDragEnd ||
     previous.getCanvasPositionFromEvent !== next.getCanvasPositionFromEvent ||
     previous.renderSelectedEndpoint !== next.renderSelectedEndpoint ||
-    previous.disablePositionIsland !== next.disablePositionIsland
+    previous.disablePositionIsland !== next.disablePositionIsland ||
+    previous.disableViewportIsland !== next.disableViewportIsland
   ) {
     return false
   }
@@ -155,6 +161,7 @@ const PositionedRenderIsland = memo(function PositionedRenderIsland({
   onGroundDragEnd,
   getCanvasPositionFromEvent,
   renderSelectedEndpoint,
+  disableViewportIsland,
 }: RenderNodeProps) {
   const previousLocalNodeRef = useRef<LayoutNode | undefined>(undefined)
   const localNode = useMemo(() => {
@@ -181,6 +188,7 @@ const PositionedRenderIsland = memo(function PositionedRenderIsland({
         getCanvasPositionFromEvent={getCanvasPositionFromEvent}
         renderSelectedEndpoint={renderSelectedEndpoint}
         disablePositionIsland
+        disableViewportIsland={disableViewportIsland}
       />
     </Group>
   )
@@ -202,7 +210,37 @@ const RenderNode = memo(function RenderNodeImpl({
   getCanvasPositionFromEvent,
   renderSelectedEndpoint = false,
   disablePositionIsland = false,
+  disableViewportIsland = false,
 }: RenderNodeProps) {
+  const detailScope = useContext(DiagramDetailContext)
+  if (
+    detailScope.localized && !detailScope.materialized && !disableViewportIsland &&
+    (node.type === 'rcd' || node.type === 'mcb' || node.type === 'branch' ||
+      node.visual?.type === 'symbol' || node.visual?.type === 'label')
+  ) {
+    return (
+      <ViewportDetailRegion bounds={diagramDetailBounds(node)}>
+        <RenderNode
+          node={node}
+          translate={t}
+          advancedPanelLabels={advancedPanelLabels}
+          panelLayout={panelLayout}
+          getProtectionById={getProtectionById}
+          getPanelById={getPanelById}
+          supplyProtectionCollisionIds={supplyProtectionCollisionIds}
+          onElementDragStart={onElementDragStart}
+          onElementDragMove={onElementDragMove}
+          onElementDragEnd={onElementDragEnd}
+          shouldSuppressKonvaDragEnd={shouldSuppressKonvaDragEnd}
+          onGroundDragEnd={onGroundDragEnd}
+          getCanvasPositionFromEvent={getCanvasPositionFromEvent}
+          renderSelectedEndpoint={renderSelectedEndpoint}
+          disablePositionIsland={disablePositionIsland}
+          disableViewportIsland
+        />
+      </ViewportDetailRegion>
+    )
+  }
   const resolvedSupplyProtectionCollisionIds =
     supplyProtectionCollisionIds ?? getSupplyProtectionLabelCollisionInfo(node).collisionIds
 
@@ -226,6 +264,7 @@ const RenderNode = memo(function RenderNodeImpl({
         onGroundDragEnd={onGroundDragEnd}
         getCanvasPositionFromEvent={getCanvasPositionFromEvent}
         renderSelectedEndpoint={renderSelectedEndpoint}
+        disableViewportIsland={disableViewportIsland}
       />
     )
   }
@@ -237,7 +276,7 @@ const RenderNode = memo(function RenderNodeImpl({
       if (!panelLayout) return null
       return (
         <PanelFrame key={node.id} panelLayout={panelLayout}>
-          <Group>
+          <>
             {node.children.map((child) => (
               <RenderNode
                 key={getLayoutNodeIdentityKey(child)}
@@ -256,7 +295,7 @@ const RenderNode = memo(function RenderNodeImpl({
                 getCanvasPositionFromEvent={getCanvasPositionFromEvent}
               />
             ))}
-          </Group>
+          </>
         </PanelFrame>
       )
 
@@ -278,7 +317,7 @@ const RenderNode = memo(function RenderNodeImpl({
       // Main bus or secondary bus container — visual line is rendered via wire segments
       if (!panelLayout) return null
       return (
-        <Group key={node.id}>
+        <Fragment key={node.id}>
           {node.children.map((child) => (
             <RenderNode
               key={getLayoutNodeIdentityKey(child)}
@@ -297,7 +336,7 @@ const RenderNode = memo(function RenderNodeImpl({
               getCanvasPositionFromEvent={getCanvasPositionFromEvent}
             />
           ))}
-        </Group>
+        </Fragment>
       )
 
     case 'rcd':
@@ -314,7 +353,7 @@ const RenderNode = memo(function RenderNodeImpl({
           isPanelOnlySubPanelFeeder(protection, node.circuitIdForWires, targetPanel))
       )
       return (
-        <Group key={node.id}>
+        <Fragment key={node.id}>
           {renderProtectionSymbol && (
             <ProtectionSymbol
               protection={protection}
@@ -371,14 +410,14 @@ const RenderNode = memo(function RenderNodeImpl({
               onGroundDragEnd={onGroundDragEnd}
             />
           ))}
-        </Group>
+        </Fragment>
       )
     }
 
     case 'secondaryBus':
-      // Secondary bus (trunk) - rendered as wire segment, but we still need the container
+      // The secondary bus artwork lives in wire segments; recurse into its children.
       return (
-        <Group key={node.id}>
+        <Fragment key={node.id}>
           {node.children.map((child) => (
             <RenderNode
               key={getLayoutNodeIdentityKey(child)}
@@ -397,7 +436,7 @@ const RenderNode = memo(function RenderNodeImpl({
               getCanvasPositionFromEvent={getCanvasPositionFromEvent}
             />
           ))}
-        </Group>
+        </Fragment>
       )
 
     case 'branch': {
@@ -410,7 +449,7 @@ const RenderNode = memo(function RenderNodeImpl({
         return [{ child, metadataCallout }]
       })
       return (
-        <Group key={node.id}>
+        <Fragment key={node.id}>
           {node.children.map((child) => (
             <RenderNode
               key={getLayoutNodeIdentityKey(child)}
@@ -437,7 +476,7 @@ const RenderNode = memo(function RenderNodeImpl({
               metadataCallout={metadataCallout}
             />
           ))}
-        </Group>
+        </Fragment>
       )
     }
 
@@ -594,7 +633,10 @@ const RenderNode = memo(function RenderNodeImpl({
       const isSupplyTrunkDevice = node.id?.startsWith('supplyTrunkDevice-')
       const isVerticalSupplyBranchDevice =
         isSupplyTrunkDevice &&
-        (isVerticalSupplyDevice(trunkDevice) || node.id.includes('--feed-stub-'))
+        (isVerticalSupplyDevice(trunkDevice, {
+          changeoverGridSource: panelLayout?.supplyChangeoverGridSource,
+        }) ||
+          node.id.includes('--feed-stub-'))
       const isSubPanelSupplyTrunkDevice = node.id?.startsWith('subpanelSupplyTrunkDevice-')
       const isGroundTrunkDevice = node.id?.startsWith('groundTrunkDevice-')
       // Ordinary DC-rail branch protections are serialized inside their branch rather
@@ -744,9 +786,10 @@ const RenderNode = memo(function RenderNodeImpl({
       return null
 
     default:
-      // Unknown node type - just render children
+      // Layout-only nodes (including wire hit zones) own no artwork here. Keep
+      // their children without allocating empty or anonymous Konva containers.
       return (
-        <Group key={node.id}>
+        <Fragment key={node.id}>
           {node.children.map((child) => (
             <RenderNode
               key={getLayoutNodeIdentityKey(child)}
@@ -765,7 +808,7 @@ const RenderNode = memo(function RenderNodeImpl({
               onGroundDragEnd={onGroundDragEnd}
             />
           ))}
-        </Group>
+        </Fragment>
       )
   }
 }, renderNodePropsEqual)

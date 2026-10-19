@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-49.6 -76.0 120.0 120.0" role="img" aria-label="Laadpunt">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-19.1,11.0 20.8,34.0 20.8,-32.0 -19.1,-55.0" fill="#f1f5f9"/>
+  <polygon points="39.8,23.0 20.8,34.0 20.8,-32.0 39.8,-43.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-66.0 39.8,-43.0 20.8,-32.0 -19.1,-55.0" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -19.05 11.00)"><rect x="9" y="-58" width="28" height="4" rx="2" fill="#22c55e" stroke-width="0.8"/>
+<circle cx="23" cy="-26" r="11" fill="#e2e8f0"/><circle cx="18.669872981077805" cy="-28.5" r="1.4" fill="#1e293b" stroke="none"/><circle cx="21.705904774487397" cy="-30.82962913144534" r="1.4" fill="#1e293b" stroke="none"/><circle cx="25.5" cy="-30.33012701892219" r="1.4" fill="#1e293b" stroke="none"/><circle cx="27.82962913144534" cy="-27.294095225512603" r="1.4" fill="#1e293b" stroke="none"/><circle cx="27.330127018922195" cy="-23.5" r="1.4" fill="#1e293b" stroke="none"/></g>
+</g>
+</svg>

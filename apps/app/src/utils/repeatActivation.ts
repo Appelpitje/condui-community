@@ -10,12 +10,27 @@ export const REPEAT_ACTIVATION_WINDOW_MS = 400
 export type ActivationKind = 'single' | 'double' | 'absorbed'
 
 let lastActivation: { key: string; time: number; afterDouble: boolean } | null = null
+let forwardedActivationTime: number | undefined
+
+/** Preserve pointer timing when a lazy canvas target must mount before handling its event. */
+export function withActivationTime<T>(time: number, activate: () => T): T {
+  const previous = forwardedActivationTime
+  forwardedActivationTime = time
+  try {
+    return activate()
+  } finally {
+    forwardedActivationTime = previous
+  }
+}
 
 /**
  * Track click/tap activations by a stable key.
  * Unlike Konva's dblclick, this survives the target node being re-mounted between clicks.
  */
-export function registerActivation(key: string, now: number = performance.now()): ActivationKind {
+export function registerActivation(
+  key: string,
+  now: number = forwardedActivationTime ?? performance.now()
+): ActivationKind {
   const isQuickRepeat =
     lastActivation !== null &&
     lastActivation.key === key &&

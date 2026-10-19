@@ -1,4 +1,5 @@
 import { clamp } from '@/lib/geometry'
+import { isSupplyTransformer } from '@/lib/electrical/supplyTransformer'
 import { ensureInstallationFeedTopology } from '@/lib/feedTopology'
 import { canDropSymbolOnSupplyConverterDcWire } from '@/lib/eendraad/dropBehaviors'
 import { generateId } from '@/utils'
@@ -14,7 +15,10 @@ import {
   getSupplyConverterDcConnectionIndex,
   getSupplyConverterDcPath,
 } from '@/lib/supplyAssembly/converterDcConnections'
-import { moveSupplyDeviceToEnclosureAutomatically } from '@/lib/panel/auxiliarySupplyEnclosures'
+import {
+  moveSupplyDeviceToEnclosureAutomatically,
+  resolveSupplyDeviceMounting,
+} from '@/lib/panel/auxiliarySupplyEnclosures'
 import {
   findCircuitById,
   removeEndpointIdsFromCircuit,
@@ -37,6 +41,7 @@ export interface SupplyTrunkDeviceMoveResult {
   device: TrunkDevice
   sourcePanelId?: string
   targetPanelId?: string
+  changed?: boolean
 }
 
 const SUPPLY_DC_SWITCH_SYMBOL_IDS = new Set([
@@ -117,7 +122,8 @@ function convertEndpointToSupplyTrunkDevice(
 
 function getSupplyTargetDevices(
   project: ProjectWithOptionalV2Electrical,
-  target: DropTarget
+  target: DropTarget,
+  newId: () => string = generateId
 ): TrunkDevice[] | null {
   const installation = getProjectElectricalInstallation(project)
   if (!installation) return null
@@ -127,13 +133,18 @@ function getSupplyTargetDevices(
     return (installation.mainSupply.supplyTrunkDevices ??= [])
   }
   if (!target.panelId) return null
-  const topology = ensureInstallationFeedTopology(installation, panels)
+  const topology = ensureInstallationFeedTopology(installation, panels, newId)
   const rootFeed = topology.rootFeeds.find((feed) => feed.panelId === target.panelId)
   if (!rootFeed) return null
   return (rootFeed.trunkDevices ??= [])
 }
 
-function applySupplyDcTarget(device: TrunkDevice, target: DropTarget, trunkPosition: number): void {
+function applySupplyDcTarget(
+  device: TrunkDevice,
+  target: DropTarget,
+  trunkPosition: number,
+  newId: () => string = generateId
+): void {
   const connectionIndex =
     target.supplyConverterDcConnectionIndex ?? (target.supplyConverterDcBranch === 'top' ? 1 : 0)
   device.trunkPosition = trunkPosition
@@ -142,7 +153,7 @@ function applySupplyDcTarget(device: TrunkDevice, target: DropTarget, trunkPosit
   delete device.converterDcConnection
   if (target.supplyDcBusId) {
     device.supplyDcBusId = target.supplyDcBusId
-    device.supplyDcBusBranchId = target.supplyDcBusBranchId ?? generateId()
+    device.supplyDcBusBranchId = target.supplyDcBusBranchId ?? newId()
   } else {
     delete device.supplyDcBusId
     delete device.supplyDcBusBranchId
@@ -164,7 +175,8 @@ export function moveCircuitTrunkDeviceToSupplyDcBus(
   project: ProjectWithOptionalV2Electrical,
   deviceId: string,
   sourceCircuitId: string,
-  target: DropTarget
+  target: DropTarget,
+  newId: () => string = generateId
 ): SupplyTrunkDeviceMoveResult | null {
   if (target.type !== 'supplyConverterDcWire') return null
   const owner = findCircuitOwner(project, sourceCircuitId)
@@ -182,14 +194,15 @@ export function moveCircuitTrunkDeviceToSupplyDcBus(
   if (!canDropSymbolOnSupplyConverterDcWire(device.symbol, target.supplyDcBusId != null)) {
     return null
   }
-  const targetDevices = getSupplyTargetDevices(project, target)
+  const targetDevices = getSupplyTargetDevices(project, target, newId)
   if (!targetDevices) return null
 
   sourceDevices.splice(sourceIndex, 1)
   applySupplyDcTarget(
     device,
     target,
-    clamp(target.supplyDeviceInsertIndex ?? targetDevices.length, 0, targetDevices.length)
+    clamp(target.supplyDeviceInsertIndex ?? targetDevices.length, 0, targetDevices.length),
+    newId
   )
   targetDevices.splice(device.trunkPosition, 0, device)
   targetDevices.forEach((item, index) => {
@@ -236,6 +249,8 @@ export function moveEndpointToSupplyDcBus(
 }
 
 export function isSupplyTrunkDeviceDropTarget(device: TrunkDevice, target: DropTarget): boolean {
+  if (isSupplyTransformer(device))
+    return target.type === 'supplyWire' && (target.supplyFeedScope ?? 'shared') === 'shared' && !target.supplyPanelInput
   const isDcBranchDevice =
     device.supplyPath === 'converter-dc' || device.supplyPath === 'converter-dc-top'
   const canUseDcBranchTarget =
@@ -271,10 +286,13 @@ export function isSupplyTrunkDeviceDropTarget(device: TrunkDevice, target: DropT
   )
 }
 
-function getSupplyContainers(project: ProjectWithOptionalV2Electrical) {
+function getSupplyContainers(
+  project: ProjectWithOptionalV2Electrical,
+  newId: () => string = generateId,
+) {
   const installation = getProjectElectricalInstallation(project)
   if (!installation) return null
-  const topology = ensureInstallationFeedTopology(installation, getProjectElectricalPanels(project))
+  const topology = ensureInstallationFeedTopology(installation, getProjectElectricalPanels(project), newId)
   return { installation, topology }
 }
 
@@ -287,9 +305,10 @@ export function moveSupplyTrunkDeviceAtDropTarget(
   project: ProjectWithOptionalV2Electrical,
   deviceId: string,
   target: DropTarget,
-  targetMounting?: ElectricalEnclosureRef
+  targetMounting?: ElectricalEnclosureRef,
+  newId: () => string = generateId
 ): SupplyTrunkDeviceMoveResult | null {
-  const containers = getSupplyContainers(project)
+  const containers = getSupplyContainers(project, newId)
   if (!containers) return null
   const sharedDevices =
     containers.installation.mainSupply.supplyTrunkDevices ??
@@ -305,6 +324,11 @@ export function moveSupplyTrunkDeviceAtDropTarget(
   const sourceIndex = source?.devices.findIndex((device) => device.id === deviceId) ?? -1
   const device = sourceIndex >= 0 ? source?.devices[sourceIndex] : undefined
   if (!source || !device) return null
+
+  if (isSupplyTransformer(device)) {
+    if (targetMounting && targetMounting.kind !== 'grid') return null
+    targetMounting = undefined
+  }
 
   if (!isSupplyTrunkDeviceDropTarget(device, target)) return null
   if (device.type === 'dc_bus' && source.panelId !== target.panelId) return null
@@ -355,7 +379,7 @@ export function moveSupplyTrunkDeviceAtDropTarget(
       : undefined
   const targetBranchIdForDevice =
     targetDcBusId != null
-      ? (targetDcBusBranchId ?? (movesWholeDcBranch ? sourceBranchKey : generateId()))
+      ? (targetDcBusBranchId ?? (movesWholeDcBranch ? sourceBranchKey : newId()))
       : undefined
   const dcBusMembershipChanges =
     targetDcBusId !== device.supplyDcBusId ||
@@ -404,6 +428,10 @@ export function moveSupplyTrunkDeviceAtDropTarget(
         (target.changeoverGridPlacement ?? 'inline')) &&
     !dcBusMembershipChanges
   ) {
+    let mountingChanged = false
+    const previousMounting = targetMounting
+      ? resolveSupplyDeviceMounting(project, deviceId)
+      : undefined
     if (
       targetMounting &&
       !moveSupplyDeviceToEnclosureAutomatically(
@@ -415,7 +443,12 @@ export function moveSupplyTrunkDeviceAtDropTarget(
     ) {
       return null
     }
-    return { device, sourcePanelId: source.panelId, targetPanelId: target.panelId }
+    if (targetMounting) {
+      mountingChanged = !previousMounting || previousMounting.kind !== targetMounting.kind ||
+        (previousMounting.kind === 'panel' && targetMounting.kind === 'panel' && previousMounting.panelId !== targetMounting.panelId) ||
+        (previousMounting.kind === 'auxiliary' && targetMounting.kind === 'auxiliary' && previousMounting.enclosureId !== targetMounting.enclosureId)
+    }
+    return { device, sourcePanelId: source.panelId, targetPanelId: target.panelId, changed: mountingChanged }
   }
 
   for (const { index } of [...movingEntries].sort((a, b) => b.index - a.index)) {
@@ -474,5 +507,5 @@ export function moveSupplyTrunkDeviceAtDropTarget(
     return null
   }
 
-  return { device, sourcePanelId: source.panelId, targetPanelId: target.panelId }
+  return { device, sourcePanelId: source.panelId, targetPanelId: target.panelId, changed: true }
 }

@@ -129,6 +129,24 @@ export function InsertDoorIcon({ className }: IconProps) {
   return <SvgIcon svg={insertDoorSvg} className={className} />
 }
 
+export function SectionalGateIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className ?? 'w-6 h-6'}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 21.4V3H21V21.4M1.8 21.4H22.2" />
+      <path d="M3 7.6H21M3 12.2H21M3 16.8H21M10.8 19.1H13.2" />
+    </svg>
+  )
+}
+
 export function InsertWindowIcon({ className }: IconProps) {
   return <SvgIcon svg={insertWindowSvg} className={className} />
 }

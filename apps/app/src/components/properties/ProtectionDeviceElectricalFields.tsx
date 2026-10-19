@@ -6,6 +6,7 @@
  */
 import { Eye, EyeOff } from 'lucide-react'
 import { useInstallationProfile } from '@/hooks/useInstallationProfile'
+import { getProtectionCurveOptions } from './protectionCurveOptions'
 import type { TFunction } from 'i18next'
 import type {
   CurveType,
@@ -27,8 +28,6 @@ import {
 import type { ProtectionLabelKey } from '@/lib/protectionLabels'
 import {
   getProtectionRatingOptions,
-  DEFAULT_RCBO_SENSITIVITY_MA,
-  DEFAULT_RESIDUAL_CURRENT_TYPE,
   breakingCapacityPatchFromSelectValue,
   getBreakerBreakingCapacityOptions,
   protectionBreakingCapacityKaOptions,
@@ -313,16 +312,10 @@ export function ProtectionDeviceElectricalFields({
           <CustomDropdown
             value={curve || ''}
             onChange={(v) => onPatch({ curve: (v as CurveType) || undefined })}
-            options={[
-              { value: '', label: '-' },
-              { value: 'B', label: 'B' },
-              { value: 'C', label: 'C' },
-              { value: 'D', label: 'D' },
-              { value: 'F', label: 'F' },
-              { value: 'K', label: 'K' },
-              { value: 'MA', label: 'MA' },
-              { value: 'Z', label: 'Z' },
-            ]}
+            ariaLabel={t('protections.curve', 'Tripping curve')}
+            options={getProtectionCurveOptions(
+              ['', 'B', 'C', 'D', 'F', 'K', 'MA', 'Z'], installationProfile, t,
+            )}
             className={selectClass}
           />
         </div>
@@ -360,6 +353,7 @@ export function ProtectionDeviceElectricalFields({
                     breakingCapacityKa,
                   )
             }
+            ariaLabel={t('protections.breakingCapacity', 'Breaking capacity')}
             onChange={(v) => {
               if (isSPD) {
                 onPatch({
@@ -376,8 +370,9 @@ export function ProtectionDeviceElectricalFields({
                 },
               )
             }}
-            options={
-              isSPD
+            options={[
+              { value: '', label: '-' },
+              ...(isSPD
                 ? breakingCapacityOptions.map((kA) => ({
                     value: String(kA),
                     label: `${kA} kA`,
@@ -385,8 +380,8 @@ export function ProtectionDeviceElectricalFields({
                 : getBreakerBreakingCapacityOptions(installationProfile).map(({ value, label }) => ({
                     value,
                     label,
-                  }))
-            }
+                  }))),
+            ]}
             className={selectClass}
           />
         </div>
@@ -416,21 +411,16 @@ export function ProtectionDeviceElectricalFields({
             </button>
           </div>
           <CustomDropdown
-            value={
-              isRCBO
-                ? String(sensitivityMa ?? DEFAULT_RCBO_SENSITIVITY_MA)
-                : sensitivityMa != null
-                  ? String(sensitivityMa)
-                  : ''
-            }
+            value={sensitivityMa != null ? String(sensitivityMa) : ''}
+            ariaLabel={t('protections.sensitivity', 'Residual trip current IΔn')}
             onChange={(nextValue) => {
               const next = nextValue ? Number(nextValue) : undefined
               onPatch({
-                sensitivityMa: isRCBO ? (next ?? DEFAULT_RCBO_SENSITIVITY_MA) : next,
+                sensitivityMa: next,
               })
             }}
             options={[
-              ...(!isRCBO ? [{ value: '', label: '-' }] : []),
+              { value: '', label: '-' },
               ...sensitivityOptions.map((mA) => ({
                 value: String(mA),
                 label: `${mA} mA`,
@@ -467,13 +457,15 @@ export function ProtectionDeviceElectricalFields({
             </button>
           </div>
           <CustomDropdown
-            value={residualCurrentType ?? DEFAULT_RESIDUAL_CURRENT_TYPE}
+            value={residualCurrentType ?? ''}
+            ariaLabel={t('protections.residualCurrentType', 'Residual current type')}
             onChange={(v) =>
               onPatch({
-                residualCurrentType: (v as ResidualCurrentType) || DEFAULT_RESIDUAL_CURRENT_TYPE,
+                residualCurrentType: (v as ResidualCurrentType) || undefined,
               })
             }
             options={[
+              { value: '', label: '-' },
               { value: 'AC', label: t('protections.residualType_AC', 'AC (sinusoidal)') },
               { value: 'A', label: t('protections.residualType_A', 'A (pulsating DC)') },
               { value: 'F', label: t('protections.residualType_F', 'F (mixed frequency)') },

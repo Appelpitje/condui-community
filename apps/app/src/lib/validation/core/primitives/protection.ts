@@ -1,4 +1,4 @@
-import { selectProjectWireRuns } from '@/lib/projectV2/wireRuns'
+import { getDerivedWiresForValidation } from '@/lib/validation/derivedWiresForValidation'
 import { registerPrimitive } from './registry'
 import { logger } from '@/lib/logger'
 import type {
@@ -10,7 +10,6 @@ import type {
   Panel,
   TrunkDevice,
   ProtectionDevice,
-  WireSegment,
 } from './common'
 import { isHouseholdInstallation } from '@/lib/installationProfile'
 import {
@@ -19,9 +18,6 @@ import {
 } from '@/lib/protectionKind'
 import {
   DEFAULT_ELECTRICAL_DOMAIN,
-  calculateBottomUpLayout,
-  buildLayoutTree,
-  deriveWires,
   getElementPortDomains,
   getPanelFeedProjection,
   trunkDeviceCountsAsProtection,
@@ -249,18 +245,9 @@ function electricalDomainConsistency(
 
   const ruleId = (params?.ruleId as string) ?? 'electricalDomainConsistency'
 
-  let segments: WireSegment[] = []
-  try {
-    const installation = projectInstallation(project)
-    if (!installation) throw new Error('Missing electrical installation')
-    const layout = calculateBottomUpLayout(project, new Map())
-    const tree = buildLayoutTree(layout)
-    segments = deriveWires(tree, projectPanels(project), installation, [], undefined, selectProjectWireRuns(project))
-  } catch {
-    return { passed: true } // Layout failed, skip domain check
-  }
-
-  const panelSegments = segments.filter((s) => s.panelId === scope.id)
+  const snapshot = getDerivedWiresForValidation(context.query, project)
+  if (!snapshot) return { passed: true } // Layout failed, skip domain check.
+  const panelSegments = snapshot.byPanel.get(scope.id) ?? []
   const query = context.query
   const issues: Issue[] = []
 
@@ -486,11 +473,9 @@ function mainRcdCompliance(
   const mainRcdCandidates = supplyDevices.filter(
     (td: TrunkDevice) => td.protectionType === 'RCD' || td.protectionType === 'RCBO'
   )
-  // A residual-current device only counts as such when its residual trip current
-  // (sensitivity in mA) is explicitly configured.
-  const mainRcds = mainRcdCandidates.filter((td: TrunkDevice) => td.sensitivityMa != null)
-
-  if (mainRcds.length === 0) {
+  // Device presence and evidence of its performance are separate: an entered
+  // RCD with unknown sensitivity needs its specifications, not a second device.
+  if (mainRcdCandidates.length === 0) {
     return {
       passed: false,
       offenders: [],
@@ -520,11 +505,11 @@ function mainRcdCompliance(
         scope,
         offenders: [{ kind: 'device', id: td.id, viewHint: 'eendraad' }],
         message: i18n.t('validation.primitives.mainRcdCompliance.sensitivityMissing.message', {
-          defaultValue: 'Main RCD/RCBO is missing residual current sensitivity (mA)',
+          defaultValue: 'Main RCD/RCBO sensitivity is unknown',
         }),
         details: i18n.t('validation.primitives.mainRcdCompliance.sensitivityMissing.details', {
           defaultValue:
-            'A main RCD/RCBO only counts when its residual trip current (for example 300 mA or 30 mA) is configured. Set the sensitivity value for this device.',
+            'Enter the existing device’s residual-current sensitivity (mA) to verify main RCD protection. Use confirmed device specifications.',
         }),
         citations: [],
       })

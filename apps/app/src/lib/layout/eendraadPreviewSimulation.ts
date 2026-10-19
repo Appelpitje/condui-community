@@ -573,7 +573,7 @@ function simulateEndpointDrop(
     symbol: symbolKey,
     placements: [],
     ...(symbol.id === 'terminal_strip'
-      ? getTerminalStripTrunkConnectionProps(project)
+      ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId)
       : isSharedJunctionSymbol(symbol.id)
         ? { junctionIdentity: getNextJunctionIdentity(project, symbol.id) }
         : {}),
@@ -675,6 +675,11 @@ function simulateEndpointDrop(
         }
       }
     }
+  }
+
+  if (target.type === 'circuit' && typeof target.branchInsertIndex === 'number') {
+    insertAfterEndpointId = undefined
+    createNewBranch = true
   }
 
   // A converter's direct backup output is intentionally one simple circuit.
@@ -837,7 +842,9 @@ function simulateEndpointDrop(
       0,
       dcBusBranchIndexes.length
     )
-    const insertionIndex = target.dcBusId
+    const insertionIndex = typeof target.branchInsertIndex === 'number'
+      ? clamp(target.branchInsertIndex, 0, branchesSansNewEndpoint.length)
+      : target.dcBusId
       ? requestedDcBusIndex < dcBusBranchIndexes.length
         ? dcBusBranchIndexes[requestedDcBusIndex]!
         : (dcBusBranchIndexes.at(-1) ?? branchesSansNewEndpoint.length - 1) + 1
@@ -1380,7 +1387,7 @@ function simulateTrunkDeviceOnCircuit(
         symbol: symbol.id as TrunkDevice['symbol'],
         label:
           symbol.id === 'terminal_strip'
-            ? getNextTerminalStripLabel(project)
+            ? getNextTerminalStripLabel(project, undefined, target.circuitId)
             : type === 'conversion' || type === 'switch' || type === 'relay'
               ? ''
               : (symbol.name ?? ''),
@@ -1391,7 +1398,7 @@ function simulateTrunkDeviceOnCircuit(
           : {}),
         ...(type === 'dc_bus' ? { dcBusProps: {} } : {}),
         ...(symbol.id === 'terminal_strip'
-          ? getTerminalStripTrunkConnectionProps(project)
+          ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId)
           : isSharedJunctionSymbol(symbol.id)
             ? { junctionIdentity: getNextJunctionIdentity(project, symbol.id) }
             : {}),
@@ -1465,7 +1472,7 @@ function simulateSupplyTrunkDevice(
       label = ''
     } else if (symbol.id === 'terminal_strip') {
       deviceType = 'terminal_strip'
-      label = getNextTerminalStripLabel(project)
+      label = getNextTerminalStripLabel(project, undefined, target.circuitId)
     } else if (symbol.id === 'junction_panel') {
       deviceType = 'junction_panel'
       label = 'JP1'
@@ -1490,7 +1497,7 @@ function simulateSupplyTrunkDevice(
       type: deviceType,
       symbol: symbol.id as TrunkDevice['symbol'],
       label,
-      ...(symbol.id === 'terminal_strip' ? getTerminalStripTrunkConnectionProps(project) : {}),
+      ...(symbol.id === 'terminal_strip' ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId) : {}),
       trunkPosition: 0,
       ...(symbol.id === 'domotica'
         ? { domoticaProps: { endpointCount: 1, endpointChildEndpointIds: [] } }
@@ -1590,7 +1597,7 @@ function simulateSupplyTrunkDevice(
     label = ''
   } else if (symbol.id === 'terminal_strip') {
     deviceType = 'terminal_strip'
-    label = getNextTerminalStripLabel(project)
+    label = getNextTerminalStripLabel(project, undefined, target.circuitId)
   } else if (symbol.id === 'junction_panel') {
     deviceType = 'junction_panel'
     label = 'JP1'
@@ -1636,7 +1643,7 @@ function simulateSupplyTrunkDevice(
     type: deviceType,
     symbol: symbol.id as TrunkDevice['symbol'],
     label,
-    ...(symbol.id === 'terminal_strip' ? getTerminalStripTrunkConnectionProps(project) : {}),
+    ...(symbol.id === 'terminal_strip' ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId) : {}),
     trunkPosition: insertIndex,
     ...(target.type === 'supplyWire' &&
     target.supplyFeedScope === 'root' &&
@@ -1767,7 +1774,7 @@ function simulateGroundTrunkDevice(
     label = ''
   } else if (symbol.id === 'terminal_strip') {
     deviceType = 'terminal_strip'
-    label = getNextTerminalStripLabel(project)
+    label = getNextTerminalStripLabel(project, undefined, target.circuitId)
   } else if (symbol.id === 'junction_panel') {
     deviceType = 'junction_panel'
     label = 'JP1'
@@ -1781,7 +1788,7 @@ function simulateGroundTrunkDevice(
         ? ('earthing_separator' as TrunkDevice['symbol'])
         : (symbol.id as TrunkDevice['symbol']),
     label,
-    ...(symbol.id === 'terminal_strip' ? getTerminalStripTrunkConnectionProps(project) : {}),
+    ...(symbol.id === 'terminal_strip' ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId) : {}),
     trunkPosition: insertIndex,
   }
 
@@ -1862,7 +1869,8 @@ export function mutateTrunkDeviceRelocation(
   project: PreviewProject,
   relocating: { id: string; sourceCircuitId: string },
   target: DropTarget,
-  symbol: SymbolMetadata
+  symbol: SymbolMetadata,
+  newId: () => string = generateId
 ): boolean {
   if (!project) return false
   if (isConversionTrunkSymbolId(symbol.id) && target.circuitId) {
@@ -1874,7 +1882,8 @@ export function mutateTrunkDeviceRelocation(
       project,
       relocating.id,
       relocating.sourceCircuitId,
-      target
+      target,
+      newId
     )
   }
   if (target.type === 'endpoint' && target.circuitId && target.endpointId &&
@@ -2321,6 +2330,13 @@ export function simulateDropOnProject(
       symbol.id === 'relay' ? 'relay' : 'switch',
       changeSet
     )
+    return changeSet
+  }
+
+  if (symbol.id === 'dc_bus' && target.type === 'circuit' && target.converterDcConnection) {
+    // Rails have no endpoint type. The ordinary converter input still needs a
+    // simulated rail so its accepted drop has visible artwork, like supply rails.
+    simulateTrunkDeviceOnCircuit(cloned, target, symbol, 'dc_bus', changeSet)
     return changeSet
   }
 

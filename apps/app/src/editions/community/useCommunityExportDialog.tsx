@@ -5,7 +5,11 @@ import { ExportDialog } from './CommunityExportDialog'
 import { useDialogStore } from '@/stores/dialogStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
-import { useEendraadLayout } from '@/hooks/eendraad/useEendraadLayout'
+import { useInfoBlockLogoVisible } from '@/hooks/eendraad/useInfoBlockLogoVisible'
+import {
+  getCachedEendraadLayout,
+  getEendraadRenderProjectRevision,
+} from '@/lib/layout/eendraadDerivedLayout'
 import { logger } from '@/lib/logger'
 import { exportToPDF, type ExportContext, type ExportProgressCallbacks } from '@/lib/export/exportPipeline'
 import { normalizeExportOptions, type ExportOptions } from '@/lib/export/types'
@@ -20,7 +24,7 @@ import { reportPdfExportFailure, withCrashId } from '@/lib/export/reportPdfExpor
 export function useExportDialog() {
   const { t } = useTranslation()
   const currentProject = useProjectStore((state) => state.currentProject)
-  const eendraadLayout = useEendraadLayout()
+  const infoBlockLogo = useInfoBlockLogoVisible()
   const lastExportOptions = useUIStore((state) => state.lastExportOptions)
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState(0)
@@ -38,6 +42,13 @@ export function useExportDialog() {
     useUIStore.getState().setExporting(true)
 
     try {
+      const eendraadLayout = options.includeEendraad
+        ? getCachedEendraadLayout(
+            getEendraadRenderProjectRevision(currentProject),
+            useUIStore.getState().eendraadLayoutOverrides,
+            { infoBlockLogo }
+          )
+        : null
       await new Promise((resolve) => requestAnimationFrame(resolve))
       let eendraadWireSegments = queryOneWireSegments(currentProject)
       if (options.includeEendraad && eendraadLayout) {

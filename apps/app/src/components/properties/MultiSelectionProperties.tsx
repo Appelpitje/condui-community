@@ -1,5 +1,6 @@
 import { useMemo, useRef, useEffect } from 'react'
 import { useInstallationProfile } from '@/hooks/useInstallationProfile'
+import { getProtectionCurveOptions } from './protectionCurveOptions'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import CustomDropdown, { type CustomDropdownOption } from '@/components/common/CustomDropdown'
@@ -74,10 +75,12 @@ function MixedDropdown({
   shared,
   options,
   onChange,
+  ariaLabel,
 }: {
   shared: SharedValue<string>
   options: CustomDropdownOption[]
   onChange: (value: string) => void
+  ariaLabel?: string
 }) {
   const { t } = useTranslation()
   const mixed = t('properties.mixedValue', 'Mixed')
@@ -86,6 +89,7 @@ function MixedDropdown({
       value={shared.mixed ? '__mixed__' : shared.value}
       options={options}
       onChange={onChange}
+      ariaLabel={ariaLabel}
       placeholder={mixed}
       renderValue={(option) =>
         shared.mixed ? (
@@ -340,10 +344,10 @@ function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[
           <label className={labelClass}>{t('protections.curve', 'Tripping curve')}</label>
           <MixedDropdown
             shared={stringField('curve')}
-            options={['', 'B', 'C', 'D', 'F', 'K', 'MA', 'Z'].map((value) => ({
-              value,
-              label: value || '-',
-            }))}
+            ariaLabel={t('protections.curve', 'Tripping curve')}
+            options={getProtectionCurveOptions(
+              ['', 'B', 'C', 'D', 'F', 'K', 'MA', 'Z'], installationProfile, t,
+            )}
             onChange={(value) =>
               apply(() => ({ curve: (value || undefined) as ProtectionDevice['curve'] }))
             }
@@ -401,7 +405,7 @@ function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[
             <MixedDropdown
               shared={resolveSharedValue(
                 protections.map((item) =>
-                  String(item.sensitivityMa ?? (item.type === 'RCBO' ? 300 : ''))
+                  String(item.sensitivityMa ?? '')
                 )
               )}
               options={[
@@ -424,7 +428,7 @@ function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[
             </label>
             <MixedDropdown
               shared={resolveSharedValue(
-                protections.map((item) => item.residualCurrentType ?? 'A')
+                protections.map((item) => item.residualCurrentType ?? '')
               )}
               options={[
                 { value: 'AC', label: t('protections.residualType_AC', 'AC (sinusoidal)') },

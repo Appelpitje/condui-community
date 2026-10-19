@@ -25,7 +25,7 @@ export function disableBufferCanvasForSvgExport(root: Konva.Container): void {
 
 /**
  * Render an isolated export scene to SVG string
- * 
+ *
  * @param scene Isolated export scene
  * @returns SVG string
  */
@@ -47,47 +47,50 @@ export async function renderSvgFromScene(
     width: tempStageWidth,
     height: tempStageHeight,
   })
-  
-  const tempLayer = new Konva.Layer()
-  tempStage.add(tempLayer)
-  
-  // Add scene root to temp layer
-  tempLayer.add(scene.rootNode)
-  disableBufferCanvasForSvgExport(scene.rootNode)
-  tempStage.draw()
-  
-  // Export using react-konva-to-svg (patched version)
-  const svgResult = await exportStageSVG(tempStage, false, {
-    layerIndex: 0, // Only one layer in temp stage
-  })
-  let svgString = typeof svgResult === 'string' ? svgResult : await svgResult.text()
-  
-  // Set viewBox to match scene bounds
-  const parser = new DOMParser()
-  const svgDoc = parser.parseFromString(svgString, 'image/svg+xml')
-  const svgElement = svgDoc.documentElement
-  
-  // Set viewBox to match scene bounds exactly - this ensures content is clipped to bounds
-  // Use formatted coordinates for precision
-  svgElement.setAttribute('viewBox', 
-    `${formatCoordinate(scene.bounds.x)} ${formatCoordinate(scene.bounds.y)} ${formatCoordinate(scene.bounds.width)} ${formatCoordinate(scene.bounds.height)}`
-  )
-  svgElement.setAttribute('width', formatCoordinate(scene.bounds.width))
-  svgElement.setAttribute('height', formatCoordinate(scene.bounds.height))
-  svgElement.setAttribute('preserveAspectRatio', 'xMidYMid meet')
-  
-  // Ensure overflow is hidden (viewBox should handle this, but be explicit)
-  svgElement.setAttribute('overflow', 'hidden')
-  
-  // Get updated SVG string
-  svgString = new XMLSerializer().serializeToString(svgDoc)
-  
-  // Apply fidelity improvements
-  svgString = applyCoordinatePrecision(svgString)
-  svgString = fixTextAlignment(svgString)
-  
-  // Clean up temp stage
-  tempStage.destroy()
-  
-  return svgString
+
+  try {
+    const tempLayer = new Konva.Layer()
+    tempStage.add(tempLayer)
+
+    // Add scene root to temp layer
+    tempLayer.add(scene.rootNode)
+    disableBufferCanvasForSvgExport(scene.rootNode)
+    tempStage.draw()
+
+    // Export using react-konva-to-svg (patched version)
+    const svgResult = await exportStageSVG(tempStage, false, {
+      layerIndex: 0, // Only one layer in temp stage
+    })
+    let svgString = typeof svgResult === 'string' ? svgResult : await svgResult.text()
+
+    // Set viewBox to match scene bounds
+    const parser = new DOMParser()
+    const svgDoc = parser.parseFromString(svgString, 'image/svg+xml')
+    const svgElement = svgDoc.documentElement
+
+    // Set viewBox to match scene bounds exactly - this ensures content is clipped to bounds
+    // Use formatted coordinates for precision
+    svgElement.setAttribute('viewBox',
+      `${formatCoordinate(scene.bounds.x)} ${formatCoordinate(scene.bounds.y)} ${formatCoordinate(scene.bounds.width)} ${formatCoordinate(scene.bounds.height)}`
+    )
+    svgElement.setAttribute('width', formatCoordinate(scene.bounds.width))
+    svgElement.setAttribute('height', formatCoordinate(scene.bounds.height))
+    svgElement.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+
+    // Ensure overflow is hidden (viewBox should handle this, but be explicit)
+    svgElement.setAttribute('overflow', 'hidden')
+
+    // Get updated SVG string
+    svgString = new XMLSerializer().serializeToString(svgDoc)
+
+    // Apply fidelity improvements
+    svgString = applyCoordinatePrecision(svgString)
+    svgString = fixTextAlignment(svgString)
+
+    return svgString
+  } finally {
+    // The isolated scene is consumed even if SVG conversion or parsing fails.
+    scene.rootNode.destroy()
+    tempStage.destroy()
+  }
 }

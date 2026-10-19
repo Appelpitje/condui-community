@@ -23,6 +23,7 @@ import {
 import type { ProjectV2 } from '@/types/projectV2'
 import type { Frame, WireSegment } from '@/types/schema'
 import type { Point } from '@/types/ui'
+import { getPanelOnlyLayoutRevision } from './panelOnlyLayoutRevision'
 
 /** Keyed by info block columns: project metadata and installer logo widen the frame. */
 type InfoBlockVariantCache = Map<string, BottomUpLayoutResult>
@@ -227,7 +228,7 @@ function resolveEquivalentLayoutSource(project: ProjectV2): ProjectV2 {
  * must not wake every parent canvas subscriber.
  */
 export function getEendraadRenderProjectRevision(project: ProjectV2): ProjectV2 {
-  return resolveEquivalentLayoutSource(project)
+  return getPanelOnlyLayoutRevision(resolveEquivalentLayoutSource(project))
 }
 
 /**
@@ -261,7 +262,7 @@ export function getCachedEendraadLayout(
   overrides: Map<string, Point>,
   layoutOptions: BottomUpLayoutOptions = {}
 ): BottomUpLayoutResult {
-  const layoutSource = resolveEquivalentLayoutSource(project)
+  const layoutSource = getEendraadRenderProjectRevision(project)
   const installation = getProjectElectricalInstallation(layoutSource)
   const frames = queryOneWireFrames(layoutSource)
   if (!installation) {
@@ -285,10 +286,10 @@ export function getCachedEendraadLayout(
   const cached = variantCache.get(variantKey)
   if (cached) return cached
 
-  const layoutStartedAt = import.meta.env.VITE_E2E ? performance.now() : 0
+  const layoutStartedAt = import.meta.env?.VITE_E2E ? performance.now() : 0
   const layout = calculateBottomUpLayout(project, new Map(overrides), layoutOptions)
   liftCircuitNotesClearOfFrames(layout, project, frames)
-  if (import.meta.env.VITE_E2E) {
+  if (import.meta.env?.VITE_E2E) {
     performance.measure('eendra:layout-derivation', {
       start: layoutStartedAt,
       end: performance.now(),
@@ -301,12 +302,12 @@ export function getCachedEendraadLayout(
 
 export function getCachedLayoutTree(layout: BottomUpLayoutResult): LayoutTree {
   return getOrCreateWeakMap(layoutTreeCache, layout, () => {
-    const startedAt = import.meta.env.VITE_E2E ? performance.now() : 0
+    const startedAt = import.meta.env?.VITE_E2E ? performance.now() : 0
     const projectId = projectIdByLayout.get(layout)
     const next = buildLayoutTree(layout)
     const result = projectId ? reconcileLayoutTree(next, findPreviousLayoutTree(projectId, next)) : next
     if (projectId) rememberLayoutTree(projectId, result)
-    if (import.meta.env.VITE_E2E) {
+    if (import.meta.env?.VITE_E2E) {
       performance.measure('eendra:layout-tree', { start: startedAt, end: performance.now() })
     }
     return result
@@ -317,6 +318,8 @@ export function getCachedEendraadWireSegments(
   project: ProjectV2,
   layoutTree: LayoutTree
 ): WireSegment[] {
+  // Keep visual endpoint aliases separate: they promise layout equivalence only.
+  project = getPanelOnlyLayoutRevision(project)
   const electrical = project.disciplines?.electrical
   const installation = getProjectElectricalInstallation(project)
   if (!installation) return []
@@ -325,7 +328,7 @@ export function getCachedEendraadWireSegments(
   const cached = enclosureCache.get(auxiliaryEnclosuresCacheKey)
   if (cached) return cached
 
-  const startedAt = import.meta.env.VITE_E2E ? performance.now() : 0
+  const startedAt = import.meta.env?.VITE_E2E ? performance.now() : 0
   const derivedWires = deriveWires(
     layoutTree,
     getProjectElectricalPanels(project),
@@ -350,7 +353,7 @@ export function getCachedEendraadWireSegments(
   })
   rememberLatest(latestWiresByProjectId, projectKey, wires)
   enclosureCache.set(auxiliaryEnclosuresCacheKey, wires)
-  if (import.meta.env.VITE_E2E) {
+  if (import.meta.env?.VITE_E2E) {
     performance.measure('eendra:wire-derivation', { start: startedAt, end: performance.now() })
   }
   return wires

@@ -2,6 +2,7 @@ import { selectProjectWireRuns } from '@/lib/projectV2/wireRuns'
 import { liftCircuitNotesClearOfFrames } from '@/lib/eendraad/circuitNotesFrameClearance'
 import { queryOneWireFrames } from '@/lib/projectV2/annotations'
 import { useMemo, useRef } from 'react'
+import { freeze } from 'immer'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useUIStore, type UIState } from '@/stores/uiStore'
 import { calculateBottomUpLayout, type BottomUpLayoutResult } from '@/lib/layout/bottomUpLayout'
@@ -27,10 +28,12 @@ import {
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
 import { collectAllGroundTrunkDevices } from '@/lib/eendraad/panelGround'
+import { withPanelReadContext } from '@/lib/panel/panelReadContext'
 
 export interface EendraadPreviewGraph {
   layout: BottomUpLayoutResult
   layoutTree: LayoutTree
+  /** Wires for the affected panels displayed by the preview overlay. */
   wireSegments: WireSegment[]
   /** Simulated project after applying the hypothetical drop. */
   project: ProjectWithOptionalV2Electrical
@@ -100,9 +103,19 @@ export function useEendraadPreviewGraph(
     stableIntentRef.current = { key: intentKey, preview: dragPreview }
   }
   const previewIntent = stableIntentRef.current.preview
+  // A -> B -> A is common while hovering buses. Retain only a few completed
+  // graphs, scoped to the exact project, camera-independent layout and overrides.
+  const recentPreviews = useMemo(() => new Map<string, EendraadPreviewGraph>(),
+    [currentProject, currentLayout, eendraadLayoutOverrides])
 
   return useMemo(() => {
     if (!currentProject || !previewIntent || !previewIntent.symbolData) return null
+    const cached = intentKey == null ? undefined : recentPreviews.get(intentKey)
+    if (cached && intentKey != null) {
+      recentPreviews.delete(intentKey)
+      recentPreviews.set(intentKey, cached)
+      return cached
+    }
 
     let sim: EendraadPreviewChangeSet | null = null
     if (previewIntent.movingPanelAttachment) {
@@ -150,6 +163,9 @@ export function useEendraadPreviewGraph(
       )
     }
     if (!sim) return null
+    // Simulation is complete. Immutable snapshots can share phase/bus/topology
+    // indexes throughout both layout passes and wire generation.
+    freeze(sim.project, true)
 
     // Convert overrides Map<string, PointLike> from uiStore to a plain Map for the layout engine.
     const overrides = new Map<string, { x: number; y: number }>()
@@ -174,13 +190,23 @@ export function useEendraadPreviewGraph(
     liftCircuitNotesClearOfFrames(layout, sim.project, queryOneWireFrames(sim.project))
 
     const layoutTree = buildLayoutTree(layout)
-    const wireSegments = deriveWires(
-      layoutTree,
-      getProjectElectricalPanels(sim.project),
-      getProjectElectricalInstallation(sim.project),
-      selectProjectSupplyAssemblies(sim.project),
-      (deviceId) => resolveSupplyDeviceMounting(sim.project, deviceId),
-          selectProjectWireRuns(sim.project),
+    // Wire derivation is independent for each panel; the overlay only draws
+    // affected panels. Keep the full tree for layout/anchor comparisons while
+    // avoiding phase and wire work for every other board in a campus.
+    const affectedPanels = new Set(sim.affectedPanelIds)
+    const previewWireTree = { ...layoutTree, panels: layoutTree.panels.filter(
+      (panel) => panel.domainId != null && affectedPanels.has(panel.domainId)
+    ) }
+    // Share the finalized preview's lookups across wire readers.
+    const wireSegments = withPanelReadContext(sim.project, () =>
+      deriveWires(
+        previewWireTree,
+        getProjectElectricalPanels(sim.project),
+        getProjectElectricalInstallation(sim.project),
+        selectProjectSupplyAssemblies(sim.project),
+        (deviceId) => resolveSupplyDeviceMounting(sim.project, deviceId),
+        selectProjectWireRuns(sim.project),
+      )
     )
 
     // Build lookup maps for preview symbols
@@ -231,7 +257,7 @@ export function useEendraadPreviewGraph(
       trunkDevicesById.set(device.id, device)
     }
 
-    return {
+    const graph: EendraadPreviewGraph = {
       layout,
       layoutTree,
       wireSegments,
@@ -247,5 +273,10 @@ export function useEendraadPreviewGraph(
         new Set([...sim.createdTrunkDeviceIds, ...sim.movedTrunkDeviceIds]),
       ),
     }
-  }, [currentProject, currentLayout, previewIntent, eendraadLayoutOverrides])
+    if (intentKey != null) {
+      if (recentPreviews.size >= 4) recentPreviews.delete(recentPreviews.keys().next().value!)
+      recentPreviews.set(intentKey, graph)
+    }
+    return graph
+  }, [currentProject, currentLayout, previewIntent, eendraadLayoutOverrides, recentPreviews, intentKey])
 }

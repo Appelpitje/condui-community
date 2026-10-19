@@ -2,6 +2,36 @@ import { useRef, useEffect } from 'react'
 import { Group, Line, Arrow } from 'react-konva'
 import Konva from 'konva'
 import { clamp } from '@/lib/geometry'
+import { useStore } from 'zustand'
+import type { PointerPreviewStore } from '@/hooks/usePointerPreview'
+import { ROW_GAP } from '@/lib/panel/panelGridLayout'
+
+export function PointerRewirePreviewWire({
+  pointStore,
+  preview,
+}: {
+  pointStore: PointerPreviewStore
+  preview: {
+    origin: { x: number; y: number; height: number }
+    target: { x: number; y: number } | null
+    sameSurface: boolean
+    stroke: string
+  }
+}) {
+  const pointer = useStore(pointStore, (state) => state.point)
+  if (!pointer) return null
+  const end = preview.target ?? pointer
+  const { origin } = preview
+  const below = preview.sameSurface && end.y > origin.y + origin.height
+  const y = below ? origin.y + origin.height : origin.y
+  const gapY = y + (below ? ROW_GAP / 2 : -ROW_GAP / 2)
+  return (
+    <RewirePreviewWire
+      points={[origin.x, y, origin.x, gapY, end.x, gapY, end.x, end.y]}
+      stroke={preview.stroke}
+    />
+  )
+}
 
 /** Match RelationWires so preview reads like existing panel wires (parent → child). */
 const DASH = [8, 4] as const

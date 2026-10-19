@@ -52,8 +52,15 @@ import {
 } from './planImportFloor'
 import CustomDropdown from '@/components/common/CustomDropdown'
 import { querySitplanNotes } from '@/lib/projectV2/annotations'
-import { readLegacyCompatibilityFloors, selectProjectPlanScale } from '@/lib/projectV2/buildingFloors'
-import { DEFAULT_PLAN_PX_PER_METER, resolvePlanPxPerMeter, createPlanScaleReference } from '@/lib/plan/planScale'
+import {
+  readLegacyCompatibilityFloors,
+  selectProjectPlanScale,
+} from '@/lib/projectV2/buildingFloors'
+import {
+  DEFAULT_PLAN_PX_PER_METER,
+  resolvePlanPxPerMeter,
+  createPlanScaleReference,
+} from '@/lib/plan/planScale'
 import { rescaleImportedPlanAsset, scalePlanPoint } from '@/lib/plan/rescalePlan'
 import { selectProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import {
@@ -64,6 +71,8 @@ import {
 import { isFloorplanScanEnabled } from '@/lib/vision/availability'
 import { useWallScanStore, type WallScanTarget } from '@/stores/wallScanStore'
 import { useWallRecognitionAccess, WallRecognitionToggle } from './WallRecognitionControls'
+import { liveProjectSession } from '@/stores/liveProjectCommandSession'
+import { CommandError, type CommandInvocation } from '@/lib/commands/project'
 
 // Component to show processed image with dark mode preview
 function ProcessedImagePreview({
@@ -154,8 +163,6 @@ function ImportPlanImageDialog({
 }: ImportPlanImageDialogProps) {
   const { t } = useTranslation()
   const currentProject = useProjectStore((state) => state.currentProject)
-  const addFloor = useProjectStore((state) => state.addFloor)
-  const updateFloor = useProjectStore((state) => state.updateFloor)
   const getFloorById = useProjectStore((state) => state.getFloorById)
   const activeFloorId = useUIStore((state) => state.activeFloorId)
   const setActiveFloor = useUIStore((state) => state.setActiveFloor)
@@ -204,9 +211,12 @@ function ImportPlanImageDialog({
   >({})
   const [pdfScaleSkippedPages, setPdfScaleSkippedPages] = useState<Record<number, true>>({})
   const [pdfScaleRulerRevision, setPdfScaleRulerRevision] = useState(0)
-  const pdfScaleReady = selectedPdfPages.length > 0 && (applyPdfScaleToAll
-    ? [selectedPdfPages.slice().sort((a, b) => a - b)[0]!]
-    : selectedPdfPages).every((pageIndex) => {
+  const pdfScaleReady =
+    selectedPdfPages.length > 0 &&
+    (applyPdfScaleToAll
+      ? [selectedPdfPages.slice().sort((a, b) => a - b)[0]!]
+      : selectedPdfPages
+    ).every((pageIndex) => {
       if (pdfScaleSkippedPages[pageIndex]) return true
       const reference = pdfScalePerPage[pageIndex]
       return !!reference && !!createPlanScaleReference(reference.p1, reference.p2, reference.meters)
@@ -219,8 +229,7 @@ function ImportPlanImageDialog({
   const [importError, setImportError] = useState<string | null>(null)
   const autoImportStartedRef = useRef(false)
   const wallRecognitionAccess = useWallRecognitionAccess()
-  const wallRecognitionAvailable =
-    isFloorplanScanEnabled() && wallRecognitionAccess === 'available'
+  const wallRecognitionAvailable = isFloorplanScanEnabled() && wallRecognitionAccess === 'available'
   const pdfEnableDarkModeProcessing = true
   const [pdfConvertCadToGrayscale, setPdfConvertCadToGrayscale] = useState(false)
   const [pdfPreviewPageIndex, setPdfPreviewPageIndex] = useState<number | null>(null)
@@ -740,85 +749,89 @@ function ImportPlanImageDialog({
       return
     }
 
+    const expectedRevision = liveProjectSession.revision
     // Use processed image if available and enabled, otherwise use original
     const finalImageDataUrl =
       enableBackgroundProcessing && processingResult?.processedDataUrl
         ? processingResult.processedDataUrl
         : croppedImageDataUrl
     const imageDimensions = await loadImageDimensions(finalImageDataUrl).catch(() => null)
-    const targetPxPerMeter = resolvePlanPxPerMeter(selectProjectPlanScale(currentProject)) ?? DEFAULT_PLAN_PX_PER_METER
+    const targetPxPerMeter =
+      resolvePlanPxPerMeter(selectProjectPlanScale(currentProject)) ?? DEFAULT_PLAN_PX_PER_METER
     const measuredPxPerMeter = resolvePlanPxPerMeter({ reference: scaleReference ?? undefined })
     const factor = measuredPxPerMeter ? targetPxPerMeter / measuredPxPerMeter : 1
     const imageWidth = (imageDimensions?.width ?? 1) * factor
     const imageHeight = (imageDimensions?.height ?? 1) * factor
-    const importedScale: Floor['scale'] = { pxPerMeter: targetPxPerMeter, reference: scaleReference && measuredPxPerMeter ? createPlanScaleReference(scalePlanPoint(scaleReference.p1, factor), scalePlanPoint(scaleReference.p2, factor), scaleReference.meters) ?? undefined : undefined }
+    const importedScale: Floor['scale'] = {
+      pxPerMeter: targetPxPerMeter,
+      reference:
+        scaleReference && measuredPxPerMeter
+          ? (createPlanScaleReference(
+              scalePlanPoint(scaleReference.p1, factor),
+              scalePlanPoint(scaleReference.p2, factor),
+              scaleReference.meters
+            ) ?? undefined)
+          : undefined,
+    }
 
     const hasWhiteBackground = processingResult?.hasWhiteBackground ?? false
 
-    let targetFloorId = selectedFloorId
-
-    // Create new floor if needed
-    if (createNewFloor) {
-      const newFloor: Floor = {
-        id: nanoid(),
-        name: newFloorName.trim(),
-        planAsset: croppedImageDataUrl, // Always store original
-        planAssetProcessed:
-          enableBackgroundProcessing && processingResult?.processedDataUrl
-            ? processingResult.processedDataUrl
-            : undefined,
-        planAssetHasWhiteBackground: hasWhiteBackground,
-        planImportAsset: {
-          id: nanoid(),
-          kind: 'raster',
-          width: imageWidth,
-          height: imageHeight,
-          dataUrl: croppedImageDataUrl,
-          processedDataUrl:
-            enableBackgroundProcessing && processingResult?.processedDataUrl
-              ? processingResult.processedDataUrl
-              : undefined,
-          hasWhiteBackground,
-          darkModeAware: enableBackgroundProcessing && hasWhiteBackground,
-        },
-        scale: importedScale,
-        planScaleNeedsCalibration: !measuredPxPerMeter,
-      }
-      addFloor(newFloor)
-      targetFloorId = newFloor.id
-      setActiveFloor(newFloor.id)
-    } else if (targetFloorId) {
-      // Update existing floor
-      const floor = getFloorById(targetFloorId)
-      if (floor) {
-        updateFloor(targetFloorId, {
-          planAsset: croppedImageDataUrl, // Always store original
-          planAssetProcessed:
-            enableBackgroundProcessing && processingResult?.processedDataUrl
-              ? processingResult.processedDataUrl
-              : undefined,
-          planAssetHasWhiteBackground: hasWhiteBackground,
-          planImportAsset: {
-            id: nanoid(),
-            kind: 'raster',
-            width: imageWidth,
-            height: imageHeight,
-            dataUrl: croppedImageDataUrl,
-            processedDataUrl:
-              enableBackgroundProcessing && processingResult?.processedDataUrl
-                ? processingResult.processedDataUrl
-                : undefined,
-            hasWhiteBackground,
-            darkModeAware: enableBackgroundProcessing && hasWhiteBackground,
-          },
-          // Existing vector geometry is already absolute in this floor's scale.
-          // Keep floor scale unchanged when importing/replacing the image.
-          scale: importedScale,
-          planScaleNeedsCalibration: !measuredPxPerMeter,
-        })
-        setActiveFloor(targetFloorId)
-      }
+    const importedAsset = {
+      id: nanoid(),
+      kind: 'raster' as const,
+      sourceName: file?.name,
+      width: imageWidth,
+      height: imageHeight,
+      dataUrl: croppedImageDataUrl,
+      processedDataUrl:
+        enableBackgroundProcessing && processingResult?.processedDataUrl
+          ? processingResult.processedDataUrl
+          : undefined,
+      hasWhiteBackground,
+      darkModeAware: enableBackgroundProcessing && hasWhiteBackground,
     }
+    const invocation: CommandInvocation | null = createNewFloor
+      ? {
+          id: 'floor.create',
+          input: {
+            name: newFloorName.trim(),
+            scale: importedScale,
+            planScaleNeedsCalibration: !measuredPxPerMeter,
+            asset: importedAsset,
+          },
+        }
+      : selectedFloorId
+        ? {
+            id: 'plan.attachBackground',
+            input: {
+              floorId: selectedFloorId,
+              asset: importedAsset,
+              scale: importedScale,
+              planScaleNeedsCalibration: !measuredPxPerMeter,
+            },
+          }
+        : null
+    if (!invocation) return
+    let targetFloorId: string | undefined
+    try {
+      const outcome = liveProjectSession.execute([invocation], {
+        expectedRevision,
+        label: 'import plan image',
+        source: 'plan_import',
+      })
+      targetFloorId = createNewFloor
+        ? outcome.results[0]?.created.find((ref) => ref.kind === 'floor')?.id
+        : (selectedFloorId ?? undefined)
+    } catch (error) {
+      if (!(error instanceof CommandError)) throw error
+      logger.warn('[planImport] Image import command rejected:', {
+        code: error.details?.reason ?? error.code,
+      })
+      alert(t('planImport.importFailed'))
+      return
+    }
+    if (!targetFloorId) return
+    setActiveFloor(targetFloorId)
 
     schedulePlanFitToViewAfterImport()
 
@@ -847,8 +860,6 @@ function ImportPlanImageDialog({
     scaleReference,
     processingResult,
     enableBackgroundProcessing,
-    addFloor,
-    updateFloor,
     getFloorById,
     setActiveFloor,
     t,
@@ -915,11 +926,11 @@ function ImportPlanImageDialog({
     [currentProject]
   )
 
-
   const handlePdfImport = useCallback(
     async (skipScale: boolean = false) => {
       if (!currentProject || !file) return
       if (isApplyingPdfImport) return
+      const expectedRevision = liveProjectSession.revision
       const selectedPages = pdfPages.filter((page) => selectedPdfPages.includes(page.pageIndex))
       if (selectedPages.length === 0) {
         alert(t('planImport.selectAtLeastOnePage'))
@@ -1009,7 +1020,12 @@ function ImportPlanImageDialog({
           : undefined
         const computeImportedScale = async (
           sourcePage: PdfImportPageCandidate | undefined,
-          importedAsset: { dataUrl?: string | undefined; pageIndex: number; width: number; height: number },
+          importedAsset: {
+            dataUrl?: string | undefined
+            pageIndex: number
+            width: number
+            height: number
+          },
           sourceReference: { p1: Point2; p2: Point2; meters: number } | undefined
         ): Promise<{
           reference: { p1: Point2; p2: Point2; meters: number }
@@ -1028,7 +1044,11 @@ function ImportPlanImageDialog({
           const sourcePreviewForScale =
             pdfPageCroppedPreviewMap[sourcePage.pageIndex] ?? sourcePage.rasterDataUrl
           const sourceImageSizeForScale = await loadImageDimensions(sourcePreviewForScale)
-          return mapPdfScaleReferenceToAsset(sourceReference, sourceImageSizeForScale, importedAsset)
+          return mapPdfScaleReferenceToAsset(
+            sourceReference,
+            sourceImageSizeForScale,
+            importedAsset
+          )
         }
 
         const firstSelectedNormalizedAsset = firstSelectedPage
@@ -1067,19 +1087,30 @@ function ImportPlanImageDialog({
         }
 
         // Import coordinates must match the building's existing physical units.
-        const targetPxPerMeter = resolvePlanPxPerMeter(selectProjectPlanScale(currentProject)) ?? DEFAULT_PLAN_PX_PER_METER
+        const targetPxPerMeter =
+          resolvePlanPxPerMeter(selectProjectPlanScale(currentProject)) ?? DEFAULT_PLAN_PX_PER_METER
         const pageScales = new Map<number, Awaited<ReturnType<typeof computeImportedScale>>>()
         for (const page of selectedPages) {
-          pageScales.set(page.pageIndex, applyPdfScaleToAll ? firstScaleForReference : await getPerPageScale(page))
+          pageScales.set(
+            page.pageIndex,
+            applyPdfScaleToAll ? firstScaleForReference : await getPerPageScale(page)
+          )
         }
         const normalizedScale = (pageIndex: number): Floor['scale'] => {
           const calibration = pageScales.get(pageIndex)
           if (!calibration) return { pxPerMeter: targetPxPerMeter }
           const factor = targetPxPerMeter / calibration.pxPerMeter
-          return { pxPerMeter: targetPxPerMeter, reference: applyPdfScaleToAll && pageIndex !== firstSelectedPage?.pageIndex ? undefined : createPlanScaleReference(
-            scalePlanPoint(calibration.reference.p1, factor),
-            scalePlanPoint(calibration.reference.p2, factor), calibration.reference.meters,
-          ) ?? undefined }
+          return {
+            pxPerMeter: targetPxPerMeter,
+            reference:
+              applyPdfScaleToAll && pageIndex !== firstSelectedPage?.pageIndex
+                ? undefined
+                : (createPlanScaleReference(
+                    scalePlanPoint(calibration.reference.p1, factor),
+                    scalePlanPoint(calibration.reference.p2, factor),
+                    calibration.reference.meters
+                  ) ?? undefined),
+          }
         }
 
         const floorNamePrefix = t('canvas.floor')
@@ -1130,7 +1161,10 @@ function ImportPlanImageDialog({
               }
             }
             const pageRect = toCadRect(pagePipeline, pdfPageCropMap[pageAsset.pageIndex])
-            const referenceRect = toCadRect(referencePipeline, pdfPageCropMap[referenceAsset.pageIndex])
+            const referenceRect = toCadRect(
+              referencePipeline,
+              pdfPageCropMap[referenceAsset.pageIndex]
+            )
             const overlaps =
               pageRect.x < referenceRect.x + referenceRect.width &&
               referenceRect.x < pageRect.x + pageRect.width &&
@@ -1217,7 +1251,8 @@ function ImportPlanImageDialog({
           const calibration = pageScales.get(pageAsset.pageIndex)
           const factor = calibration ? targetPxPerMeter / calibration.pxPerMeter : 1
           const sourcePipeline = getCadPipeline(sourcePage?.pageIndex)
-          if (!isCadMultiCropImport || !sourcePipeline || !sourcePage) return rescaleImportedPlanAsset(base, factor)
+          if (!isCadMultiCropImport || !sourcePipeline || !sourcePage)
+            return rescaleImportedPlanAsset(base, factor)
           const sharesReferencePipeline =
             sourcePipeline === getCadPipeline(referenceSourcePage?.pageIndex)
           const cadReference = buildCadReferenceForFloorImport({
@@ -1226,11 +1261,26 @@ function ImportPlanImageDialog({
             crop: pdfPageCropMap[sourcePage.pageIndex],
             isReferenceCrop: options.isReferenceCrop,
             referenceCropAssetRect:
-              options.isReferenceCrop || !sharesReferencePipeline ? undefined : referenceCropInAssetSpace,
+              options.isReferenceCrop || !sharesReferencePipeline
+                ? undefined
+                : referenceCropInAssetSpace,
             planImageOffset: options.planImageOffset,
           })
-          return rescaleImportedPlanAsset(attachCadReferenceToPlanImportAsset(base, cadReference), factor)
+          return rescaleImportedPlanAsset(
+            attachCadReferenceToPlanImportAsset(base, cadReference),
+            factor
+          )
         }
+
+        const commands: CommandInvocation[] = []
+        const wallScanTargetSpecs: Array<{
+          pageIndex: number
+          floorId?: string
+          commandIndex?: number
+          imageSize: WallScanTarget['imageSize']
+          offset?: Point2
+        }> = []
+        let firstImportedFloorId: string | null = null
 
         if (pdfDestinationMode === 'replace-floor') {
           if (!selectedFloorId) {
@@ -1239,22 +1289,30 @@ function ImportPlanImageDialog({
           }
           const first = normalizedWithBackground[0]
           if (!first) return
-          updateFloor(selectedFloorId, {
-            name: getImportedFloorName(first.pageIndex),
-            planAsset: first.dataUrl,
-            planAssetProcessed: first.processedDataUrl,
-            planAssetHasWhiteBackground: first.hasWhiteBackground,
-            planImportAsset: createPlanImportAsset(first, { isReferenceCrop: true }),
-            scale: normalizedScale(first.pageIndex),
-            planScaleNeedsCalibration: !pageScales.get(first.pageIndex),
+          const importedAsset = createPlanImportAsset(first, { isReferenceCrop: true })
+          commands.push({
+            id: 'plan.attachBackground',
+            input: {
+              floorId: selectedFloorId,
+              asset: importedAsset,
+              scale: normalizedScale(first.pageIndex),
+              planScaleNeedsCalibration: !pageScales.get(first.pageIndex),
+            },
           })
-          addWallScanTarget({
+          commands.push({
+            id: 'floor.rename',
+            input: {
+              floorId: selectedFloorId,
+              name: getImportedFloorName(first.pageIndex),
+            },
+          })
+          wallScanTargetSpecs.push({
             pageIndex: first.pageIndex,
             floorId: selectedFloorId,
-            imageSize: createPlanImportAsset(first, { isReferenceCrop: true }),
+            imageSize: importedAsset,
             offset: getFloorById(selectedFloorId)?.planImageOffset,
           })
-          setActiveFloor(selectedFloorId)
+          firstImportedFloorId = selectedFloorId
         } else {
           const activeFloor = activeFloorId ? getFloorById(activeFloorId) : null
           const fallbackEmptyFloor =
@@ -1269,66 +1327,98 @@ function ImportPlanImageDialog({
             (a, b) => a.pageIndex - b.pageIndex
           )
           const referenceAssetForAlignment = orderedAssets[0]
-          let firstImportedFloorId: string | null = null
 
           if (reuseActiveFloor && floorToReuse) {
             const first = orderedAssets.shift()
             if (first) {
-              const firstAsset = createPlanImportAsset(first, { isReferenceCrop: true, planImageOffset: getCadCropOffset(first, referenceAssetForAlignment) })
-              const firstFactor = firstAsset.width / first.width
-              updateFloor(floorToReuse.id, {
-                // Reusing the initial empty floor must preserve its identity and
-                // numbering. Renaming floor 1 to floor 2 made a two-crop import
-                // appear to contain floors 2 and 3 with floor 1 missing.
-                name: floorToReuse.name,
-                planAsset: first.dataUrl,
-                planAssetProcessed: first.processedDataUrl,
-                planAssetHasWhiteBackground: first.hasWhiteBackground,
-                planImportAsset: createPlanImportAsset(first, {
-                  isReferenceCrop: true,
-                  planImageOffset: getCadCropOffset(first, referenceAssetForAlignment),
-                }),
-                planImageOffset: getCadCropOffset(first, referenceAssetForAlignment) ? scalePlanPoint(getCadCropOffset(first, referenceAssetForAlignment)!, firstFactor) : undefined,
-                scale: normalizedScale(first.pageIndex),
-                planScaleNeedsCalibration: !pageScales.get(first.pageIndex),
+              const firstAsset = createPlanImportAsset(first, {
+                isReferenceCrop: true,
+                planImageOffset: getCadCropOffset(first, referenceAssetForAlignment),
               })
-              addWallScanTarget({
+              const firstFactor = firstAsset.width / first.width
+              const planImageOffset = getCadCropOffset(first, referenceAssetForAlignment)
+                ? scalePlanPoint(getCadCropOffset(first, referenceAssetForAlignment)!, firstFactor)
+                : undefined
+              commands.push({
+                id: 'plan.attachBackground',
+                input: {
+                  floorId: floorToReuse.id,
+                  asset: firstAsset,
+                  planImageOffset,
+                  scale: normalizedScale(first.pageIndex),
+                  planScaleNeedsCalibration: !pageScales.get(first.pageIndex),
+                },
+              })
+              wallScanTargetSpecs.push({
                 pageIndex: first.pageIndex,
                 floorId: floorToReuse.id,
                 imageSize: firstAsset,
-                offset: getCadCropOffset(first, referenceAssetForAlignment)
-                  ? scalePlanPoint(getCadCropOffset(first, referenceAssetForAlignment)!, firstFactor)
-                  : undefined,
+                offset: planImageOffset,
               })
               firstImportedFloorId = floorToReuse.id
             }
           }
 
           for (const [index, pageAsset] of orderedAssets.entries()) {
-            const importedAsset = createPlanImportAsset(pageAsset, { isReferenceCrop: !reuseActiveFloor && index === 0, planImageOffset: getCadCropOffset(pageAsset, referenceAssetForAlignment) })
+            const importedAsset = createPlanImportAsset(pageAsset, {
+              isReferenceCrop: !reuseActiveFloor && index === 0,
+              planImageOffset: getCadCropOffset(pageAsset, referenceAssetForAlignment),
+            })
             const originalOffset = getCadCropOffset(pageAsset, referenceAssetForAlignment)
-            const planImageOffset = originalOffset ? scalePlanPoint(originalOffset, importedAsset.width / pageAsset.width) : undefined
-            const newFloor: Floor = {
-              id: nanoid(),
-              name: getImportedFloorName(pageAsset.pageIndex),
-              planAsset: pageAsset.dataUrl,
-              planAssetProcessed: pageAsset.processedDataUrl,
-              planAssetHasWhiteBackground: pageAsset.hasWhiteBackground,
-              planImportAsset: importedAsset,
-              planImageOffset,
-              scale: normalizedScale(pageAsset.pageIndex),
-              planScaleNeedsCalibration: !pageScales.get(pageAsset.pageIndex),
-            }
-            addWallScanTarget({
+            const planImageOffset = originalOffset
+              ? scalePlanPoint(originalOffset, importedAsset.width / pageAsset.width)
+              : undefined
+            const commandIndex = commands.length
+            commands.push({
+              id: 'floor.create',
+              input: {
+                name: getImportedFloorName(pageAsset.pageIndex),
+                scale: normalizedScale(pageAsset.pageIndex),
+                planScaleNeedsCalibration: !pageScales.get(pageAsset.pageIndex),
+                planImageOffset,
+                asset: importedAsset,
+              },
+            })
+            wallScanTargetSpecs.push({
               pageIndex: pageAsset.pageIndex,
-              floorId: newFloor.id,
+              commandIndex,
               imageSize: importedAsset,
               offset: planImageOffset,
             })
-            addFloor(newFloor)
-            if (!firstImportedFloorId) firstImportedFloorId = newFloor.id
           }
-          if (firstImportedFloorId) setActiveFloor(firstImportedFloorId)
+        }
+
+        if (commands.length === 0) return
+        const outcome = liveProjectSession.execute(commands, {
+          expectedRevision,
+          label: 'import PDF plan',
+          source: 'plan_import',
+        })
+        const resolvedWallScanTargets: WallScanTarget[] = []
+        for (const spec of wallScanTargetSpecs) {
+          const floorId =
+            spec.floorId ??
+            outcome.results[spec.commandIndex!]?.created.find((ref) => ref.kind === 'floor')?.id
+          if (!floorId) {
+            logger.warn('[planImport] PDF import omitted a created floor result:', {
+              pageIndex: spec.pageIndex,
+            })
+            continue
+          }
+          resolvedWallScanTargets.push({
+            pageIndex: spec.pageIndex,
+            floorId,
+            imageSize: spec.imageSize,
+            ...(spec.offset ? { offset: spec.offset } : {}),
+          })
+        }
+        for (const target of resolvedWallScanTargets) addWallScanTarget(target)
+        if (firstImportedFloorId) setActiveFloor(firstImportedFloorId)
+        else {
+          const createdFloor = outcome.results
+            .flatMap((result) => result.created)
+            .find((ref) => ref.kind === 'floor')
+          if (createdFloor) setActiveFloor(createdFloor.id)
         }
 
         if (scansWalls) {
@@ -1362,8 +1452,6 @@ function ImportPlanImageDialog({
       isCadMultiCropImport,
       cadImportPipeline,
       cadImportPipelinesByPage,
-      addFloor,
-      updateFloor,
       activeFloorId,
       getFloorById,
       isFloorEmptyForAutoReplace,
@@ -1401,12 +1489,20 @@ function ImportPlanImageDialog({
       .then((assets) => {
         const images = assets.flatMap((asset) =>
           asset.dataUrl
-            ? [{ pageIndex: asset.pageIndex, dataUrl: asset.dataUrl, name: `${file.name}-${asset.pageIndex + 1}` }]
+            ? [
+                {
+                  pageIndex: asset.pageIndex,
+                  dataUrl: asset.dataUrl,
+                  name: `${file.name}-${asset.pageIndex + 1}`,
+                },
+              ]
             : []
         )
         if (images.length > 0) useWallScanStore.getState().start(inputKey, images)
       })
-      .catch((error: unknown) => logger.warn('[planImport] Could not prepare the wall scan:', error))
+      .catch((error: unknown) =>
+        logger.warn('[planImport] Could not prepare the wall scan:', error)
+      )
   }, [
     file,
     recognizeWalls,
@@ -1448,7 +1544,9 @@ function ImportPlanImageDialog({
           if (revision !== cadLayerRevisionRef.current) return
           setPdfPageCroppedPreviewMap((prev) => ({ ...prev, ...Object.fromEntries(entries) }))
         })
-        .catch((error) => logger.error('[planImport] Failed to refresh cropped CAD preview:', error))
+        .catch((error) =>
+          logger.error('[planImport] Failed to refresh cropped CAD preview:', error)
+        )
     },
     [cadHiddenLayers, pdfPages, pdfPageCropMap]
   )
@@ -1564,11 +1662,24 @@ function ImportPlanImageDialog({
     const currentIndex = orderedSelected.findIndex((pageIndex) => pageIndex === currentPage)
     const nextPage = currentIndex >= 0 ? orderedSelected[currentIndex + 1] : undefined
     if (nextPage != null) setPdfScaleCurrentPageIndex(nextPage)
-    else if (orderedSelected.every((index) => {
-      const reference = pdfScalePerPage[index]
-      return index === currentPage || pdfScaleSkippedPages[index] || (reference && createPlanScaleReference(reference.p1, reference.p2, reference.meters))
-    })) setStep('pdfBackground')
-  }, [selectedPdfPages, pdfScaleCurrentPageIndex, applyPdfScaleToAll, pdfScalePerPage, pdfScaleSkippedPages])
+    else if (
+      orderedSelected.every((index) => {
+        const reference = pdfScalePerPage[index]
+        return (
+          index === currentPage ||
+          pdfScaleSkippedPages[index] ||
+          (reference && createPlanScaleReference(reference.p1, reference.p2, reference.meters))
+        )
+      })
+    )
+      setStep('pdfBackground')
+  }, [
+    selectedPdfPages,
+    pdfScaleCurrentPageIndex,
+    applyPdfScaleToAll,
+    pdfScalePerPage,
+    pdfScaleSkippedPages,
+  ])
 
   const handlePdfScaleReferenceChange = useCallback(
     (pageIndex: number | null, reference: { p1: Point2; p2: Point2; meters: number } | null) => {
@@ -1735,7 +1846,6 @@ function ImportPlanImageDialog({
       <div
         className={`bg-white dark:bg-gray-800 rounded-md shadow-2xl ${dialogSize} max-h-[95vh] min-h-0 overflow-hidden flex flex-col`}
       >
-
         {/* Header */}
         <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6 py-4 dark:border-gray-700 dark:bg-gray-800">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -1993,8 +2103,6 @@ function ImportPlanImageDialog({
                 </div>
               </div>
 
-
-
               {/* Preview */}
               {(enableBackgroundProcessing && processingResult?.processedDataUrl
                 ? processingResult.processedDataUrl
@@ -2089,7 +2197,10 @@ function ImportPlanImageDialog({
                         className="grid max-h-48 grid-cols-1 gap-x-4 gap-y-1 overflow-y-auto border-t border-gray-200 px-3 py-2 dark:border-gray-700 sm:grid-cols-2 md:grid-cols-3"
                       >
                         {cadLayerList.map((layer) => (
-                          <label key={layer.name} className="flex min-w-0 items-center gap-2 text-sm">
+                          <label
+                            key={layer.name}
+                            className="flex min-w-0 items-center gap-2 text-sm"
+                          >
                             <input
                               type="checkbox"
                               checked={!cadHiddenLayers.has(layer.name)}
@@ -2098,7 +2209,9 @@ function ImportPlanImageDialog({
                             <span
                               aria-hidden="true"
                               className={`h-3 w-3 shrink-0 rounded-sm border border-gray-300 dark:border-gray-600 ${
-                                isCadForegroundColor(layer.color) ? 'bg-gray-900 dark:bg-gray-100' : ''
+                                isCadForegroundColor(layer.color)
+                                  ? 'bg-gray-900 dark:bg-gray-100'
+                                  : ''
                               }`}
                               style={
                                 isCadForegroundColor(layer.color)
@@ -2318,12 +2431,14 @@ function ImportPlanImageDialog({
               )
               const hasPrev = currentPosition > 0
               const hasNext = currentPosition >= 0 && currentPosition < orderedSelected.length - 1
-              const scaledCount = orderedSelected.filter(
-                (pageIndex) => {
-                  const reference = pdfScalePerPage[pageIndex]
-                  return !pdfScaleSkippedPages[pageIndex] && reference && createPlanScaleReference(reference.p1, reference.p2, reference.meters)
-                }
-              ).length
+              const scaledCount = orderedSelected.filter((pageIndex) => {
+                const reference = pdfScalePerPage[pageIndex]
+                return (
+                  !pdfScaleSkippedPages[pageIndex] &&
+                  reference &&
+                  createPlanScaleReference(reference.p1, reference.p2, reference.meters)
+                )
+              }).length
               const currentScaleReference =
                 currentPageIndexValue in pdfScalePerPage
                   ? pdfScalePerPage[currentPageIndexValue]

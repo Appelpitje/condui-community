@@ -6,7 +6,9 @@ import { logger } from '@/lib/logger'
  * Renders a selectable wire segment with properties
  */
 
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useContext, useMemo, useState } from 'react'
+import { DiagramDetailContext } from './eendraad/DiagramDetailContext'
+import { ViewportDetailRegion } from './eendraad/ViewportDetailRegion'
 import { useTranslation } from 'react-i18next'
 import { Line, Group, Circle, Text as KonvaText } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
@@ -69,13 +71,7 @@ import {
 } from '@/lib/wireTextLabel'
 import type { WireTranslateFn } from '@/lib/wires/wireFingerprint'
 import { shouldShowDomainChangeMarker } from '@/lib/wires/domainChangeMarker'
-import {
-  getProjectElectricalInstallation,
-  getProjectElectricalPanels,
-} from '@/lib/projectV2/electrical'
-import { getAllCircuits, getAllProtections } from '@/lib/eendraad/projectElectricalDomain'
-import { collectAllGroundTrunkDevices } from '@/lib/eendraad/panelGround'
-import type { ProjectV2 } from '@/types/projectV2'
+import { getWireRenderLookup } from '@/lib/eendraad/wireRenderLookup'
 import {
   getPhaseAssignmentLabel,
   getVisiblePhaseAssignmentLabel,
@@ -86,7 +82,6 @@ import {
   getBusFeedMarkerLabelLayout,
   getBusFeedMarkerPosition,
 } from '@/lib/layout/busFeedMarkerGeometry'
-import { panelHasModularChangeover } from '@/lib/panel/panelFeedOrganization'
 import { orderWireSegmentsForRendering } from './wireRenderOrder'
 import {
   isPrimaryWireSelection,
@@ -100,56 +95,6 @@ import { getCircuitWireJunctions } from './wireJunctions'
 import { localizeWireSegment } from './wireSegmentLocalCoordinates'
 
 type WireSegmentPointerEvent = KonvaEventObject<MouseEvent | TouchEvent>
-
-type WireRenderLookup = {
-  endpoints: Map<string, Endpoint>
-  protections: Map<string, ProtectionDevice>
-  trunkDevices: Map<string, TrunkDevice>
-  modularChangeoverPanels: Set<string>
-  phaseSystem: Installation['nominalVoltage']['system'] | undefined
-}
-
-const wireRenderLookupCache = new WeakMap<ProjectV2, WireRenderLookup>()
-
-function getWireRenderLookup(project: ProjectV2): WireRenderLookup {
-  const cached = wireRenderLookupCache.get(project)
-  if (cached) return cached
-
-  const endpoints = new Map<string, Endpoint>()
-  const protections = new Map<string, ProtectionDevice>()
-  const trunkDevices = new Map<string, TrunkDevice>()
-  const modularChangeoverPanels = new Set<string>()
-  const panels = getProjectElectricalPanels(project)
-  for (const rootPanel of panels) {
-    for (const circuit of getAllCircuits(rootPanel)) {
-      for (const endpoint of circuit.endpoints) endpoints.set(endpoint.id, endpoint)
-      for (const device of circuit.trunkDevices ?? []) trunkDevices.set(device.id, device)
-    }
-    for (const protection of getAllProtections(rootPanel)) {
-      protections.set(protection.id, protection)
-    }
-  }
-  const installation = getProjectElectricalInstallation(project)
-  for (const device of installation?.mainSupply?.supplyTrunkDevices ?? []) {
-    trunkDevices.set(device.id, device)
-  }
-  for (const device of collectAllGroundTrunkDevices(panels, installation)) {
-    trunkDevices.set(device.id, device)
-  }
-  for (const panel of panels) {
-    if (panelHasModularChangeover(project, panel.id)) modularChangeoverPanels.add(panel.id)
-  }
-
-  const lookup = {
-    endpoints,
-    protections,
-    trunkDevices,
-    modularChangeoverPanels,
-    phaseSystem: installation?.nominalVoltage.system,
-  }
-  wireRenderLookupCache.set(project, lookup)
-  return lookup
-}
 
 /** E-shape line geometry for wall route (in-wall): vertical left, 3 horizontals right. Drawn once, reused above/below; on-wall = 180° rotation. */
 const WALL_ROUTE_LINES: Array<[number, number, number, number]> = [
@@ -1112,6 +1057,7 @@ export const WireSegments = memo(function WireSegments({
   diagramId?: string
   wireSegments: WireSegment[]
 }) {
+  const detailScope = useContext(DiagramDetailContext)
   const panelWires = useMemo(
     () =>
       orderWireSegmentsForRendering(
@@ -1148,8 +1094,7 @@ export const WireSegments = memo(function WireSegments({
       {panelWires.map((wireSegment) => {
         const localRender = localizeWireSegment(wireSegment)
         const fromTrunkDevice = wireSegment.fromElementId
-          ? (lookup?.trunkDevices.get(wireSegment.fromElementId) ??
-            renderState.getTrunkDeviceById(wireSegment.fromElementId)?.device)
+          ? lookup?.trunkDevices.get(wireSegment.fromElementId)
           : undefined
         const fromEndpoint =
           !fromTrunkDevice &&
@@ -1161,7 +1106,7 @@ export const WireSegments = memo(function WireSegments({
           wireSegment.toElementType === 'protection' && wireSegment.toElementId
             ? lookup?.protections.get(wireSegment.toElementId)?.type
             : undefined
-        return (
+        const artwork = (
           <Group
             key={wireSegment.id}
             name="wire-segment-origin eendraad-hit-cullable"
@@ -1181,6 +1126,25 @@ export const WireSegments = memo(function WireSegments({
               targetProtectionType={targetProtectionType}
             />
           </Group>
+        )
+        if (!detailScope.localized || detailScope.materialized) return artwork
+        const points = [wireSegment.startPoint, wireSegment.endPoint, wireSegment.phaseLabelAnchor].filter(
+          (point): point is { x: number; y: number } => Boolean(point)
+        )
+        const left = Math.min(...points.map(point => point.x))
+        const top = Math.min(...points.map(point => point.y))
+        return (
+          <ViewportDetailRegion
+            key={wireSegment.id}
+            bounds={{
+              x: left,
+              y: top,
+              width: Math.max(...points.map(point => point.x)) - left,
+              height: Math.max(...points.map(point => point.y)) - top,
+            }}
+          >
+            {artwork}
+          </ViewportDetailRegion>
         )
       })}
     </>

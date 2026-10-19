@@ -16,6 +16,7 @@ import type {
   GeometryModelV2,
 } from '@/types/projectV2'
 import { resolvePlanPxPerMeter } from '@/lib/plan/planScale'
+import { PROJECT_SCOPE_IDS } from '@/types/projectV2'
 
 type ProjectWithCompatibilityBuilding = {
   floors?: Floor[]
@@ -453,6 +454,7 @@ function elementsFromFloor(floor: Floor): ElementModelV2[] {
 
   const layerId = layerIdFor(floor.id, 'base-plan')
   const common = {
+    scopeId: PROJECT_SCOPE_IDS.sharedBuilding,
     floorId: floor.id,
     systemId: 'system_building',
     layerId,
@@ -500,6 +502,11 @@ function elementsFromFloor(floor: Floor): ElementModelV2[] {
       ...common,
       id: `elem_graphic_${graphic.id}`,
       kind: `building.graphic.${graphic.kind}`,
+      scopeId: graphic.layer === 'electrical'
+        ? PROJECT_SCOPE_IDS.electrical
+        : graphic.layer === 'annotations'
+          ? PROJECT_SCOPE_IDS.coordination
+          : PROJECT_SCOPE_IDS.sharedBuilding,
       layerId: graphic.layer ? layerIdFor(floor.id, graphic.layer) : layerId,
       geometry: graphicGeometry(graphic),
       properties: { v1: graphic, assetId: graphic.assetId },
@@ -612,6 +619,17 @@ export function selectProjectFloorPlan(
   const nativeFloorPlan = nativeFloorPlanFromBuildingElements(document, floorId)
   if (nativeFloorPlan) return nativeFloorPlan
   return undefined
+}
+
+/** Append ordinary editable building elements without rewriting other floors or assets. */
+export function appendFloorPlanElementsForProject(
+  document: ProjectWithOptionalV2Building,
+  floorId: string,
+  floorPlan: NonNullable<Floor['floorPlan']>,
+): void {
+  const floor = document.building?.floors?.find((candidate) => candidate.id === floorId)
+  if (!floor) throw new Error('Floor not found')
+  ensureElements(document).push(...elementsFromFloor({ id: floorId, name: floor.name, floorPlan }))
 }
 
 function compatibilityFloors(document: ProjectWithOptionalV2Building): Floor[] {

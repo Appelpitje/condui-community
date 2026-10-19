@@ -3,6 +3,8 @@
  * project command, ADR 0003). The store slices call these and keep only their bookkeeping.
  */
 import { projectMutationNow } from './mutationTime'
+import { normalizeProtectionCapacityUpdates } from '@/lib/protectionDefaults'
+import { addOneWireNoteInProject } from './annotationMutations'
 import { syncSequentialEndpointBranchLabelsToCircuit } from '@/lib/eendraad/automaticEndpointBranchNaming'
 import {
   resolveUniqueProtectionLabelOnPanel,
@@ -22,7 +24,6 @@ import {
   collectDomoticaEndpointIdsForDeletion,
   deleteLinkedSubPanelsIfOrphaned,
   deletePanelFromProject,
-  ensureRcboSensitivityOnProtection,
   findCircuitById,
   findCircuitOwner,
   findEndpointById,
@@ -45,6 +46,8 @@ import {
 import { ensureInstallationFeedTopology, type SupplyFeedScope } from '@/lib/feedTopology'
 import { clamp } from '@/lib/geometry'
 import { resolveInstallationProfile } from '@/lib/installationProfile'
+import { syncConnectionSupplyBreaker } from '@/lib/electrical/supplyConnection'
+import { syncSupplyTransformerOutput } from '@/lib/electrical/supplyTransformer'
 import { isPanelSupplyFrameDetached } from '@/lib/layout/supplyFrameDetachment'
 import { logger } from '@/lib/logger'
 import {
@@ -56,6 +59,8 @@ import { getModuleWidthInCols } from '@/lib/panel/panelGridLayout'
 import { findPanelById } from '@/lib/panel/panelTree'
 import { setSupplyDevicePanelVisibility } from '@/lib/panel/supplyPanelVisibility'
 import { ensureElectricalLayerOnFloor } from '@/lib/plan/floorLayers'
+import { ensurePanelDistributionPlacementInProject } from '@/lib/plan/panelPlacementMutations'
+import { transformPlanBackgroundFloorView } from '@/lib/plan/floorSetupMutations'
 import {
   isMainPanelDistributionEndpoint,
   resolvePanelForDistributionEndpoint,
@@ -72,7 +77,6 @@ import {
   invalidatePlanLengthEstimates,
   preserveOtherFloorsOnScaleChange,
 } from '@/lib/plan/rescalePlan'
-import { queryOneWireNotes, replaceOneWireNotes } from '@/lib/projectV2/annotations'
 import {
   commitBuildingFloorView,
   mutateBuildingFloorViews,
@@ -305,6 +309,7 @@ export function updateSupplyTrunkDeviceInProject(
     if (devices) {
       const device = devices.find((d) => d.id === deviceId)
       if (!device) return __result()
+      updates = normalizeProtectionCapacityUpdates(updates, device)
       const supplyRef: PanelGridModuleRef = {
         kind: 'trunkDevice',
         id: deviceId,
@@ -456,7 +461,8 @@ export function addGroundTrunkDeviceInProject(
 export function ensureSecondaryPanelEarthingStemInProject(
   project: ProjectV2,
   panelId: string,
-  language?: string
+  language?: string,
+  newId?: () => string
 ): ProjectMutationResult {
   let __changed = false
   let __circuitId: string | null | undefined
@@ -467,7 +473,7 @@ export function ensureSecondaryPanelEarthingStemInProject(
   if (!project) return __result()
   const panel = findPanelById(getEditableProjectElectricalPanels(project), panelId)
   if (!panel) return __result()
-  if (applySecondaryPanelEarthingStem(panel, language)) __changed = true
+  if (applySecondaryPanelEarthingStem(panel, language, newId)) __changed = true
   return __result()
 }
 
@@ -571,6 +577,7 @@ export function updateProtectionInProject(
     if (owningPanel) {
       const protection = owningPanel.protections.find((p) => p.id === id)
       if (protection) {
+        updates = normalizeProtectionCapacityUpdates(updates, protection)
         const oldLabel = protection.label
         const newLabelRaw = updates.label
         const nextUpdates =
@@ -608,7 +615,6 @@ export function updateProtectionInProject(
         // Apply protection updates
         Object.assign(protection, nextUpdates)
         syncManualChronologyForInstallDateUpdate(project, { id, type: 'protection' }, nextUpdates)
-        ensureRcboSensitivityOnProtection(protection)
 
         project.project.protectionCreationTemplates = {
           ...(project.project.protectionCreationTemplates ?? {}),
@@ -917,12 +923,16 @@ export function deleteProtectionInProject(
 export function updateInstallationInProject(
   project: ProjectV2,
   updates: Partial<Installation>
-): ProjectMutationResult {
+): ProjectMutationResult & { changedSupplyBreakerId?: string; changedSupplyTransformerId?: string } {
   let __changed = false
   let __circuitId: string | null | undefined
-  const __result = (): ProjectMutationResult => ({
+  let changedSupplyBreakerId: string | undefined
+  let changedSupplyTransformerId: string | undefined
+  const __result = (): ProjectMutationResult & { changedSupplyBreakerId?: string; changedSupplyTransformerId?: string } => ({
     changed: __changed,
     circuitId: __circuitId ?? undefined,
+    changedSupplyBreakerId,
+    changedSupplyTransformerId,
   })
   if (project) {
     const installation = getEditableProjectElectricalInstallation(project)
@@ -937,6 +947,10 @@ export function updateInstallationInProject(
     // Keep feed topology in sync with installation supply edits (cable/devices),
     // otherwise supply-wire UI can read stale shared/root feed cable values.
     ensureInstallationFeedTopology(installation, getEditableProjectElectricalPanels(project))
+    if (updates.connectionCurrentA != null) {
+      changedSupplyBreakerId = syncConnectionSupplyBreaker(installation, updates.connectionCurrentA)
+    }
+    if (updates.nominalVoltage) changedSupplyTransformerId = syncSupplyTransformerOutput(installation)
     reconcileSupplyAssemblyAcConductorFlow(project)
     if (project.project) {
       project.project.updatedAt = projectMutationNow()
@@ -954,10 +968,7 @@ export function addEendraadNoteInProject(project: ProjectV2, note: Note): Projec
     changed: __changed,
     circuitId: __circuitId ?? undefined,
   })
-  if (project) {
-    replaceOneWireNotes(project, [...queryOneWireNotes(project), note])
-    __changed = true
-  }
+  if (project) __changed = addOneWireNoteInProject(project, note)
   return __result()
 }
 
@@ -1062,7 +1073,9 @@ export function addPanelInProject(
   panel: Panel,
   parentPanelId?: string,
   /** Plan viewport centre for the panel symbol, when the plan shows the active floor. */
-  preferredPlanPos?: Point2
+  preferredPlanPos?: Point2,
+  /** Active plan floor supplied by an explicit electrical symbol drop. */
+  preferredPlanFloorId?: string
 ): ProjectMutationResult {
   let __changed = false
   let __circuitId: string | null | undefined
@@ -1086,47 +1099,12 @@ export function addPanelInProject(
   inheritEarthingFromMainForNewPanel(getEditableProjectElectricalPanels(project), panel)
   const panelPlacement = ensurePanelPlacement(project, panel, {
     ...(preferredPlanPos ? { preferredPlanPos } : {}),
+    ...(preferredPlanFloorId ? { preferredFloorId: preferredPlanFloorId } : {}),
   })
   if (panelPlacement) {
-    // Find or create a dummy circuit for the panel endpoint
-    const panelCircuit = findCircuitById(
-      findPanelById(getEditableProjectElectricalPanels(project), panel.id)!,
-      'PANEL'
-    )
-
-    if (!panelCircuit) {
-      // Create a dummy circuit for the panel endpoint
-      const dummyCircuit: Circuit = {
-        id: generateId(),
-        code: 'PANEL',
-        kind: 'other',
-        cable: {
-          kind: 'XVB',
-          conductors: 3,
-          sectionMm2: 6,
-          hasPE: true,
-        },
-        endpoints: [],
-      }
-      const targetPanel = findPanelById(getEditableProjectElectricalPanels(project), panel.id)!
-      targetPanel.circuits.push(dummyCircuit)
-
-      // Update endpoint with correct circuit ID
-      panelPlacement.endpoint.placements = [panelPlacement.placement]
-      dummyCircuit.endpoints.push(panelPlacement.endpoint)
-    } else {
-      // Add placement to existing endpoint
-      const existingEndpoint = panelCircuit.circuit.endpoints.find(
-        (e) =>
-          e.symbol === 'panel_distribution' && (e.panelId === panel.id || e.label === panel.name)
-      )
-      if (existingEndpoint) {
-        existingEndpoint.placements.push(panelPlacement.placement)
-      } else {
-        panelPlacement.endpoint.placements = [panelPlacement.placement]
-        panelCircuit.circuit.endpoints.push(panelPlacement.endpoint)
-      }
-    }
+    ensurePanelDistributionPlacementInProject(panel, panelPlacement.placement, {
+      endpointCandidate: panelPlacement.endpoint,
+    })
   }
 
   const installation = getEditableProjectElectricalInstallation(project)
@@ -1339,7 +1317,23 @@ export function updateFloorInProject(
         }
       }
       const previouslyHidden = new Set(floor.hiddenSitplanPlacementIds ?? [])
-      Object.assign(floor, updates)
+      const backgroundUpdates = {
+        ...(Object.prototype.hasOwnProperty.call(updates, 'planImageOffset')
+          ? { planImageOffset: updates.planImageOffset }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(updates, 'planImageRotationDeg')
+          ? { planImageRotationDeg: updates.planImageRotationDeg }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(updates, 'planImageOpacity')
+          ? { planImageOpacity: updates.planImageOpacity }
+          : {}),
+      }
+      transformPlanBackgroundFloorView(floor, backgroundUpdates)
+      const remainingUpdates = { ...updates }
+      delete remainingUpdates.planImageOffset
+      delete remainingUpdates.planImageRotationDeg
+      delete remainingUpdates.planImageOpacity
+      Object.assign(floor, remainingUpdates)
       if (clearsPlanImage(updates)) {
         // The floor view also carries the canonical plan ids; left in place they would
         // re-attach the plan when the view is committed.

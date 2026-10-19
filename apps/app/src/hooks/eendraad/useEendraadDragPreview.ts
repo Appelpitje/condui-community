@@ -1,4 +1,4 @@
-import { useState, useCallback, type MutableRefObject } from 'react'
+import { useState, useCallback, useEffect, useRef, type MutableRefObject, type SetStateAction } from 'react'
 import { protectionDropTargetHitsSource } from '@/lib/eendraad/eendraadAltDragDuplicate'
 import { PROTECTION_SYMBOL_IDS } from '@/lib/protectionKind'
 import { getEndpointTypeFromSymbol } from '@/utils'
@@ -11,16 +11,9 @@ import { normalizeProtectionPlacementDropTarget } from '@/lib/eendraad/protectio
 import { canCreateSupplyTopologyFromDrop } from '@/lib/supplyTopologyFeature'
 import type { SameSymbolAddMoreLayoutTarget } from '@/lib/eendraad/sameSymbolAddMore'
 import type { CircuitTrunkBranchSlot } from '@/lib/layout/circuitTrunkBranchSlots'
-
-const SUPPLY_ASSEMBLY_DROP_TARGETS = new Set<NonNullable<DropTarget['type']>>([
-  'supplyWire',
-  'supplyBackupWire',
-  'supplyBackupOutputWire',
-  'supplyChangeoverGridWire',
-  'supplyConverterGridWire',
-  'supplyConverterBackupWire',
-  'supplyConverterDcWire',
-])
+import type { BranchDropIntent } from '@/lib/layout/branchDropInteraction'
+import { isSupplyDropTarget } from '@/lib/eendraad/supplyDropTargets'
+import { dropBehaviors, canDropSymbolOnSupplyConverterDcWire } from '@/lib/eendraad/dropBehaviors'
 
 export interface DragPreviewState {
   position: Point
@@ -45,6 +38,25 @@ export interface DragPreviewState {
   sameSymbolAddMore?: SameSymbolAddMoreLayoutTarget
   /** Branch gap on a circuit trunk while moving whole endpoint branches. */
   trunkBranchSlot?: CircuitTrunkBranchSlot
+  branchIntent?: BranchDropIntent
+}
+
+interface DragFeedbackState {
+  dragPreview: DragPreviewState | null
+  dragPointer: Point | null
+}
+
+function getDragFeedbackIntent(preview: DragPreviewState | null): string | null {
+  if (!preview) return null
+  // Compare all target and move metadata, including bus slots and mounting.
+  // Symbol metadata is compared by identity separately; only the pointer may
+  // wait for a frame when the complete resolved intent is unchanged.
+  const { position: _position, symbolData: _symbolData, ...intent } = preview
+  return JSON.stringify(intent)
+}
+
+function pointsEqual(left: Point | null, right: Point | null): boolean {
+  return left === right || (!!left && !!right && left.x === right.x && left.y === right.y)
 }
 
 export function shouldPreferMainBusOverSupplyWire(): boolean {
@@ -73,26 +85,87 @@ export function useEendraadDragPreview(
       symbol: SymbolMetadata
     ) => SameSymbolAddMoreLayoutTarget | null
     isBlockedDropPosition?: (position: Point) => boolean
+    clearBranchDrop?: () => void
+    resolveBranchDrop?: (position: Point, symbol: SymbolMetadata) => {
+      handled: boolean; intent: BranchDropIntent | null
+    }
   }
 ) {
-  const [dragPreview, setDragPreview] = useState<DragPreviewState | null>(null)
-  /** Last pointer position during a drag, kept even where there is no valid drop target. */
-  const [dragPointer, setDragPointer] = useState<Point | null>(null)
+  const [feedback, setFeedback] = useState<DragFeedbackState>({
+    dragPreview: null,
+    dragPointer: null,
+  })
+  const latestFeedbackRef = useRef(feedback)
+  const intentRef = useRef<string | null>(null)
+  const frameRef = useRef<number | null>(null)
+  /** Last pointer position, kept even where there is no valid drop target. */
+  const pointerRef = useRef<Point | null>(null)
+
+  const cancelPendingFrame = useCallback(() => {
+    if (frameRef.current === null) return
+    cancelAnimationFrame(frameRef.current)
+    frameRef.current = null
+  }, [])
+
+  useEffect(() => cancelPendingFrame, [cancelPendingFrame])
+
+  const setDragPreview = useCallback((action: SetStateAction<DragPreviewState | null>) => {
+    const previous = latestFeedbackRef.current
+    // Internal drags compose additional move metadata immediately after
+    // handleDragOver. Read the latest queued value, not the last rendered one.
+    const dragPreview = typeof action === 'function' ? action(previous.dragPreview) : action
+    const intent = getDragFeedbackIntent(dragPreview)
+    const sameIntent =
+      intent === intentRef.current &&
+      dragPreview?.symbolData === previous.dragPreview?.symbolData
+    const next = { dragPreview, dragPointer: pointerRef.current }
+    latestFeedbackRef.current = next
+    intentRef.current = intent
+
+    if (
+      sameIntent &&
+      pointsEqual(dragPreview?.position ?? null, previous.dragPreview?.position ?? null) &&
+      pointsEqual(next.dragPointer, previous.dragPointer)
+    ) return
+
+    // Target transitions and teardown must never wait behind a pointer frame.
+    // In particular, clearing after drop/cancel cancels any queued ghost update.
+    if (!sameIntent || dragPreview === null || typeof requestAnimationFrame !== 'function') {
+      cancelPendingFrame()
+      setFeedback(next)
+      return
+    }
+    if (frameRef.current !== null) return
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null
+      setFeedback(latestFeedbackRef.current)
+    })
+  }, [cancelPendingFrame])
   const resolveSameSymbolAddMore = options?.resolveSameSymbolAddMore
   const isBlockedDropPosition = options?.isBlockedDropPosition
 
   const handleDragOver = useCallback(
     (position: Point, symbolData: unknown | null) => {
       if (position.x === -Infinity || position.y === -Infinity) {
+        options?.clearBranchDrop?.()
+        pointerRef.current = null
         setDragPreview(null)
-        setDragPointer(null)
         return
       }
-      setDragPointer(position)
+      pointerRef.current = position
 
       const symbol = symbolData as SymbolMetadata | null
       if (!symbol) {
         setDragPreview(null)
+        return
+      }
+      const branch = options?.resolveBranchDrop?.(position, symbol)
+      if (branch?.handled) {
+        setDragPreview(branch.intent ? {
+          position, symbolData: symbol, dropTarget: branch.intent.target,
+          branchIntent: branch.intent,
+          ...(branch.intent.sameSymbolTarget ? { sameSymbolAddMore: branch.intent.sameSymbolTarget } : {}),
+        } : null)
         return
       }
       if (isBlockedDropPosition?.(position)) {
@@ -186,7 +259,14 @@ export function useEendraadDragPreview(
 
       // Supply-assembly lanes use the full simulated layout preview. Keep the drag
       // preview alive for every placeable symbol, not only endpoint/protection types.
-      if (dropTarget.type && SUPPLY_ASSEMBLY_DROP_TARGETS.has(dropTarget.type)) {
+      if (isSupplyDropTarget(dropTarget)) {
+        // Match release eligibility before advertising a supply insertion.
+        if (!dropBehaviors[symbol.id]?.validTargets.includes(dropTarget.type) ||
+          (dropTarget.type === 'supplyConverterDcWire' && !dropTarget.supplyDcBusId &&
+            !canDropSymbolOnSupplyConverterDcWire(symbol.id, false))) {
+          setDragPreview(null)
+          return
+        }
         setDragPreview({ position, symbolData: symbol, dropTarget })
         return
       }
@@ -212,6 +292,10 @@ export function useEendraadDragPreview(
 
       // Only show preview for endpoint types (not protection devices during drag)
       if (endpointType) {
+        setDragPreview({ position, symbolData: symbol, dropTarget })
+      } else if (symbol.id === 'dc_bus' && dropTarget.converterDcConnection) {
+        // Circuit inverter inputs are not supply-assembly lanes, and rails are
+        // not endpoint symbols. Let command validation decide which input is free.
         setDragPreview({ position, symbolData: symbol, dropTarget })
       } else if (symbol.id === 'panel_distribution') {
         // Keep the resolved drop target so panel preview can reflect actual
@@ -275,13 +359,14 @@ export function useEendraadDragPreview(
       options,
       resolveSameSymbolAddMore,
       isBlockedDropPosition,
+      setDragPreview,
     ]
   )
 
   return {
-    dragPreview,
+    dragPreview: feedback.dragPreview,
     setDragPreview,
-    dragPointer,
+    dragPointer: feedback.dragPointer,
     handleDragOver,
   }
 }

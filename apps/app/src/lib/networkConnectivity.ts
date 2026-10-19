@@ -57,23 +57,34 @@ export function shouldSkipNetworkRequests(): boolean {
   return !readOnlineStatus()
 }
 
+const onlineSubscribers = new Set<(isOnline: boolean) => void>()
+const onlineEvents = ['online', 'offline', NETWORK_UNAVAILABLE_EVENT,
+  NETWORK_STATUS_REFRESH_EVENT, APP_SERVER_REACHABILITY_EVENT] as const
+let subscribedWindow: Window | undefined
+const notifyOnlineSubscribers = () => {
+  const status = readOnlineStatus()
+  for (const listener of onlineSubscribers) listener(status)
+}
+
 export function subscribeOnlineStatus(listener: (isOnline: boolean) => void): () => void {
   if (typeof window === 'undefined') {
     return () => {}
   }
 
-  const notify = () => listener(readOnlineStatus())
-  window.addEventListener('online', notify)
-  window.addEventListener('offline', notify)
-  window.addEventListener(NETWORK_UNAVAILABLE_EVENT, notify)
-  window.addEventListener(NETWORK_STATUS_REFRESH_EVENT, notify)
-  window.addEventListener(APP_SERVER_REACHABILITY_EVENT, notify)
+  // Each mounted symbol subscribes to this status. Share the browser listeners
+  // instead of registering five DOM handlers per symbol during every switch.
+  const subscriber = (status: boolean) => listener(status)
+  onlineSubscribers.add(subscriber)
+  if (!subscribedWindow) {
+    subscribedWindow = window
+    for (const event of onlineEvents) subscribedWindow.addEventListener(event, notifyOnlineSubscribers)
+  }
   return () => {
-    window.removeEventListener('online', notify)
-    window.removeEventListener('offline', notify)
-    window.removeEventListener(NETWORK_UNAVAILABLE_EVENT, notify)
-    window.removeEventListener(NETWORK_STATUS_REFRESH_EVENT, notify)
-    window.removeEventListener(APP_SERVER_REACHABILITY_EVENT, notify)
+    onlineSubscribers.delete(subscriber)
+    if (onlineSubscribers.size === 0 && subscribedWindow) {
+      for (const event of onlineEvents) subscribedWindow.removeEventListener(event, notifyOnlineSubscribers)
+      subscribedWindow = undefined
+    }
   }
 }
 

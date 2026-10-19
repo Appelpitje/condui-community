@@ -1,5 +1,6 @@
 import {
   findPanelContainingCircuit,
+  createPanelGridModuleRefsContext,
   getDefaultPanelGridModuleRefs,
   getAllCircuits,
   panelGridModuleIsAlwaysVisibleInPanel,
@@ -12,16 +13,20 @@ import {
   mutateBuildingFloorViews,
 } from '@/lib/projectV2/buildingFloors'
 import {
+  getProjectElectrical,
   selectProjectElectricalInstallation,
   selectProjectElectricalPanels,
+  selectProjectAuxiliaryElectricalEnclosures,
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
+import { isDraft } from 'immer'
 import type { ProjectWithOptionalV2Building } from '@/lib/projectV2/buildingFloors'
 import type { Endpoint, Placement, TrunkDevice } from '@/types/schema'
 import type { Panel, PanelGridModuleRef } from '@/types/schema'
-import { getAllSupplyTrunkDevices, getPanelSupplyTrunkDevices } from '@/lib/feedTopology'
+import { getAllSupplyTrunkDevices, queryPanelSupplyTrunkDevices } from '@/lib/feedTopology'
 import { findConverterBackupPanelFeed } from '@/lib/panel/converterBackupPanelFeed'
 import { isSupplyDeviceVisibleInPanel, setSupplyDevicePanelVisibility } from '@/lib/panel/supplyPanelVisibility'
+import { listRemountableCircuitModules } from '@/lib/panel/circuitModuleMountingRules'
 
 type PanelPlanVisibilityProject = ProjectWithOptionalV2Electrical & ProjectWithOptionalV2Building
 
@@ -138,11 +143,12 @@ function collectPanelModuleOccurrences(
   const rootPanels = selectProjectElectricalPanels(project)
   const installation = selectProjectElectricalInstallation(project)
   const groups = new Map<string, PanelModuleOccurrence[]>()
+  const gridContext = createPanelGridModuleRefsContext(rootPanels)
 
   for (const panel of walkPanels(rootPanels)) {
     const hiddenKeys = new Set(panel.gridView?.hiddenModuleKeys ?? [])
     const shownKeys = new Set(panel.gridView?.shownModuleKeys ?? [])
-    for (const ref of getDefaultPanelGridModuleRefs(panel, installation, rootPanels)) {
+    for (const ref of getDefaultPanelGridModuleRefs(panel, installation, rootPanels, undefined, gridContext)) {
       const refKey = panelGridModuleRefKey(ref)
       const occurrence: PanelModuleOccurrence = {
         panel,
@@ -152,7 +158,7 @@ function collectPanelModuleOccurrences(
         explicitlyShown: shownKeys.has(refKey),
         visible:
           !hiddenKeys.has(refKey) &&
-          (panelGridModuleIsVisibleByDefault(ref, panel, installation, rootPanels) ||
+          (panelGridModuleIsVisibleByDefault(ref, panel, installation, rootPanels, undefined, gridContext) ||
             shownKeys.has(refKey)),
       }
       const key = moduleOwnerKey(ref)
@@ -264,12 +270,38 @@ export interface EndpointMounting {
   panelId: string
   panelName: string
   moduleRefKey: string
+  enclosureId?: string
+  enclosureName?: string
 }
 
 export function getEndpointMounting(
   project: PanelPlanVisibilityProject,
   endpointId: string,
 ): EndpointMounting | undefined {
+  const mounted = listRemountableCircuitModules(selectProjectElectricalPanels(project)).find(
+    (occurrence) => occurrence.form === 'endpoint' && occurrence.entity.id === endpointId
+  )
+  if (mounted?.entity.panelMounting?.kind === 'auxiliary') {
+    const enclosureId = mounted.entity.panelMounting.enclosureId
+    const enclosure = selectProjectAuxiliaryElectricalEnclosures(project).find(
+      (candidate) => candidate.id === enclosureId
+    )
+    const ref: PanelGridModuleRef = {
+      kind: 'domotica', endpointId, circuitId: mounted.circuit.id,
+    }
+    if (panelGridModuleIsAlwaysVisibleInPanel(ref, selectProjectElectricalPanels(project))) return undefined
+    if (enclosure) {
+      const moduleRefKey = panelGridModuleRefKey(ref)
+      return {
+        location: enclosure.gridView.hiddenModuleKeys?.includes(moduleRefKey) ? 'field' : 'panel',
+        panelId: mounted.ownerPanel.id,
+        panelName: mounted.ownerPanel.name,
+        moduleRefKey,
+        enclosureId,
+        enclosureName: enclosure.name,
+      }
+    }
+  }
   const occurrences = collectPanelModuleOccurrences(project).get(`endpoint:${endpointId}`)
   const first = occurrences?.[0]
   if (!occurrences || !first) return undefined
@@ -367,13 +399,14 @@ function collectPanelPlanPlacementOwners(
 ): Map<string, PlacementOwner> {
   const rootPanels = selectProjectElectricalPanels(project)
   const installation = selectProjectElectricalInstallation(project)
+  const gridContext = createPanelGridModuleRefsContext(rootPanels)
   const endpointsById = new Map<string, Endpoint>()
   const trunkDevicesById = new Map<string, TrunkDevice>()
   const independentSupplyMeterIds = new Set<string>()
 
   if (installation) {
     for (const panel of walkPanels(rootPanels)) {
-      for (const device of getPanelSupplyTrunkDevices(installation, rootPanels, panel)) {
+      for (const device of queryPanelSupplyTrunkDevices(installation, panel)) {
         trunkDevicesById.set(device.id, device)
       }
     }
@@ -397,12 +430,9 @@ function collectPanelPlanPlacementOwners(
   for (const panel of walkPanels(rootPanels)) {
     const hiddenKeys = new Set(panel.gridView?.hiddenModuleKeys ?? [])
     const shownKeys = new Set(panel.gridView?.shownModuleKeys ?? [])
-    for (const ref of getDefaultPanelGridModuleRefs(panel, installation, rootPanels)) {
+    const storedSupply = installation ? queryPanelSupplyTrunkDevices(installation, panel) : []
+    for (const ref of getDefaultPanelGridModuleRefs(panel, installation, rootPanels, storedSupply, gridContext)) {
       const key = panelGridModuleRefKey(ref)
-      let visible =
-        !hiddenKeys.has(key) &&
-        (panelGridModuleIsVisibleByDefault(ref, panel, installation, rootPanels) ||
-          shownKeys.has(key))
       const trunkOwner = ref.kind === 'trunkDevice' ? trunkDevicesById.get(ref.id) : undefined
       const owner =
         ref.kind === 'domotica'
@@ -412,8 +442,12 @@ function collectPanelPlanPlacementOwners(
       // ProtectionDevice has no situation-plan placement model. Protection-style trunk
       // devices (including rotating switches on a supply wire) are handled above.
       if (!owner?.placements?.length) continue
+      let visible =
+        !hiddenKeys.has(key) &&
+        (panelGridModuleIsVisibleByDefault(ref, panel, installation, rootPanels, storedSupply, gridContext) ||
+          shownKeys.has(key))
       if (owner.symbol === 'inverter' && ref.kind === 'trunkDevice' && ref.scope === 'supply') {
-        visible = isSupplyDeviceVisibleInPanel(project, ref.id)
+        visible = isSupplyDeviceVisibleInPanel(project, ref.id, trunkOwner)
       }
       const independentSupplyMeter =
         ref.kind === 'trunkDevice' &&
@@ -440,17 +474,62 @@ function collectPanelPlanPlacementOwners(
     }
   }
 
+  // Auxiliary circuit modules have no regular-panel occurrence, but still hide their
+  // plan placement while physically mounted in that enclosure.
+  const enclosures = selectProjectAuxiliaryElectricalEnclosures(project)
+  for (const occurrence of gridContext.remountable) {
+    const mounting = occurrence.entity.panelMounting
+    if (mounting?.kind !== 'auxiliary' || !occurrence.entity.placements?.length) continue
+    const enclosure = enclosures.find((candidate) => candidate.id === mounting.enclosureId)
+    if (!enclosure || occurrence.entity.symbol === 'energy_meter' || occurrence.entity.type === 'energy_meter') continue
+    const ref: PanelGridModuleRef = occurrence.form === 'endpoint'
+      ? { kind: 'domotica', endpointId: occurrence.entity.id, circuitId: occurrence.circuit.id }
+      : { kind: 'trunkDevice', id: occurrence.entity.id, scope: 'circuit', circuitId: occurrence.circuit.id }
+    owners.set(`${occurrence.form === 'endpoint' ? 'endpoint' : 'trunk'}:${occurrence.entity.id}`, {
+      placements: occurrence.entity.placements,
+      visibleInAnyPanel: !enclosure.gridView.hiddenModuleKeys?.includes(panelGridModuleRefKey(ref)),
+      independentVisibility: occurrence.entity.symbol === 'inverter',
+    })
+  }
   return owners
 }
+
+const frozenVisibilityInputs = new WeakSet<object>()
+function isFrozenVisibilityInput(value: unknown, visiting = new Set<object>()): boolean {
+  if (value == null || typeof value !== 'object') return true
+  if (frozenVisibilityInputs.has(value)) return true
+  if (!Object.isFrozen(value) || visiting.has(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return false
+  visiting.add(value)
+  const valid = Object.values(Object.getOwnPropertyDescriptors(value)).every(
+    (descriptor) => 'value' in descriptor && isFrozenVisibilityInput(descriptor.value, visiting)
+  )
+  visiting.delete(value)
+  if (valid) frozenVisibilityInputs.add(value)
+  return valid
+}
+
+let hiddenPlacementElectrical: ReturnType<typeof getProjectElectrical>
+let hiddenPlacementIds: Set<string> | undefined
 
 /** Placement ids intentionally hidden because their device is currently shown in a panel. */
 export function getSituationPlanPlacementIdsHiddenByPanel(
   project: PanelPlanVisibilityProject
 ): Set<string> {
+  const electrical = getProjectElectrical(project)
+  const cacheable = electrical && !isDraft(project) && !isDraft(electrical) &&
+    isFrozenVisibilityInput(electrical)
+  if (cacheable && electrical === hiddenPlacementElectrical && hiddenPlacementIds)
+    return new Set(hiddenPlacementIds)
   const hidden = new Set<string>()
   for (const owner of collectPanelPlanPlacementOwners(project).values()) {
     if (!owner.visibleInAnyPanel || owner.independentVisibility) continue
     for (const placement of owner.placements) hidden.add(placement.id)
+  }
+  if (cacheable) {
+    hiddenPlacementElectrical = electrical
+    hiddenPlacementIds = new Set(hidden)
   }
   return hidden
 }

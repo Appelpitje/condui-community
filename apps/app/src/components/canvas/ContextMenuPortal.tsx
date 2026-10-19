@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ContextMenuItem } from '@/components/common/ContextMenu'
 import { createPortal } from 'react-dom'
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 
 interface ContextMenuPortalProps {
   position: { x: number; y: number }
@@ -9,6 +10,8 @@ interface ContextMenuPortalProps {
 }
 
 function ContextMenuPortal({ position, items, onClose }: ContextMenuPortalProps) {
+  const window = useCanvasWindow()
+  const document = window.document
   const menuRef = useRef<HTMLDivElement>(null)
   const lastPointerActivationRef = useRef(0)
   const [adjustedPosition, setAdjustedPosition] = useState(position)
@@ -48,7 +51,7 @@ function ContextMenuPortal({ position, items, onClose }: ContextMenuPortalProps)
     }
 
     setAdjustedPosition({ x, y })
-  }, [position])
+  }, [position, window])
 
   // Close menu on Escape key
   useEffect(() => {
@@ -60,7 +63,7 @@ function ContextMenuPortal({ position, items, onClose }: ContextMenuPortalProps)
 
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [onClose])
+  }, [onClose, document])
 
   const filteredItems = items.filter((item) => item !== null)
 

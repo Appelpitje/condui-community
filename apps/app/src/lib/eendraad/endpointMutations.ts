@@ -34,6 +34,61 @@ import {
   endpointsShareMergeFamily,
 } from '@/lib/eendraad/sameSymbolAddMore'
 import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
+import type { DropTarget } from '@/lib/layout/findDropTarget'
+
+/**
+ * Detach an ordinary AC point for immediate reinsertion by the shared drop engine. This is
+ * deliberately not deletion: placements, controls, frames and wire identities still own this
+ * endpoint. Call only inside the transaction that reinserts it before any reconciliation.
+ * Specialized branch devices, DC connections and domotica keep their existing move paths.
+ */
+export function takeOrdinaryEndpointForMove(
+  project: ProjectV2,
+  endpointId: string,
+  target: DropTarget
+): Endpoint | null {
+  if (!target.circuitId || !['circuit', 'endpoint'].includes(target.type ?? '') ||
+      target.domoticaOutput || target.domoticaChildDropIntent || target.dcBusId ||
+      target.converterDcConnection || target.wireDomain === 'DC') return null
+  const panels = getEditableProjectElectricalPanels(project)
+  const source = panels.flatMap((panel) => findEndpointById(panel, endpointId) ?? []).at(0)
+  const destination = findCircuitOwner(panels, target.circuitId)?.circuit
+  if (!source || !destination || source.circuit.supplySource || destination.supplySource) return null
+  const endpoint = source.endpoint
+  if (!['switch', 'light_point', 'socket'].includes(endpoint.type) ||
+      endpoint.domoticaChildProps || endpoint.converterDcConnection || endpoint.socketProps?.modular) return null
+  if (['domotica', 'panel_distribution', 'junction_panel', 'junction_box', 'solar_panel', 'battery',
+      'transformer', 'rectifier', 'inverter', 'dc_dc_converter'].includes(endpoint.symbol ?? '')) return null
+  if ([source.circuit, destination].some((circuit) => circuit.trunkDevices?.some((device) =>
+    device.type === 'dc_bus' || ['transformer', 'rectifier', 'inverter', 'dc_dc_converter'].includes(device.symbol ?? '')))) return null
+  const sourceBranch = source.circuit.branches?.find((branch) => branch.endpointIds.includes(endpointId))
+  if (sourceBranch?.dcBusId || sourceBranch?.branchDevices?.length) return null
+  const destinationEndpoints = destination.endpoints.filter((entry) =>
+    entry.id === target.endpointId || target.branchEndpoints?.includes(entry.id))
+  if (destinationEndpoints.some((entry) => entry.domoticaChildProps || entry.symbol === 'domotica' ||
+      entry.converterDcConnection)) return null
+  if (destination.branches?.some((branch) =>
+    (branch.dcBusId || branch.branchDevices?.length) &&
+    branch.endpointIds.some((id) => id === target.endpointId || target.branchEndpoints?.includes(id)))) return null
+  if (source.circuit.id !== destination.id) {
+    // Explicit control overrides are circuit-local. Retain identities, but do not leave
+    // an old circuit claiming control of a point that has moved to another circuit.
+    for (const peer of source.circuit.endpoints) {
+      if (peer.id !== endpointId && peer.controlledEndpointIds?.includes(endpointId))
+        peer.controlledEndpointIds = peer.controlledEndpointIds.filter((id) => id !== endpointId)
+    }
+    if (endpoint.controlledEndpointIds) {
+      const destinationIds = new Set(destination.endpoints.map((entry) => entry.id))
+      endpoint.controlledEndpointIds = endpoint.controlledEndpointIds.filter((id) => destinationIds.has(id))
+    }
+  }
+  source.circuit.endpoints = source.circuit.endpoints.filter((entry) => entry.id !== endpointId)
+  source.circuit.branches = source.circuit.branches?.map((branch) => ({
+    ...branch,
+    endpointIds: branch.endpointIds.filter((id) => id !== endpointId),
+  })).filter((branch) => branch.endpointIds.length > 0)
+  return endpoint
+}
 
 export interface AssignEndpointsToCircuitResult {
   movedEndpointIds: string[]
@@ -354,7 +409,8 @@ export function addEndpointToProject(
   circuitId: string,
   endpoint: Endpoint,
   insertAfterEndpointId?: string | null,
-  branchOpts?: { forceNewBranch?: boolean }
+  branchOpts?: { forceNewBranch?: boolean },
+  newId: () => string = generateId,
 ): string | null {
   const panels = getEditableProjectElectricalPanels(project)
   for (const panel of panels) {
@@ -469,7 +525,7 @@ export function addEndpointToProject(
       if (branches.length === 0) {
         branches = [
           {
-            id: generateId(),
+            id: newId(),
             label: result.circuit.endpoints[0]?.label ?? '',
             endpointIds: result.circuit.endpoints.map((e) => e.id),
           },
@@ -481,7 +537,7 @@ export function addEndpointToProject(
           (insertAfterEndpointId === undefined && !endpoint.domoticaChildProps)
         ) {
           const newBranch = {
-            id: generateId(),
+            id: newId(),
             label: '',
             endpointIds: [endpointId],
           }

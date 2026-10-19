@@ -1,6 +1,11 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
-import { useUIStore } from '@/stores/uiStore'
-import { applyEendraadCircuitFocus, listCircuitsWithSingleLetterCode } from '@/lib/eendraad/focusCircuit'
+import { useCanvasWindow, useViewport } from '@/components/viewport/ViewportContext'
+import { viewportShortcutRouter } from '@/lib/viewport/viewportShortcutRouting'
+import { useViewportUIApi, useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
+import {
+  applyEendraadCircuitFocus,
+  listCircuitsWithSingleLetterCode,
+} from '@/lib/eendraad/focusCircuit'
 import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'
 import { isKeyboardTypingTarget } from '@/lib/ui/keyboardTypingTarget'
 
@@ -17,8 +22,12 @@ type CircuitLetterHotkeyProject = ProjectWithOptionalV2Electrical & {
  */
 export function useEendraadCircuitLetterHotkeys(
   currentProject: CircuitLetterHotkeyProject | null,
-  pointerOverEendraadRef: MutableRefObject<boolean>,
+  pointerOverEendraadRef: MutableRefObject<boolean>
 ) {
+  const window = useCanvasWindow()
+  const viewport = useViewport()
+  const viewportUI = useViewportUIApi()
+  const isActiveViewport = useIsActiveViewport()
   const cycleIndexByLetterRef = useRef<Record<string, number>>({})
   const lastProjectIdRef = useRef<string | null>(null)
 
@@ -32,8 +41,13 @@ export function useEendraadCircuitLetterHotkeys(
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isActiveViewport()) return
       if (e.repeat) return
-      if (!pointerOverEendraadRef.current) return
+      if (
+        !pointerOverEendraadRef.current &&
+        !(viewport && viewportShortcutRouter.isHoveredViewport(window, viewport.panelIndex))
+      )
+        return
       if (!currentProject) return
       if (isKeyboardTypingTarget(e.target)) return
       if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return
@@ -55,12 +69,12 @@ export function useEendraadCircuitLetterHotkeys(
 
       applyEendraadCircuitFocus({
         circuitId: circuit.id,
-        setSelection: useUIStore.getState().setSelection,
-        requestFitToView: useUIStore.getState().requestFitToView,
+        setSelection: viewportUI.getState().setSelection,
+        requestFitToView: viewportUI.getState().requestFitToView,
       })
     }
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [currentProject, pointerOverEendraadRef])
+  }, [currentProject, pointerOverEendraadRef, viewportUI, window, isActiveViewport, viewport])
 }

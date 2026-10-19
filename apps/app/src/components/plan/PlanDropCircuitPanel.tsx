@@ -1,10 +1,12 @@
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
+import { useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
 /* eslint react-refresh/only-export-components: off -- Panel placement helper is tested and exported with its UI. */
 import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { GripVertical, X } from 'lucide-react'
-import { type SymbolMetadata } from '@/lib/symbols'
+import { getSymbolIconPath, type SymbolMetadata } from '@/lib/symbols'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useUIStore, type UIState } from '@/stores/uiStore'
 import { collectCircuits, flattenPanels } from '@/utils/eendraad/panelHelpers'
@@ -143,6 +145,8 @@ function PlanDropCircuitPanelInner({
   nonModal = false,
   onAfterCircuitAssignment,
 }: PlanDropCircuitPanelProps) {
+  const window = useCanvasWindow()
+  const isActiveViewport = useIsActiveViewport()
   const { t } = useTranslation()
   const panelRootRef = useRef<HTMLDivElement>(null)
   const getDefaultBounds = () => ({
@@ -213,7 +217,7 @@ function PlanDropCircuitPanelInner({
     )
     draggedRef.current = true
     setFrame({ left: nextLeft, top: nextTop })
-  }, [])
+  }, [window])
 
   const onDragPointerUp = useCallback((e: React.PointerEvent) => {
     dragRef.current = null
@@ -442,13 +446,14 @@ function PlanDropCircuitPanelInner({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!isActiveViewport()) return
       if (e.key === 'Escape' || e.key === 'Enter') {
         handleDismiss()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [handleDismiss])
+  }, [handleDismiss, isActiveViewport, window])
 
   const renderCircuitRow = (circuit: Circuit) => {
     const eligible = eligibilityMap.eligibilityMap.get(circuit.id) === true
@@ -536,7 +541,7 @@ function PlanDropCircuitPanelInner({
           </span>
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white shadow-inner dark:bg-gray-800">
             <img
-              src={symbol.svgPath}
+              src={getSymbolIconPath(symbol)}
               alt=""
               className="max-h-9 max-w-9 object-contain dark:invert"
               draggable={false}

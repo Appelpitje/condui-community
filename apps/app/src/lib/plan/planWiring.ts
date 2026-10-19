@@ -27,7 +27,7 @@ import type {
   PlanWiringModel,
   PlanWiringVisibility,
 } from '@/types/schema'
-import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { findMainPanel } from '@/lib/panel/panelTree'
 import { isCableRoutesEnabled } from '@/lib/cableRouting/availability'
 import { deriveCablePlanWireRoutes } from '@/lib/cableRouting/cableRoutePlanWires'
@@ -381,7 +381,7 @@ function findCircuitMatchForPlacement(
   }
   const mainPanel = findMainPanel(panels)
   if (!mainPanel) return null
-  for (const device of getAllSupplyTrunkDevices(project)) {
+  for (const device of queryAllSupplyTrunkDevices(project)) {
     const placement = device.placements?.find(
       (candidate) => candidate.floorId === floorId && candidate.id === placementId
     )
@@ -452,6 +452,21 @@ function isCircuitEntryEndpoint(match: PlacementCircuitMatch): boolean {
   return endpointIds.includes(match.endpoint.endpoint.id)
 }
 
+/**
+ * The board's cable may enter a branch at any of its points, not only its first: a board in
+ * the middle feeds a light there and the branch splits both ways. That holds for the board's
+ * own circuits; points behind a controller output are fed by that controller instead.
+ */
+function canTakeBoardCable(match: PlacementCircuitMatch, panelId: string): boolean {
+  if (isCircuitEntryEndpoint(match)) return true
+  if (match.panel.id !== panelId) return false
+  const { endpoint } = match.endpoint
+  if (endpoint.domoticaChildProps || match.isSupplyDevice) return false
+  const branch = match.circuit.branches?.find((candidate) => candidate.id === match.branchId)
+  if (branch?.dcBusId) return false
+  return match.circuit.endpoints.some((candidate) => candidate.id === endpoint.id)
+}
+
 function isImmediateCircuitSuccessor(
   source: PlacementCircuitMatch,
   target: PlacementCircuitMatch
@@ -469,9 +484,9 @@ function isImmediateCircuitSuccessor(
 /**
  * Build an explicit situation-plan wire for non-default connections. Plan wires are
  * undirected: either end may be dragged first. A panel is electrically adjacent to
- * immediate circuit-entry endpoints in its own or a downstream board. Protection
- * devices remain part of that path even when they have no plan placement; a later
- * endpoint in a branch is not directly connected to the panel.
+ * the points of circuits in its own or a downstream board: the cable enters a branch at
+ * its first point or, to split it, at any later one. Protection devices remain part of
+ * that path even when they have no plan placement.
  */
 export function buildManualOtherPlanWireRoute(
   project: PlanWiringProject,
@@ -497,7 +512,7 @@ export function buildManualOtherPlanWireRoute(
     return Boolean(
       panelId &&
       panelHasElectricalPathTo(panels, panelId, otherSide.panel.id) &&
-      isCircuitEntryEndpoint(otherSide)
+      canTakeBoardCable(otherSide, panelId)
     )
   }
   const hasElectricalPath =
@@ -598,6 +613,48 @@ export function isValidPlanWireFeederTopology(
   return true
 }
 
+/** Read-only inference for reconnecting the separate lighting branches produced by scans. */
+export function resolvePlanLightingBranchConnection(
+  project: PlanWiringProject,
+  floorId: string,
+  sourcePlacementId: string,
+  targetPlacementId: string
+) {
+  const match = findCircuitForPlacements(
+    selectProjectElectricalPanels(project), floorId, sourcePlacementId, targetPlacementId
+  )
+  if (!match || sourcePlacementId === targetPlacementId) return null
+  const { circuit, source, target } = match
+  const sourceBranches = circuit.branches?.filter((branch) => branch.endpointIds.includes(source.endpoint.id)) ?? []
+  const targetBranches = circuit.branches?.filter((branch) => branch.endpointIds.includes(target.endpoint.id)) ?? []
+  if (sourceBranches.length !== 1 || targetBranches.length !== 1) return null
+  const sourceBranch = sourceBranches[0]!
+  const targetBranch = targetBranches[0]!
+  if (sourceBranch.id === targetBranch.id || sourceBranch.dcBusId || targetBranch.dcBusId ||
+      sourceBranch.branchDevices?.length || targetBranch.branchDevices?.length) return null
+  const byId = new Map(circuit.endpoints.map((endpoint) => [endpoint.id, endpoint]))
+  const ordinaryLighting = (ids: string[]) => ids.every((id) => {
+    const endpoint = byId.get(id)
+    return endpoint && endpointIsLightOrSwitch(endpoint) && !endpoint.domoticaChildProps
+  })
+  if (!ordinaryLighting(sourceBranch.endpointIds) || !ordinaryLighting(targetBranch.endpointIds)) return null
+  const sourceIndex = sourceBranch.endpointIds.indexOf(source.endpoint.id)
+  const hasSwitch = sourceBranch.endpointIds.slice(0, sourceIndex + 1)
+    .some((id) => endpointIsSwitch(byId.get(id)!))
+  if (!hasSwitch) return null
+  if (endpointIsLight(target.endpoint) && targetBranch.endpointIds.length === 1 && !targetBranch.branchDevices?.length) {
+    // A light already participating in a drawn connection is no longer an unassigned scan point.
+    if (selectProjectPlanWireRoutes(project).some((route) => !route.hidden &&
+      (route.from.endpointId === target.endpoint.id || route.to.endpointId === target.endpoint.id))) return null
+    return { ...match, sourceBranch, targetBranch, mode: 'attach-light' as const }
+  }
+  if (endpointIsLight(source.endpoint) && endpointIsSwitch(target.endpoint) &&
+      targetBranch.endpointIds[0] === target.endpoint.id) {
+    return { ...match, sourceBranch, targetBranch, mode: 'branch-feed' as const }
+  }
+  return null
+}
+
 export function buildManualPlanWireRoutesForPlacementMove(
   project: PlanWiringProject,
   floorId: string,
@@ -614,12 +671,53 @@ export function buildManualPlanWireRoutesForPlacementMove(
 ): PlanWireRoute[] | null {
   if (sourcePlacementId === targetPlacementId) return null
   const panels = selectProjectElectricalPanels(project)
-  const sameBranch = findCircuitSequenceForPlacements(
-    panels,
-    floorId,
-    sourcePlacementId,
-    targetPlacementId
+  const branchConnection = resolvePlanLightingBranchConnection(
+    project, floorId, sourcePlacementId, targetPlacementId
   )
+  if (branchConnection?.mode === 'branch-feed') {
+    const { panel, circuit, source, target } = branchConnection
+    const route = routeFromPair(panel, circuit, undefined, floorId, source, target, 'manual')
+    const existing = selectProjectPlanWireRoutes(project).filter((candidate) =>
+      planWireSpanSetKey(candidate) === planWireSpanSetKey(route) &&
+      candidate.to.placementId !== targetPlacementId)
+    const routes = [...existing, route]
+    // A branch feed must not loop back through another branch, including feeds
+    // drawn on other floors or on another placement of the same endpoint.
+    const branchByEndpoint = new Map(circuit.branches!.flatMap((branch) =>
+      branch.endpointIds.map((id) => [id, branch.id] as const)))
+    const branchFeeds = [...selectProjectPlanWireRoutes(project), route]
+      .filter((candidate) => candidate.circuitId === circuit.id && !candidate.hidden &&
+        (candidate.to.placementId !== targetPlacementId || candidate === route))
+      .flatMap((candidate) => {
+        const from = branchByEndpoint.get(candidate.from.endpointId ?? '')
+        const to = branchByEndpoint.get(candidate.to.endpointId ?? '')
+        return from && to && from !== to
+          ? [{ ...candidate, from: { ...candidate.from, placementId: from }, to: { ...candidate.to, placementId: to } }]
+          : []
+      })
+    if (hasFeederCycle(branchFeeds)) return null
+    // Include the switch→light paths when testing cycles across branches.
+    const manual = selectProjectPlanWireRoutes(project).filter((candidate) =>
+      candidate.circuitId === circuit.id && !candidate.hidden &&
+      candidate.to.placementId !== targetPlacementId)
+    const allManual = [...manual, route]
+    const incoming = new Set(allManual.map((candidate) => candidate.to.placementId))
+    const automatic = buildRoutesForCircuit(panel, circuit, floorId, new Set(['lighting-control']))
+      .filter((candidate) => !incoming.has(candidate.to.placementId))
+    return hasFeederCycle([...automatic, ...allManual]) ? null : routes
+  }
+  const sameBranch = branchConnection?.mode === 'attach-light'
+    ? {
+        panel: branchConnection.panel,
+        circuit: branchConnection.circuit,
+        branchId: branchConnection.sourceBranch.id,
+        sequence: [...branchConnection.sourceBranch.endpointIds, branchConnection.target.endpoint.id]
+          .flatMap((id) => {
+            const endpoint = branchConnection.circuit.endpoints.find((candidate) => candidate.id === id)!
+            return placementsInEndpointOrder(endpoint)
+          }),
+      }
+    : findCircuitSequenceForPlacements(panels, floorId, sourcePlacementId, targetPlacementId)
   const circuitMatch =
     sameBranch ??
     (() => {
@@ -641,119 +739,169 @@ export function buildManualPlanWireRoutesForPlacementMove(
     (item) => item.placement.id === targetPlacementId
   )
   if (sourceIndex < 0 || targetIndex < 0) return null
-  let source = circuitMatch.sequence[sourceIndex]
-  let target = circuitMatch.sequence[targetIndex]
-  if (!source || !target) return null
-  const initialRouteKind = getPlanWireKind(source.endpoint, target.endpoint)
-  if (endpointIsSwitch(source.endpoint) && endpointIsSwitch(target.endpoint)) return null
-  if (
+  const dragged = { source: circuitMatch.sequence[sourceIndex], target: circuitMatch.sequence[targetIndex] }
+  const draggedSource = dragged.source
+  const draggedTarget = dragged.target
+  if (!draggedSource || !draggedTarget) return null
+  const initialRouteKind = getPlanWireKind(draggedSource.endpoint, draggedTarget.endpoint)
+  if (endpointIsSwitch(draggedSource.endpoint) && endpointIsSwitch(draggedTarget.endpoint)) return null
+  const reversed = { source: draggedTarget, target: draggedSource }
+  const orientable =
     ((initialRouteKind === 'lighting-control' && sameBranch) || initialRouteKind === 'sockets') &&
-    source.endpoint.id !== target.endpoint.id &&
-    sourceIndex > targetIndex
-  ) {
-    source = circuitMatch.sequence[targetIndex]
-    target = circuitMatch.sequence[sourceIndex]
-  }
-  if (!source || !target) return null
-  const routeKind = getPlanWireKind(source.endpoint, target.endpoint)
-  const normalizedSourcePlacementId = source.placement.id
-  const normalizedTargetPlacementId = target.placement.id
-  if (
-    (endpointIsSocket(source.endpoint) && endpointIsLightOrSwitch(target.endpoint)) ||
-    (endpointIsSocket(target.endpoint) && endpointIsLightOrSwitch(source.endpoint))
-  ) {
-    return null
-  }
-  if (routeKind === 'lighting-control' && !sameBranch) return null
-  if (
-    routeKind === 'lighting-control' &&
-    sameBranch &&
-    endpointIsSwitch(source.endpoint) &&
-    endpointIsLight(target.endpoint) &&
-    circuitMatch.sequence
-      .slice(Math.min(sourceIndex, targetIndex) + 1, Math.max(sourceIndex, targetIndex))
-      .some((item) => endpointIsSwitch(item.endpoint))
-  ) {
-    return null
-  }
-  if (routeKind !== 'lighting-control' && routeKind !== 'sockets') return null
-  const branchId = routeKind === 'sockets' ? undefined : circuitMatch.branchId
-  const groupKey = planWireSpanSetKey({
-    floorId,
-    circuitId: circuitMatch.circuit.id,
-    branchId,
-    kind: routeKind,
-  })
-  const existingGroup = selectProjectPlanWireRoutes(project).filter(
-    (route) => planWireSpanSetKey(route) === groupKey
-  )
-  const baseRoutes =
-    existingGroup && existingGroup.length > 0
-      ? existingGroup
-      : routeKind === 'sockets' || options.keepAutoSpans
-        ? []
-        : circuitMatch.sequence
-            .slice(0, -1)
-            .map((from, index) => {
-              const to = circuitMatch.sequence[index + 1]
-              if (!to) return null
-              if (!placementsShareFloor(floorId, from, to)) return null
-              return routeFromPair(
-                circuitMatch.panel,
-                circuitMatch.circuit,
-                branchId,
-                floorId,
-                from,
-                to
-              )
-            })
-            .filter((route): route is PlanWireRoute => Boolean(route))
-            .filter((route) => route.kind === routeKind)
+    draggedSource.endpoint.id !== draggedTarget.endpoint.id
+  // Light-to-light and socket-to-socket wires follow the drag, so a later point can feed an
+  // earlier one (a T from the switch). Branch order is the fallback when the dragged direction
+  // would loop or strand a point; switches always feed the lights after them.
+  const honorsDrag =
+    orientable && !endpointIsSwitch(draggedSource.endpoint) && !endpointIsSwitch(draggedTarget.endpoint)
+  const branchOrdered = sourceIndex > targetIndex ? reversed : dragged
+  const orientations = !orientable
+    ? [{ ...dragged, requireConnected: false }]
+    : honorsDrag
+      ? [
+          { ...dragged, requireConnected: true },
+          { ...reversed, requireConnected: true },
+          { ...branchOrdered, requireConnected: false },
+        ]
+      : [{ ...branchOrdered, requireConnected: false }]
 
-  const nextRoutes = baseRoutes.filter(
-    (route) =>
-      route.to.placementId !== normalizedTargetPlacementId &&
-      !(
-        route.from.placementId === normalizedSourcePlacementId &&
-        route.to.placementId === normalizedTargetPlacementId
-      ) &&
-      !(
-        route.from.placementId === normalizedTargetPlacementId &&
-        route.to.placementId === normalizedSourcePlacementId
-      )
-  )
-  if (
-    wouldCreateFeederCycle(nextRoutes, normalizedSourcePlacementId, normalizedTargetPlacementId)
-  ) {
-    return null
-  }
-
-  nextRoutes.push(
-    routeFromPair(
-      circuitMatch.panel,
-      circuitMatch.circuit,
-      branchId,
+  const routesFor = (
+    source: EndpointPlacement,
+    target: EndpointPlacement,
+    requireConnected: boolean
+  ): PlanWireRoute[] | null => {
+    const routeKind = getPlanWireKind(source.endpoint, target.endpoint)
+    const normalizedSourcePlacementId = source.placement.id
+    const normalizedTargetPlacementId = target.placement.id
+    if (
+      (endpointIsSocket(source.endpoint) && endpointIsLightOrSwitch(target.endpoint)) ||
+      (endpointIsSocket(target.endpoint) && endpointIsLightOrSwitch(source.endpoint))
+    ) {
+      return null
+    }
+    if (routeKind === 'lighting-control' && !sameBranch) return null
+    if (
+      routeKind === 'lighting-control' &&
+      sameBranch &&
+      endpointIsSwitch(source.endpoint) &&
+      endpointIsLight(target.endpoint) &&
+      circuitMatch.sequence
+        .slice(Math.min(sourceIndex, targetIndex) + 1, Math.max(sourceIndex, targetIndex))
+        .some((item) => endpointIsSwitch(item.endpoint))
+    ) {
+      return null
+    }
+    if (routeKind !== 'lighting-control' && routeKind !== 'sockets') return null
+    const branchId = routeKind === 'sockets' ? undefined : circuitMatch.branchId
+    const groupKey = planWireSpanSetKey({
       floorId,
-      source,
-      target,
-      'manual'
+      circuitId: circuitMatch.circuit.id,
+      branchId,
+      kind: routeKind,
+    })
+    const existingGroup = selectProjectPlanWireRoutes(project).filter(
+      (route) => planWireSpanSetKey(route) === groupKey
     )
-  )
+    const baseRoutes =
+      existingGroup && existingGroup.length > 0
+        ? existingGroup
+        : routeKind === 'sockets' || options.keepAutoSpans
+          ? []
+          : circuitMatch.sequence
+              .slice(0, -1)
+              .map((from, index) => {
+                const to = circuitMatch.sequence[index + 1]
+                if (!to) return null
+                if (!placementsShareFloor(floorId, from, to)) return null
+                return routeFromPair(
+                  circuitMatch.panel,
+                  circuitMatch.circuit,
+                  branchId,
+                  floorId,
+                  from,
+                  to
+                )
+              })
+              .filter((route): route is PlanWireRoute => Boolean(route))
+              .filter((route) => route.kind === routeKind)
 
-  const switchPlacementIds = new Set(
-    circuitMatch.sequence
-      .filter((item) => {
-        const symbol = endpointSymbol(item.endpoint)
-        return Boolean(symbol && SWITCH_SYMBOLS.has(symbol))
-      })
-      .map((item) => item.placement.id)
-  )
+    const nextRoutes = baseRoutes.filter(
+      (route) =>
+        route.to.placementId !== normalizedTargetPlacementId &&
+        !(
+          route.from.placementId === normalizedSourcePlacementId &&
+          route.to.placementId === normalizedTargetPlacementId
+        ) &&
+        !(
+          route.from.placementId === normalizedTargetPlacementId &&
+          route.to.placementId === normalizedSourcePlacementId
+        )
+    )
+    if (
+      wouldCreateFeederCycle(nextRoutes, normalizedSourcePlacementId, normalizedTargetPlacementId)
+    ) {
+      return null
+    }
 
-  if (!isValidPlanWireFeederTopology(nextRoutes, switchPlacementIds)) {
-    return null
+    nextRoutes.push(
+      routeFromPair(
+        circuitMatch.panel,
+        circuitMatch.circuit,
+        branchId,
+        floorId,
+        source,
+        target,
+        'manual'
+      )
+    )
+
+    const switchPlacementIds = new Set(
+      circuitMatch.sequence
+        .filter((item) => {
+          const symbol = endpointSymbol(item.endpoint)
+          return Boolean(symbol && SWITCH_SYMBOLS.has(symbol))
+        })
+        .map((item) => item.placement.id)
+    )
+
+    if (!isValidPlanWireFeederTopology(nextRoutes, switchPlacementIds)) {
+      return null
+    }
+
+    if (requireConnected) {
+      // Automatic spans fill in whatever is not drawn, so judge the wiring the user will see.
+      const automatic = buildRoutesForCircuit(
+        circuitMatch.panel, circuitMatch.circuit, floorId, new Set([routeKind])
+      ).filter((route) => planWireSpanSetKey(route) === groupKey)
+      const before = mergePlanWireRoutes(automatic, existingGroup)
+      const after = mergePlanWireRoutes(automatic, nextRoutes)
+      if (hasFeederCycle(after) || !feederRootsAreUnchanged(before, after)) return null
+    }
+
+    return nextRoutes.map((route) => ({ ...route, source: 'manual' as const }))
   }
 
-  return nextRoutes.map((route) => ({ ...route, source: 'manual' }))
+  for (const orientation of orientations) {
+    if (!orientation.source || !orientation.target) continue
+    const routes = routesFor(orientation.source, orientation.target, orientation.requireConnected)
+    if (routes) return routes
+  }
+  return null
+}
+
+function feederRoots(routes: PlanWireRoute[]): Set<string> {
+  const fed = new Set(routes.map((route) => route.to.placementId))
+  return new Set(
+    routes
+      .flatMap((route) => [route.from.placementId, route.to.placementId])
+      .filter((id): id is string => Boolean(id) && !fed.has(id))
+  )
+}
+
+/** A rewire may re-home points, but must not leave a point without a path from the start. */
+function feederRootsAreUnchanged(before: PlanWireRoute[], after: PlanWireRoute[]): boolean {
+  const beforeRoots = feederRoots(before)
+  return [...feederRoots(after)].every((id) => beforeRoots.has(id))
 }
 
 function collectRoutesForPanels(
@@ -779,11 +927,12 @@ function collectRoutesForPanels(
 export function deriveAutoPlanWireRoutes(
   project: ProjectWithOptionalV2Electrical | null | undefined,
   floorId: string | null | undefined,
-  includeKinds: Iterable<PlanWireKind>
+  includeKinds: Iterable<PlanWireKind>,
+  options?: { routing: 'cable' | 'legacy' },
 ): PlanWireRoute[] {
   if (!project || !floorId) return []
   // Cable routing owns the plan wiring when enabled: one trace per physical cable link.
-  if (isCableRoutesEnabled() && isProjectV2(project)) {
+  if ((options?.routing === 'cable' || (!options && isCableRoutesEnabled())) && isProjectV2(project)) {
     return deriveCablePlanWireRoutes(project, floorId, new Set(includeKinds))
   }
   return collectRoutesForPanels(
@@ -941,10 +1090,10 @@ export function filterPlanWireRoutesForPanel(
 }
 
 /**
- * Keep plan wires attached to symbols that are currently visible on the
- * situation plan. A route with an explicit placement id must match that
- * placement; legacy routes without placement ids fall back to endpoint or
- * trunk-device visibility.
+ * Keep plan wires attached to eligible situation-plan placements. Callers supply
+ * placed anchors independently of symbol display toggles. A route with an explicit
+ * placement id must match that placement; legacy routes without placement ids
+ * fall back to endpoint or trunk-device eligibility.
  */
 export function filterPlanWireRoutesForSymbolVisibility(
   routes: PlanWireRoute[],
@@ -1044,6 +1193,7 @@ type CableRoutingWireToggles =
   | 'branchFeedsVisible'
   | 'supplyVisible'
   | 'colorCoded'
+  | 'symbolColors'
   | 'wireToolWiresVisible'
   | 'wireToolCategoriesVisible'
   | 'cableRouteSettings'
@@ -1080,6 +1230,7 @@ export function resolvePlanWiringVisibility(
       ? { branchFeedsVisible: visibility.branchFeedsVisible }
       : {}),
     ...(visibility?.supplyVisible !== undefined ? { supplyVisible: visibility.supplyVisible } : {}),
+    ...(visibility?.symbolColors ? { symbolColors: { ...visibility.symbolColors } } : {}),
     ...(visibility?.colorCoded !== undefined ? { colorCoded: visibility.colorCoded } : {}),
     ...(visibility?.wireToolWiresVisible !== undefined
       ? { wireToolWiresVisible: visibility.wireToolWiresVisible }

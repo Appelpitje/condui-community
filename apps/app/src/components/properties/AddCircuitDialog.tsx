@@ -4,6 +4,7 @@
  */
 import React, { useState, useEffect } from 'react'
 import { useInstallationProfile } from '@/hooks/useInstallationProfile'
+import { getProtectionCurveOptions } from './protectionCurveOptions'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { runProjectCommand } from '@/stores/liveProjectCommandSession'
@@ -244,17 +245,10 @@ export default function AddCircuitDialog({
           <CustomDropdown
             value={curve}
             onChange={setCurve}
-            options={[
-              { value: 'B', label: 'B' },
-              { value: 'C', label: 'C' },
-              { value: 'D', label: 'D' },
-              ...(isMCB
-                ? [
-                    { value: 'K', label: 'K' },
-                    { value: 'Z', label: 'Z' },
-                  ]
-                : []),
-            ]}
+            ariaLabel={t('protections.curve', 'Tripping curve')}
+            options={getProtectionCurveOptions(
+              isMCB ? ['B', 'C', 'D', 'K', 'Z'] : ['B', 'C', 'D'], installationProfile, t,
+            )}
             className={selectClass}
           />
         </div>

@@ -6,7 +6,8 @@ import {
   maybeApplyAutomaticEendraadNamingForPanel,
   panelGridModuleRefKey,
 } from '@/lib/eendraad/projectElectricalDomain'
-import { getAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { isSupplyTransformer } from '@/lib/electrical/supplyTransformer'
 import { healSupplyTrunkMisplacedOnMainGridForPanel } from '@/lib/panel/healSupplyTrunkGrid'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import { findPanelById } from '@/lib/panel/panelTree'
@@ -137,10 +138,11 @@ export function unhideModuleFromPanelInProject(
   panelId: string,
   moduleRefKey: string
 ): boolean {
-  const supplyDevice = getAllSupplyTrunkDevices(project).find(
+  const supplyDevice = queryAllSupplyTrunkDevices(project).find(
     (device) => `trunkDevice:${device.id}:supply` === moduleRefKey
   )
   if (supplyDevice) {
+    if (isSupplyTransformer(supplyDevice)) return false
     const visibilityChanged = setSupplyDevicePanelVisibility(project, supplyDevice.id, true)
     const synchronized = syncPanelAndSituationPlanDeviceVisibility(project, {
       kind: 'show',

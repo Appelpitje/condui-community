@@ -22,6 +22,7 @@ import { getHitZoneBounds } from '@/lib/layout/findDropTarget'
 import type { LayoutNode, LayoutTree } from '@/lib/layout/layoutTree'
 import type { Circuit, Endpoint, Panel, ProtectionDevice, TrunkDevice } from '@/types/schema'
 import type { Point } from '@/types/ui'
+import { getPanelReadContext, memoizePanelReadContext } from '@/lib/panel/panelReadContext'
 import {
   getProjectElectricalInstallation,
   getProjectElectricalPanels,
@@ -58,7 +59,7 @@ export interface DropZoneHintMatch {
   supplyDeviceInsertIndex?: number
   supplyConverterDcBranch?: 'right' | 'top'
   supplyConverterDcConnectionIndex?: number
-  converterGridPlacement?: 'inline' | 'input-leg'
+  converterGridPlacement?: 'inline' | 'input-leg' | 'converter-leg'
   changeoverGridPlacement?: 'inline' | 'input-leg'
   circuitId?: string
   protectionId?: string
@@ -278,6 +279,8 @@ function findCircuitInProject(
   project: ProjectWithOptionalV2Electrical,
   circuitId: string
 ): Circuit | undefined {
+  const context = getPanelReadContext(project)
+  if (context) return context.entities.circuitsById.get(circuitId)?.circuit
   const stack: Panel[] = [...getProjectElectricalPanels(project)]
   while (stack.length) {
     const panel = stack.pop()!
@@ -301,10 +304,22 @@ function circuitWouldGainSecondaryBus(
   return findCircuitInProject(project, circuitId)?.subCircuitIds?.length === 1
 }
 
+const subPanelFeederCircuitsKey = Symbol('drop hint panel feeder circuits')
+
 function circuitFeedsSubPanel(
   project: ProjectWithOptionalV2Electrical,
   circuitId: string
 ): boolean {
+  const context = getPanelReadContext(project)
+  if (context) return memoizePanelReadContext(context, subPanelFeederCircuitsKey, () => {
+    const ids = new Set<string>()
+    for (const panel of context.entities.panelsById.values()) {
+      for (const protection of panel.protections ?? []) {
+        if (protection.subPanelId) for (const circuit of protection.circuits ?? []) ids.add(circuit.id)
+      }
+    }
+    return ids
+  }).has(circuitId)
   const stack: Panel[] = [...getProjectElectricalPanels(project)]
   while (stack.length) {
     const panel = stack.pop()!
@@ -328,6 +343,8 @@ function findProtectionForCircuit(
   project: ProjectWithOptionalV2Electrical,
   circuitId: string
 ): ProtectionDevice | undefined {
+  const context = getPanelReadContext(project)
+  if (context) return context.entities.circuitContextsById.get(circuitId)?.protection
   const stack = [...getProjectElectricalPanels(project)]
   while (stack.length > 0) {
     const panel = stack.pop()!
@@ -1009,8 +1026,14 @@ function shouldIncludeHintNode(
   if (CIRCUIT_TRUNK_INSERTABLE_SYMBOLS.has(symbol.id)) {
     if (hitType === 'supplyWire') {
       return (
-        (symbol.id === 'inverter' || symbol.id === 'rectifier') &&
-        node.hitZone?.supplyFeedScope === 'root'
+        symbol.id === 'transformer' ||
+        ((symbol.id === 'inverter' || symbol.id === 'rectifier') &&
+          node.hitZone?.supplyFeedScope === 'root' &&
+          !(getProjectElectricalInstallation(project)?.feedTopology?.rootFeeds.find((feed) =>
+            feed.panelId === (node.hitZone?.supplyPanelId ?? ctx.panelId))?.trunkDevices ??
+            findPanelById(getProjectElectricalPanels(project), node.hitZone?.supplyPanelId ?? ctx.panelId)
+              ?.circuits.find((circuit) => circuit.code === 'PANEL')?.trunkDevices ?? []).some((device) =>
+            device.symbol === 'source_changeover' || device.supplyPath === 'converter-branch'))
       )
     }
     if (node.id?.startsWith('circuit-nest-')) {
@@ -1601,9 +1624,9 @@ export function collectDropZoneHints(
   symbol: SymbolMetadata,
   layoutTree: LayoutTree,
   project: ProjectWithOptionalV2Electrical,
-  options?: { movingPanelAttachmentId?: string | null }
+  options?: { movingPanelAttachmentId?: string | null; suppressSameSymbolTargets?: boolean }
 ): DropZoneHint[] {
-  const sameSymbolHints = findSameSymbolAddMoreLayoutTargets(symbol.id, layoutTree).map(
+  const sameSymbolHints = (options?.suppressSameSymbolTargets ? [] : findSameSymbolAddMoreLayoutTargets(symbol.id, layoutTree)).map(
     (target) => ({
       nodeId: `same-symbol-add-more-${target.nodeId}`,
       sameSymbolTargetId: target.target.endpoint?.id ?? target.target.trunkDevice?.id,

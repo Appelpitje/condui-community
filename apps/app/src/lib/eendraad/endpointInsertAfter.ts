@@ -66,6 +66,10 @@ export function computeEndpointInsertAfter(
   const inBetween = isInBetweenDevice(symbol)
   const actualEndpoint = isActualEndpointSymbol(symbol)
 
+  if (target.type === 'circuit' && typeof target.branchInsertIndex === 'number') {
+    return { insertAfterEndpointId: undefined, createNewBranch: true }
+  }
+
   if (target.domoticaOutput && target.endpointId) {
     const parent = circuit.endpoints.find((e) => e.id === target.endpointId)
     if (parent) {

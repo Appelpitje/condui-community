@@ -1,9 +1,13 @@
 import { z } from 'zod'
 import { electricalDropTargetSchema, checkElectricalDropTarget } from '../electricalDropTarget'
+import { electricalSemanticDestinationSchema, resolveElectricalSemanticTarget } from '../electricalSemanticTarget'
+import type { ElectricalSemanticDestination, SemanticTargetResult } from '../electricalSemanticTarget'
+import type { DropTarget } from '@/lib/layout/findDropTarget'
 import { CommandError, defineProjectCommand, type EntityRef } from '../types'
 import type { ProjectV2 } from '@/types/projectV2'
 import type { Circuit, Endpoint } from '@/types/schema'
 import { executeDropBehavior } from '@/lib/eendraad/dropBehaviors'
+import { computeEndpointInsertAfter } from '@/lib/eendraad/endpointInsertAfter'
 import { createDraftDropBehaviorCallbacks } from '@/lib/eendraad/draftDropBehaviorCallbacks'
 import {
   moveEndpointSelectionBetweenCircuits,
@@ -34,6 +38,7 @@ import {
   addEndpointToProject,
   applyEndpointCircuitResultsInProject,
   mergeEndpointIntoMultiplierInProject,
+  takeOrdinaryEndpointForMove,
 } from '@/lib/eendraad/endpointMutations'
 
 const sitplanSchema = z.object({
@@ -70,6 +75,29 @@ function domoticaGroup(circuit: Circuit, endpointId: string): string[] {
   )
 }
 
+function resolveMoveTarget(project: ProjectV2, input: {
+  target?: DropTarget
+  destination?: ElectricalSemanticDestination
+}): SemanticTargetResult {
+  if (input.destination) return resolveElectricalSemanticTarget(project, input.destination)
+  const target = input.target
+  if (!target) return { ok: false, code: 'target_required', message: 'A move destination is required' }
+  if (target.type !== 'endpoint' || !target.endpointId) return { ok: true, target }
+  if (target.circuitId && (target.branchEndpoints !== undefined || target.domoticaOutput ||
+      target.domoticaChildDropIntent || target.converterDcConnection || target.dcBusId))
+    return { ok: true, target }
+  const resolved = resolveElectricalSemanticTarget(project, { kind: 'endpoint', endpointId: target.endpointId })
+  return resolved.ok ? { ok: true, target: {
+    ...resolved.target,
+    ...target,
+    circuitId: target.circuitId ?? resolved.target.circuitId,
+    panelId: target.panelId ?? resolved.target.panelId,
+    branchEndpoints: target.branchEndpoints ?? resolved.target.branchEndpoints,
+    insertAfterEndpointId: target.insertAfterEndpointId === undefined
+      ? resolved.target.insertAfterEndpointId : target.insertAfterEndpointId,
+  } } : resolved
+}
+
 /** Move existing one-wire endpoints through one atomic project command. */
 export const eendraadMoveEndpoints = defineProjectCommand({
   id: 'electrical.moveEndpoints',
@@ -77,10 +105,17 @@ export const eendraadMoveEndpoints = defineProjectCommand({
   input: z.object({
     draggedEndpointId: z.string().min(1),
     selectedEndpointIds: z.array(z.string().min(1)).optional(),
-    target: electricalDropTargetSchema,
+    target: electricalDropTargetSchema.optional(),
+    destination: electricalSemanticDestinationSchema.optional(),
     sitplan: sitplanSchema.optional(),
+  }).strict().superRefine((input, context) => {
+    if (Boolean(input.target) === Boolean(input.destination))
+      context.addIssue({ code: 'custom', path: ['destination'], message: 'Provide exactly one target or semantic destination.' })
   }),
   check(project, input) {
+    const resolved = resolveMoveTarget(project, input)
+    if (!resolved.ok) return resolved
+    const target = resolved.target
     const source = sourceForEndpoint(project, input.draggedEndpointId)
     if (!source) return { ok: false, code: 'endpoint_not_found', message: 'Endpoint not found' }
     if (isMainPanelDistributionEndpoint(project, source.endpoint)) {
@@ -118,12 +153,12 @@ export const eendraadMoveEndpoints = defineProjectCommand({
     const sourceCircuit = source.circuit
     const targetCheck = checkElectricalDropTarget(
       project,
-      input.target,
+      target,
       input.sitplan?.activeFloorId
     )
     if (!targetCheck.ok) return targetCheck
-    const targetCircuit = input.target.circuitId
-      ? circuitForProject(project, input.target.circuitId)
+    const targetCircuit = target.circuitId
+      ? circuitForProject(project, target.circuitId)
       : undefined
     if (targetCircuit?.code === 'PANEL') {
       return {
@@ -174,10 +209,10 @@ export const eendraadMoveEndpoints = defineProjectCommand({
       }
     }
     if (
-      input.target.circuitId === sourceCircuit.id &&
-      input.target.type === 'circuit' &&
-      input.target.endpointId &&
-      !sourceCircuit.endpoints.some((endpoint) => endpoint.id === input.target.endpointId)
+      target.circuitId === sourceCircuit.id &&
+      target.type === 'circuit' &&
+      target.endpointId &&
+      !sourceCircuit.endpoints.some((endpoint) => endpoint.id === target.endpointId)
     ) {
       return {
         ok: false,
@@ -189,6 +224,9 @@ export const eendraadMoveEndpoints = defineProjectCommand({
   },
   apply(draft, input, env) {
     const project = draft as ProjectV2
+    const resolved = resolveMoveTarget(project, input)
+    if (!resolved.ok) throw new CommandError('check_failed', resolved.message, { reason: resolved.code })
+    let target = resolved.target
     const sourceInfo = sourceForEndpoint(project, input.draggedEndpointId)
     if (!sourceInfo)
       throw new CommandError('check_failed', 'Endpoint not found', { reason: 'endpoint_not_found' })
@@ -205,7 +243,7 @@ export const eendraadMoveEndpoints = defineProjectCommand({
     }
     const selectedIds = [...selectedIdsSet]
 
-    if (input.target.type === 'supplyConverterDcWire') {
+    if (target.type === 'supplyConverterDcWire') {
       if (selectedIds.length !== 1)
         throw new CommandError('check_failed', 'Move one endpoint at a time to a supply DC wire', {
           reason: 'unsupported_selection',
@@ -214,7 +252,7 @@ export const eendraadMoveEndpoints = defineProjectCommand({
         project,
         input.draggedEndpointId,
         sourceCircuit.id,
-        input.target
+        target
       )
       if (!result)
         throw new CommandError(
@@ -236,7 +274,6 @@ export const eendraadMoveEndpoints = defineProjectCommand({
       }
     }
 
-    let target = input.target
     const targetCircuit = target.circuitId
       ? circuitForProject(project, target.circuitId)
       : undefined
@@ -466,6 +503,18 @@ export const eendraadMoveEndpoints = defineProjectCommand({
       throw new CommandError('check_failed', 'Endpoint has no movable symbol', {
         reason: 'drop_rejected',
       })
+    if (target.endpointId === sourceEndpoint.id || target.insertAfterEndpointId === sourceEndpoint.id) {
+      return { created: [], changed: [], removed: [], select: [{ kind: 'endpoint', id: sourceEndpoint.id }] }
+    }
+    if (targetCircuit?.id === sourceCircuit.id && target.branchEndpoints?.includes(sourceEndpoint.id)) {
+      const insertion = computeEndpointInsertAfter(target, sourceCircuit, symbol)
+      const branchIndex = target.branchEndpoints.indexOf(sourceEndpoint.id)
+      const previousId = branchIndex > 0 ? target.branchEndpoints[branchIndex - 1] : null
+      if (!insertion.createNewBranch && (insertion.insertAfterEndpointId === sourceEndpoint.id ||
+          insertion.insertAfterEndpointId === previousId))
+        return { created: [], changed: [], removed: [], select: [{ kind: 'endpoint', id: sourceEndpoint.id }] }
+    }
+    const retainedEndpoint = takeOrdinaryEndpointForMove(project, sourceEndpoint.id, target)
     const createdEndpointIds: string[] = []
     let rejectedMessage: string | undefined
     const callbacks = createDraftDropBehaviorCallbacks(
@@ -473,11 +522,16 @@ export const eendraadMoveEndpoints = defineProjectCommand({
       input.sitplan ?? { activeFloorId: null, viewportCenter: null, activePanelId: null },
       {
         newId: env.newId,
+        existingEndpointId: retainedEndpoint?.id,
         addEndpoint: (circuitId, generatedEndpoint, insertAfterEndpointId, branchOpts) => {
           const latestSource =
             sourceForEndpoint(project, input.draggedEndpointId)?.endpoint ?? sourceEndpoint
           const isDomoticaChildDrop = !!generatedEndpoint.domoticaChildProps
-          const movedEndpoint: Endpoint = {
+          const movedEndpoint: Endpoint = retainedEndpoint ? {
+            ...generatedEndpoint,
+            ...retainedEndpoint,
+            placements: [...(retainedEndpoint.placements ?? [])],
+          } : {
             ...latestSource,
             ...generatedEndpoint,
             placements: [...(latestSource.placements ?? [])],
@@ -493,8 +547,9 @@ export const eendraadMoveEndpoints = defineProjectCommand({
             project,
             circuitId,
             movedEndpoint,
-            isInterCircuitMove ? undefined : insertAfterEndpointId,
-            branchOpts
+            isInterCircuitMove && !retainedEndpoint ? undefined : insertAfterEndpointId,
+            branchOpts,
+            env.newId
           )
           if (addedId) createdEndpointIds.push(movedEndpoint.id)
         },
@@ -522,13 +577,21 @@ export const eendraadMoveEndpoints = defineProjectCommand({
       throw new CommandError('check_failed', rejectedMessage, { reason: 'drop_rejected' })
     if (createdEndpointIds.length === 0)
       throw new CommandError('check_failed', 'Endpoint was not moved', { reason: 'nothing_moved' })
-    deleteEndpointsFromProject(project, [input.draggedEndpointId])
+    if (retainedEndpoint) {
+      applyEndpointCircuitResultsInProject(project, [...new Set([sourceCircuit.id, targetCircuit?.id])]
+        .flatMap((id) => {
+          const circuit = id ? circuitForProject(project, id) : undefined
+          return circuit ? [{ circuitId: circuit.id, endpoints: circuit.endpoints, branches: circuit.branches }] : []
+        }))
+    } else deleteEndpointsFromProject(project, [input.draggedEndpointId])
     return {
-      created: createdEndpointIds.map((id) => ({ kind: 'endpoint' as const, id })),
+      created: retainedEndpoint ? [] : createdEndpointIds.map((id) => ({ kind: 'endpoint' as const, id })),
       changed: [
-        ...new Set([sourceCircuit.id, targetCircuit?.id].filter((id): id is string => !!id)),
-      ].map((id) => ({ kind: 'circuit' as const, id })),
-      removed: [{ kind: 'endpoint', id: input.draggedEndpointId }],
+        ...[...new Set([sourceCircuit.id, targetCircuit?.id].filter((id): id is string => !!id))]
+          .map((id) => ({ kind: 'circuit' as const, id })),
+        ...(retainedEndpoint ? [{ kind: 'endpoint' as const, id: retainedEndpoint.id }] : []),
+      ],
+      removed: retainedEndpoint ? [] : [{ kind: 'endpoint', id: input.draggedEndpointId }],
       select: createdEndpointIds.map((id) => ({ kind: 'endpoint' as const, id })),
     }
   },

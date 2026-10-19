@@ -3,8 +3,6 @@
  * sitplan auto-place, and no delete of the source (unlike move-drag).
  */
 
-import { ensureSitplanPlacementsForEndpoints } from '@/lib/eendraad/duplicateSitplanHelpers'
-import { clearDuplicatedControlChannel } from '@/lib/controlLink/duplicateAddress'
 import { endpointSymbolCanBeDuplicated } from '@/lib/eendraad/duplicateEndpoint'
 import {
   getMainBusItemsWithIndices,
@@ -14,7 +12,6 @@ import {
 import { findDomoticaOutputDropTarget } from '@/lib/layout/findDropTarget'
 import type { DropTarget } from '@/lib/layout/findDropTarget'
 import type { LayoutTree } from '@/lib/layout/layoutTree'
-import { executeDropBehavior } from '@/lib/eendraad/dropBehaviors'
 import type { DropBehaviorEditorHooks, DropBehaviorProject } from '@/lib/eendraad/dropBehaviors'
 import { getSymbolById } from '@/lib/symbols'
 import type {
@@ -28,8 +25,6 @@ import type {
 import type { Point, Selection } from '@/types/ui'
 import type { TFunction } from 'i18next'
 import { useProjectStore } from '@/stores/projectStore'
-import { useUIStore } from '@/stores/uiStore'
-import { useDialogStore } from '@/stores/dialogStore'
 import { clamp } from '@/lib/geometry'
 import { clonePlacementsForDuplicate } from '@/lib/eendraad/duplicateSitplanHelpers'
 import { cloneDomoticaEndpointGroup } from '@/lib/eendraad/duplicateDomoticaEndpointGroup'
@@ -41,14 +36,14 @@ import {
 import { walkPanels } from '@/lib/panel/panelTree'
 import { mutateTrunkDeviceRelocation } from '@/lib/layout/eendraadPreviewSimulation'
 import { circuitContainsJunctionPanelIdentity, getJunctionIdentity } from '@/lib/junctionIdentity'
-import { endpointSupportsMultiplier, getEndpointMultiplier } from '@/utils/endpointMultipliers'
+import { endpointSupportsMultiplier } from '@/utils/endpointMultipliers'
 import {
   endpointMergeSettingsMatchEndpoints,
   endpointsShareMergeFamily,
-  incrementSameSymbolAddMoreTarget,
   canIncrementSameSymbolAddMoreTarget,
   findSameSymbolAddMoreLayoutTargets,
 } from '@/lib/eendraad/sameSymbolAddMore'
+import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 
 export type WireSegmentForDrop = {
   panelId?: string
@@ -76,7 +71,7 @@ export interface EendraadAltDragDuplicateDeps {
   setSelection: (sel: Selection) => void
   getFloorById: (floorId: string) => { id: string; layers?: string[] } | null
   getProtectionById: (protectionId: string) => ProtectionDevice | null
-  syncEndpointMultiplierCount: (endpointId: string, count: number) => boolean
+  incrementEndpointMultiplier: (endpointId: string) => boolean
   /** Editor plan target, live follow-ups and analytics for the drop engine. */
   dropHooks: DropBehaviorEditorHooks
 }
@@ -191,7 +186,7 @@ export function duplicateCircuitDcBranchDeviceAtDropTarget(
 export function incrementAltDragSameSymbolEndpoint(
   sourceEndpoint: Endpoint,
   targetEndpoint: Endpoint | null,
-  deps: Pick<EendraadAltDragDuplicateDeps, 'syncEndpointMultiplierCount'>,
+  deps: Pick<EendraadAltDragDuplicateDeps, 'incrementEndpointMultiplier'>,
 ): boolean | null {
   if (
     targetEndpoint?.id !== sourceEndpoint.id ||
@@ -201,15 +196,7 @@ export function incrementAltDragSameSymbolEndpoint(
     return null
   }
 
-  const result = incrementSameSymbolAddMoreTarget(
-    sourceEndpoint.symbol,
-    { endpoint: targetEndpoint },
-    {
-      syncEndpointCount: deps.syncEndpointMultiplierCount,
-      syncSupplyDeviceCount: () => false,
-    },
-  )
-  return result === 'incremented'
+  return deps.incrementEndpointMultiplier(targetEndpoint.id)
 }
 
 function augmentDropTargetWithWireDomain(
@@ -312,10 +299,7 @@ export function runEendraadEndpointAltDragDuplicate(
       sourceEndpoint.symbol === targetEndpoint.symbol &&
       endpointSupportsMultiplier(targetEndpoint)
     ) {
-      return deps.syncEndpointMultiplierCount(
-        targetEndpoint.id,
-        getEndpointMultiplier(targetEndpoint) + 1
-      )
+      return deps.incrementEndpointMultiplier(targetEndpoint.id)
     }
   }
 
@@ -373,155 +357,17 @@ export function runEendraadEndpointAltDragDuplicate(
       circuitContainsJunctionPanelIdentity(targetCircuit, getJunctionIdentity(sourceEndpoint))
     ) return false
   }
-
-  const createdEndpointIds: string[] = []
-  let dropRejected = false
-  let createdDomoticaParentId: string | undefined
-  let createdDomoticaCircuitId: string | undefined
-
-  executeDropBehavior(
-    symbolMeta as Parameters<typeof executeDropBehavior>[0],
-    dropTarget,
-    deps.project,
-    deps.t,
-    {
-      ...deps.dropHooks,
-      addPanel: store.addPanel,
-      addProtection: store.addProtection,
-      addCircuit: deps.addCircuit,
-      addCircuitToProtection: store.addCircuitToProtection,
-      updateEndpoint: store.updateEndpoint,
-      addPlacement: deps.addPlacement,
-      setSelection: deps.setSelection,
-      getFloorById: deps.getFloorById,
-      updateFloor: store.updateFloor,
-      getCircuitById: (circuitId) => store.getCircuitById(circuitId) || null,
-      getProtectionById: deps.getProtectionById,
-      addTrunkDevice: store.addTrunkDevice,
-      addSupplyTrunkDevice: store.addSupplyTrunkDevice,
-      addGroundTrunkDevice: store.addGroundTrunkDevice,
-      ensureJunctionPanelPlacementForLabel: store.ensureJunctionPanelPlacementForLabel,
-      updateCircuit: deps.updateCircuit,
-      updateProtection: store.updateProtection,
-      updateInstallation: store.updateInstallation,
-      addSupplyAssembly: store.addSupplyAssembly,
-      replaceSupplyAssembly: store.replaceSupplyAssembly,
-      moveCircuitOnMainBus: store.moveCircuitOnMainBus,
-      moveCircuitToSecondaryBus: store.moveCircuitToSecondaryBus,
-      deleteEndpoint: store.deleteEndpoint,
-      addEendraadNote: store.addEendraadNote,
-      addEndpoint: (circuitId, endpoint, insertAfterEndpointId, branchOpts) => {
-        const latestSource = store.getEndpointById(sourceEndpointId) ?? sourceEndpoint
-        const clonedSource = clearDuplicatedControlChannel(
-          JSON.parse(JSON.stringify(latestSource)) as Endpoint
-        )
-        const isDomoticaChildDrop = !!endpoint.domoticaChildProps
-        const merged: Endpoint = domoticaGroupClone
-          ? {
-              ...domoticaGroupClone.parent,
-              ...endpoint,
-              id: endpoint.id,
-              placements: domoticaGroupClone.parent.placements,
-              // The parent is normalized immediately by addEndpoint. Keep its
-              // slots empty until the copied children have been inserted, or
-              // normalization would discard references to children not added yet.
-              domoticaProps: domoticaGroupClone.parent.domoticaProps
-                ? {
-                    ...domoticaGroupClone.parent.domoticaProps,
-                    endpointChildEndpointIds: [],
-                    controlChildEndpointIds: [],
-                  }
-                : undefined,
-              controlledEndpointIds: domoticaGroupClone.parent.controlledEndpointIds,
-            }
-          : {
-              ...clonedSource,
-              ...endpoint,
-              placements: [],
-              domoticaChildProps: endpoint.domoticaChildProps,
-              converterDcConnection: endpoint.converterDcConnection,
-              id: endpoint.id,
-            }
-        if (domoticaGroupClone) {
-          delete merged.domoticaChildProps
-          createdDomoticaParentId = merged.id
-          createdDomoticaCircuitId = circuitId
-        }
-        if (!isDomoticaChildDrop) {
-          delete (merged as { label?: string }).label
-        }
-        store.addEndpoint(circuitId, merged, insertAfterEndpointId, branchOpts)
-        createdEndpointIds.push(merged.id)
-        deps.setSelection({ type: 'endpoint', ids: [merged.id] })
-      },
-      onDropRejected: (message) => {
-        dropRejected = true
-        useDialogStore.getState().openDialog({
-          type: 'info',
-          title: deps.t('wires.domainMismatchTitle', { defaultValue: 'Cannot connect here' }),
-          message,
-          confirmLabel: deps.t('common.ok', { defaultValue: 'OK' }),
-          variant: 'warning',
-        })
-      },
-    },
-    {
-      canvas: 'eendraad',
-      placementMethod: 'alt_drag_duplicate',
-    }
-  )
-
-  if (dropRejected || createdEndpointIds.length === 0) return false
-
-  if (domoticaGroupClone && createdDomoticaParentId && createdDomoticaCircuitId) {
-    let insertAfterEndpointId: string = createdDomoticaParentId
-    for (const sourceChild of domoticaGroupClone.children) {
-      const childClone: Endpoint = JSON.parse(JSON.stringify(sourceChild))
-      if (childClone.domoticaChildProps) {
-        childClone.domoticaChildProps = {
-          ...childClone.domoticaChildProps,
-          parentEndpointId: createdDomoticaParentId,
-        }
-      }
-      store.addEndpoint(createdDomoticaCircuitId, childClone, insertAfterEndpointId)
-      createdEndpointIds.push(childClone.id)
-      insertAfterEndpointId = childClone.id
-    }
-
-    if (store.getCircuitById(createdDomoticaCircuitId)) {
-      // updateEndpoint normalizes inside Immer, after every copied child exists.
-      // Calling normalizeDomoticaCircuit on the frozen store snapshot here would
-      // throw and leave the new parent with its temporary empty slot list.
-      store.updateEndpoint(createdDomoticaParentId, {
-        domoticaProps: domoticaGroupClone.parent.domoticaProps,
-      })
-      const circuitWithSlots = store.getCircuitById(createdDomoticaCircuitId)
-      if (!circuitWithSlots) return false
-      deps.updateCircuit(createdDomoticaCircuitId, {
-        endpoints: circuitWithSlots.endpoints,
-        branches: circuitWithSlots.branches,
-      })
-    }
-    deps.setSelection({ type: 'endpoint', ids: [createdDomoticaParentId] })
-  }
-
-  const project = store.currentProject
-  if (project) {
-    const ui = useUIStore.getState()
-    ensureSitplanPlacementsForEndpoints(
-      project,
-      createdEndpointIds,
-      (id) => store.getEndpointById(id),
-      (endpointId, placement) => store.addPlacement(endpointId, placement),
-      {
-        activeFloorId: ui.activeFloorId,
-        viewportLayout: ui.viewportLayout,
-        planCanvasViewportPx: ui.planCanvasViewportPx,
-        planView: ui.planView,
-      }
-    )
-  }
-
+  const result = runProjectCommand('electrical.duplicateElements', {
+    items: [{ kind: 'endpoint', id: sourceEndpointId }],
+    purpose: 'altDrag',
+    target: { type: 'drop', target: dropTarget },
+    sitplan: deps.dropHooks.getSitplanTarget(),
+  }, { label: 'Duplicate endpoint' })
+  const commandResult = result?.results[0]
+  if (!result?.changed || !commandResult?.select?.length) return false
+  const selectedIds = commandResult.select.filter((reference) => reference.kind === 'endpoint').map((reference) => reference.id)
+  if (!selectedIds.length) return false
+  deps.setSelection({ type: 'endpoint', ids: selectedIds })
   return true
 }
 

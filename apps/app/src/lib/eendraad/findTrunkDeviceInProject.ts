@@ -7,12 +7,15 @@ import {
 import { walkPanels } from '@/lib/panel/panelTree'
 import { findGroundTrunkDeviceOwner } from '@/lib/eendraad/panelGround'
 import type { TrunkDevice } from '@/types/schema'
+import { getPanelReadContext } from '@/lib/panel/panelReadContext'
 
 /** Trunk device anywhere in the canonical electrical project graph. */
 export function findTrunkDeviceInProject(
   project: ProjectWithOptionalV2Electrical,
   id: string
 ): TrunkDevice | null {
+  const read = getPanelReadContext(project)
+  if (read) return read.trunkDevicesById.get(id) ?? null
   const supply = queryAllSupplyTrunkDevices(project).find((device) => device.id === id)
   if (supply) return supply
 

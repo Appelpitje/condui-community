@@ -27,11 +27,10 @@ const ONE_WIRE_SELECTIONS = new Set<Selection['type']>([
   'infoBlock',
 ])
 
-function isCompactRenderedViewport(): boolean {
-  if (typeof window === 'undefined') return false
-  const width = window.innerWidth
-  const height = window.innerHeight
-  const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+function isCompactRenderedViewport(ownerWindow: Window): boolean {
+  const width = ownerWindow.innerWidth
+  const height = ownerWindow.innerHeight
+  const coarsePointer = ownerWindow.matchMedia('(pointer: coarse)').matches
   const isPortrait = height >= width
   return width < 900 || (coarsePointer && isPortrait && width < 1100) || (coarsePointer && !isPortrait && height < 620)
 }
@@ -51,11 +50,14 @@ export function getPreferredCanvasForSelection(
 
 export function focusSelectionOnCanvas(
   selection: Selection,
-  options?: { preferredCanvas?: CanvasType; delayMs?: number }
+  options?: { preferredCanvas?: CanvasType; delayMs?: number },
+  scope?: { getState: typeof useUIStore.getState; getWindow: () => Window }
 ) {
   if (!selection.type || selection.ids.length === 0) return
 
-  const state = useUIStore.getState()
+  const getState = scope?.getState ?? useUIStore.getState
+  const ownerWindow = scope?.getWindow() ?? window
+  const state = getState()
   const currentCanvas = state.viewportLayout.panels[0]?.canvas ?? 'eendraad'
   const targetCanvas =
     options?.preferredCanvas ?? getPreferredCanvasForSelection(selection, currentCanvas)
@@ -63,7 +65,7 @@ export function focusSelectionOnCanvas(
     (panel) => panel.canvas === targetCanvas
   )
   const firstPanelCanvas = state.viewportLayout.panels[0]?.canvas
-  const compactViewport = isCompactRenderedViewport()
+  const compactViewport = isCompactRenderedViewport(ownerWindow)
 
   if (visiblePanelIndex === -1 || (compactViewport && firstPanelCanvas !== targetCanvas)) {
     state.setPanelCanvas(0, targetCanvas)
@@ -72,10 +74,10 @@ export function focusSelectionOnCanvas(
   // Request the first fit synchronously so clicking an issue feels immediate.
   // Keep short retries for the canvas/layout render pass, but avoid a long
   // fallback that makes a successful focus appear to lag by half a second.
-  useUIStore.getState().requestFitToView([targetCanvas])
+  getState().requestFitToView([targetCanvas])
   for (const delayMs of [options?.delayMs ?? 80, 220]) {
-    window.setTimeout(() => {
-      useUIStore.getState().requestFitToView([targetCanvas])
+    ownerWindow.setTimeout(() => {
+      getState().requestFitToView([targetCanvas])
     }, delayMs)
   }
 }

@@ -2,6 +2,10 @@ import type { ProjectV2 } from '@/types/projectV2'
 import type { PlanWireKind, PlanWireRoute, Point2 } from '@/types/schema'
 import type { Selection } from '@/types/ui'
 import {
+  createCableRouteStructureReadCache,
+  isImmutableCableRouteInput,
+} from './cableRouteStructureCache'
+import {
   estimateCableRoutes,
   type CableRouteCategory,
   type CableRouteRole,
@@ -12,12 +16,14 @@ import {
 } from './estimateCableRoutes'
 
 const estimationCache = new WeakMap<object, CableRouteEstimation>()
+const readElectricalStructure = createCableRouteStructureReadCache()
 
 /** Cable route estimation, cached per project snapshot. */
 export function estimateCableRoutesCached(project: ProjectV2): CableRouteEstimation {
+  if (!isImmutableCableRouteInput(project)) return estimateCableRoutes(project)
   let estimation = estimationCache.get(project)
   if (!estimation) {
-    estimation = estimateCableRoutes(project)
+    estimation = estimateCableRoutes(project, undefined, readElectricalStructure(project))
     estimationCache.set(project, estimation)
   }
   return estimation
@@ -180,19 +186,8 @@ export function planWireRouteMatchesSelection(route: PlanWireRoute, selection: S
   return false
 }
 
-/** Wire colours per circuit group in wire mode (selection stays yellow). */
-export const CABLE_CATEGORY_COLORS: Record<CableRouteCategory, string> = {
-  lighting: '#f97316',
-  sockets: '#2563eb',
-  // Yellow ochre, so green stays free for earthing (as on the Structural canvas).
-  devices: '#c29a2e',
-  feeders: '#db2777',
-  supply: '#7c3aed',
-  // DC and earthing match the Structural canvas.
-  dc: '#c54843',
-  earthing: '#3d9568',
-  other: '#64748b',
-}
+export { DEFAULT_PLAN_WIRE_COLORS as CABLE_CATEGORY_COLORS } from '@/lib/plan/planColors'
+import { DEFAULT_PLAN_WIRE_COLORS } from '@/lib/plan/planColors'
 
 export interface CableTraceInfo {
   role: CableRouteRole
@@ -213,12 +208,13 @@ export function cableTraceInfoByAnchor(project: ProjectV2): Map<string, CableTra
 export function cableTraceColor(
   route: PlanWireRoute,
   info: ReadonlyMap<string, CableTraceInfo>,
-  categoryByCircuit: ReadonlyMap<string, CableRouteCategory>
+  categoryByCircuit: ReadonlyMap<string, CableRouteCategory>,
+  colors: Record<CableRouteCategory, string> = DEFAULT_PLAN_WIRE_COLORS
 ): string | undefined {
   const category =
     (route.wireAnchor ? info.get(route.wireAnchor)?.category : undefined) ??
     categoryByCircuit.get(route.circuitId)
-  return category ? CABLE_CATEGORY_COLORS[category] : undefined
+  return category ? colors[category] : undefined
 }
 
 /** Colour group per circuit, from its cables. */

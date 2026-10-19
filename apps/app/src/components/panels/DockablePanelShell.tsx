@@ -1,3 +1,4 @@
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from 'react'
 import { ChevronDown, ChevronLeft, GripVertical, X } from 'lucide-react'
 import type { LeftDockPanel } from '@/stores/uiStore'
@@ -72,6 +73,8 @@ export function DockablePanelShell({
   switchOptions = [],
   onSwitchPanel,
 }: DockablePanelShellProps) {
+  const window = useCanvasWindow()
+  const document = window.document
   const DOCK_TEAR_OUT_THRESHOLD_PX = 6
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const switcherRef = useRef<HTMLDivElement | null>(null)
@@ -94,7 +97,7 @@ export function DockablePanelShell({
   }, [panelId])
 
   const shouldIgnoreWindowDrag = (target: EventTarget | null) => {
-    if (!(target instanceof Element)) return false
+    if (!target || !('closest' in target) || typeof target.closest !== 'function') return false
     return !!target.closest(
       'button, input, textarea, select, option, a, label, summary, [role="button"], [role="link"], [draggable="true"], [contenteditable="true"], [data-no-window-drag]'
     )
@@ -111,7 +114,7 @@ export function DockablePanelShell({
 
     window.addEventListener('mousedown', handlePointerDown)
     return () => window.removeEventListener('mousedown', handlePointerDown)
-  }, [switcherOpen])
+  }, [switcherOpen, window])
 
   useEffect(() => {
     if (!isDocked) return
@@ -166,7 +169,7 @@ export function DockablePanelShell({
       window.removeEventListener('pointerup', clearDockedDrag)
       window.removeEventListener('pointercancel', clearDockedDrag)
     }
-  }, [DOCK_TEAR_OUT_THRESHOLD_PX, isDocked, logDockTearOut, onDockedUndockPointerDown])
+  }, [DOCK_TEAR_OUT_THRESHOLD_PX, isDocked, logDockTearOut, onDockedUndockPointerDown, window])
 
   const shellClassName = useMemo(() => {
     if (isDocked) {
@@ -177,7 +180,7 @@ export function DockablePanelShell({
 
   const blurActiveControl = () => {
     const activeElement = document.activeElement
-    if (activeElement instanceof HTMLElement) {
+    if (activeElement && 'blur' in activeElement && typeof activeElement.blur === 'function') {
       activeElement.blur()
     }
   }
@@ -223,9 +226,9 @@ export function DockablePanelShell({
       onPointerDownCapture={(event) => {
         if (isDocked) return
         if (!onWindowPointerDown) return
-        const target = event.target instanceof Element ? event.target : null
+        const target = event.target
         if (shouldIgnoreWindowDrag(target)) return
-        if (target?.closest('[data-panel-header-drag="true"]')) return
+        if (target && 'closest' in target && typeof target.closest === 'function' && target.closest('[data-panel-header-drag="true"]')) return
         onWindowPointerDown(event)
       }}
     >
@@ -234,7 +237,7 @@ export function DockablePanelShell({
         onPointerDownCapture={(event) => {
           if (!isDocked) return
           if (!onDockedUndockPointerDown) return
-          const target = event.target instanceof Element ? event.target : null
+          const target = event.target
           if (shouldIgnoreWindowDrag(target)) return
           if (event.button !== 0) return
           event.preventDefault()

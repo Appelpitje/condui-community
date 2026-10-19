@@ -28,6 +28,10 @@ export type ConversionLabelKey =
   | 'conversionTransformerLabel'
   | 'conversionPmaxPrimary'
   | 'conversionPmaxSecondary'
+  | 'transformerPrimaryVoltage'
+  | 'transformerSecondaryVoltage'
+  | 'transformerRatedPower'
+  | 'transformerShortCircuitVoltage'
   | 'solarPower'
   | 'solarVoltage'
   | 'batteryVoltage'
@@ -42,6 +46,10 @@ const DEFAULT_VISIBILITY: Record<ConversionLabelKey, boolean> = {
   conversionTransformerLabel: true,
   conversionPmaxPrimary: true,
   conversionPmaxSecondary: true,
+  transformerPrimaryVoltage: true,
+  transformerSecondaryVoltage: true,
+  transformerRatedPower: true,
+  transformerShortCircuitVoltage: true,
   solarPower: true,
   solarVoltage: true,
   batteryVoltage: true,
@@ -106,6 +114,18 @@ export function getVisibleConversionLabelParts(source: ConversionSource): Conver
       : ''
 
   const parts: ConversionLabelPart[] = []
+  if (source.symbol === 'transformer') {
+    const nameplate = [
+      ['transformerPrimaryVoltage', conversionProps?.transformerPrimaryVoltageV, 'Uprim', 'V'],
+      ['transformerSecondaryVoltage', conversionProps?.transformerSecondaryVoltageV, 'Usec', 'V'],
+      ['transformerRatedPower', conversionProps?.transformerRatedPowerKva, 'Sn', 'kVA'],
+      ['transformerShortCircuitVoltage', conversionProps?.transformerShortCircuitVoltagePercent, 'uk', '%'],
+    ] as const
+    for (const [key, value, label, unit] of nameplate) {
+      if (value != null && Number.isFinite(value) && value > 0 && isConversionLabelVisible(source, key))
+        parts.push({ key, text: `${label}: ${value} ${unit}` })
+    }
+  }
   if (transformerLabel && isConversionLabelVisible(source, 'conversionTransformerLabel')) {
     parts.push({ key: 'conversionTransformerLabel', text: transformerLabel })
   }

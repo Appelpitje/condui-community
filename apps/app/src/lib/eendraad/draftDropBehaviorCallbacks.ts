@@ -90,7 +90,8 @@ export function createDraftDropBehaviorCallbacks(
         project,
         panel,
         parentPanelId,
-        sitplanTarget.activeFloorId ? (sitplanTarget.viewportCenter ?? undefined) : undefined
+        sitplanTarget.activeFloorId ? (sitplanTarget.viewportCenter ?? undefined) : undefined,
+        sitplanTarget.activeFloorId ?? undefined
       )
     },
     addProtection: (panelId, protection) => {

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-23.1 -66.0 131.0 131.0" role="img" aria-label="Stopcontact">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-5.2,3.0 84.9,55.0 84.9,-1.0 -5.2,-53.0" fill="#f1f5f9"/>
+  <polygon points="90.1,52.0 84.9,55.0 84.9,-1.0 90.1,-4.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-56.0 90.1,-4.0 84.9,-1.0 -5.2,-53.0" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -5.20 3.00)"><defs><clipPath id="rim-ffffff-0"><circle cx="26" cy="-28" r="18"/></clipPath></defs>
+<circle cx="26" cy="-28" r="18" fill="#cbd5e1"/>
+<g clip-path="url(#rim-ffffff-0)"><g transform="translate(6 -6)">
+  <circle cx="26" cy="-28" r="18" fill="#e2e8f0"/>
+  <circle cx="17" cy="-25" r="2.8" fill="#94a3b8"/><circle cx="35" cy="-25" r="2.8" fill="#94a3b8"/>
+</g></g>
+<circle cx="26" cy="-28" r="18" fill="none"/><defs><clipPath id="rim-ffffff-1"><circle cx="78" cy="-28" r="18"/></clipPath></defs>
+<circle cx="78" cy="-28" r="18" fill="#cbd5e1"/>
+<g clip-path="url(#rim-ffffff-1)"><g transform="translate(6 -6)">
+  <circle cx="78" cy="-28" r="18" fill="#e2e8f0"/>
+  <circle cx="69" cy="-25" r="2.8" fill="#94a3b8"/><circle cx="87" cy="-25" r="2.8" fill="#94a3b8"/>
+</g></g>
+<circle cx="78" cy="-28" r="18" fill="none"/></g>
+</g>
+</svg>

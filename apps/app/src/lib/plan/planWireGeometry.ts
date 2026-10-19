@@ -1,10 +1,22 @@
 import type { Point2 } from '@/types/schema'
 import type { RoutePointContext } from '@/lib/plan/planWireOrthogonal'
+import { DEFAULT_PLAN_PX_PER_METER, isPositiveFinite } from '@/lib/plan/planScale'
 
 /**
  * Path geometry shared by the plan wire tool and cable-route drawing: spline controls, sampled
  * splines for hit testing, and small vector helpers. Pure; no rendering.
  */
+
+/** Real cable bends within about one and a half metres, however far apart the points it connects are. */
+export const PLAN_WIRE_MAX_BEND_RADIUS_M = 1.5
+// Handle length of a cubic Bézier that approximates a quarter circle of radius 1.
+const QUARTER_CIRCLE_HANDLE_RATIO = 0.5523
+
+/** Longest spline handle (canvas units), so curves never bend wider than the maximum radius. */
+export function planWireMaxSplineHandle(pxPerMeter?: number | null): number {
+  const scale = isPositiveFinite(pxPerMeter) ? pxPerMeter : DEFAULT_PLAN_PX_PER_METER
+  return PLAN_WIRE_MAX_BEND_RADIUS_M * QUARTER_CIRCLE_HANDLE_RATIO * scale
+}
 
 export function contextualNeighbor(
   points: Point2[],
@@ -92,12 +104,13 @@ export function limitHandleLength(vector: Point2, maxLength: number): Point2 {
 export function splineControls(
   points: Point2[],
   index: number,
-  context?: RoutePointContext
+  context?: RoutePointContext,
+  maxHandleLength = Infinity
 ): { controlA: Point2; controlB: Point2 } {
   const start = points[index]!
   const end = points[index + 1]!
   const segmentLength = Math.hypot(end.x - start.x, end.y - start.y)
-  const maxHandle = Math.max(12, segmentLength * 0.46)
+  const maxHandle = Math.min(Math.max(12, segmentLength * 0.46), maxHandleLength)
   const startTangent = limitHandleLength(tangentAt(points, index, context), maxHandle)
   const endTangent = limitHandleLength(tangentAt(points, index + 1, context), maxHandle)
   return {
@@ -106,25 +119,33 @@ export function splineControls(
   }
 }
 
-export function splinePath(points: Point2[], context?: RoutePointContext): string {
+export function splinePath(
+  points: Point2[],
+  context?: RoutePointContext,
+  maxHandleLength?: number
+): string {
   if (points.length === 0) return ''
   if (points.length === 1) return `M ${points[0]!.x} ${points[0]!.y}`
   const parts = [`M ${points[0]!.x} ${points[0]!.y}`]
   for (let index = 0; index < points.length - 1; index += 1) {
-    const { controlA, controlB } = splineControls(points, index, context)
+    const { controlA, controlB } = splineControls(points, index, context, maxHandleLength)
     const end = points[index + 1]!
     parts.push(`C ${controlA.x} ${controlA.y} ${controlB.x} ${controlB.y} ${end.x} ${end.y}`)
   }
   return parts.join(' ')
 }
 
-export function sampleSpline(points: Point2[], context?: RoutePointContext): Point2[] {
+export function sampleSpline(
+  points: Point2[],
+  context?: RoutePointContext,
+  maxHandleLength?: number
+): Point2[] {
   if (points.length <= 1) return points
   const samples: Point2[] = []
   for (let index = 0; index < points.length - 1; index += 1) {
     const start = points[index]!
     const end = points[index + 1]!
-    const { controlA, controlB } = splineControls(points, index, context)
+    const { controlA, controlB } = splineControls(points, index, context, maxHandleLength)
     if (samples.length === 0) samples.push(start)
     const segmentDistance = Math.hypot(end.x - start.x, end.y - start.y)
     const steps = Math.max(8, Math.min(28, Math.ceil(segmentDistance / 16)))

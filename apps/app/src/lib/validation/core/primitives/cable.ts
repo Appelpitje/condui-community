@@ -1,4 +1,4 @@
-import { selectProjectWireRuns } from '@/lib/projectV2/wireRuns'
+import { getDerivedWiresForValidation } from '@/lib/validation/derivedWiresForValidation'
 import { registerPrimitive } from './registry'
 import type {
   CheckContext,
@@ -13,13 +13,10 @@ import type {
 } from './common'
 import {
   DEFAULT_ELECTRICAL_DOMAIN,
-  calculateBottomUpLayout,
   MAX_BREAKER_BY_SECTION,
   getMaxProtectionRatingForSection,
   getCircuitMinSectionForCableProtectedByDevice,
   getCircuitSegmentsForValidation,
-  buildLayoutTree,
-  deriveWires,
   cableExplicitlyWithoutPe,
   cableForSupplyWireRole,
   i18n,
@@ -28,6 +25,7 @@ import {
   validationCircuitCode,
   CONSERVATIVE_DC_AMPACITY_BY_SECTION,
   getConservativeAmpacityForSection,
+  isPanelPlacementCarrierCircuit,
 } from './common'
 import { isHouseholdInstallation } from '@/lib/installationProfile'
 import {
@@ -47,7 +45,21 @@ function cableHasCrossSection(
     return { passed: true }
   }
 
+  if (isPanelPlacementCarrierCircuit(query, scope.id)) {
+    return { passed: true, coverage: { status: 'skipped', reason: 'panel-placement-carrier-is-not-an-electrical-feed' } }
+  }
+
   const segments = query.getCableSegments(scope.id)
+  if (segments.length === 0) {
+    return {
+      passed: true,
+      coverage: {
+        status: 'missing-information',
+        reason: 'no-modeled-cable-segments',
+        missingFacts: ['cable path / conductor segments'],
+      },
+    }
+  }
   const missingCrossSection: Offender[] = []
 
   for (const segment of segments) {
@@ -62,11 +74,26 @@ function cableHasCrossSection(
   }
 
   if (missingCrossSection.length === 0) {
-    return { passed: true }
+    const missingInstallationMethod = segments.some((segment) => !query.getInstallationMethod(segment))
+    return {
+      passed: true,
+      ...(missingInstallationMethod ? {
+        coverage: {
+          status: 'missing-information' as const,
+          reason: 'cable-section-check-does-not-model-installation-method',
+          missingFacts: ['cable installation method'],
+        },
+      } : { coverage: { status: 'passed' as const } }),
+    }
   }
 
   return {
     passed: false,
+    coverage: {
+      status: 'missing-information',
+      reason: 'cable-cross-section-not-entered',
+      missingFacts: ['cable cross-section'],
+    },
     offenders: missingCrossSection,
     message: i18n.t('validation.primitives.cableHasCrossSection.message', {
       defaultValue: 'Circuit has cable segments without cross-section',
@@ -92,6 +119,9 @@ function breakerSizeMatchesCrossSection(
 
   const circuit = query.getCircuitById(scope.id)
   if (!circuit) return { passed: true }
+  if (isPanelPlacementCarrierCircuit(query, scope.id)) {
+    return { passed: true, coverage: { status: 'skipped', reason: 'panel-placement-carrier-is-not-an-electrical-feed' } }
+  }
   if ((circuit.endpoints?.length ?? 0) === 0) {
     return { passed: true }
   }
@@ -102,7 +132,14 @@ function breakerSizeMatchesCrossSection(
 
   const protection = query.getProtectionForCircuit(scope.id)
   if (!protection || protection.ratingA == null) {
-    return { passed: true }
+    return {
+      passed: true,
+      coverage: {
+        status: 'missing-information',
+        reason: 'breaker-rating-unavailable',
+        missingFacts: ['upstream protection rating'],
+      },
+    }
   }
 
   const { minSection: segmentMinSection, minSegmentIds } =
@@ -114,19 +151,45 @@ function breakerSizeMatchesCrossSection(
       : undefined)
   if (section == null || section <= 0) {
     // No cable information; let cableHasCrossSection handle this.
-    return { passed: true }
+    return {
+      passed: true,
+      coverage: {
+        status: 'missing-information',
+        reason: 'cable-section-unavailable',
+        missingFacts: ['cable cross-section'],
+      },
+    }
   }
 
   const maxRating = getMaxProtectionRatingForSection(section, protection.type)
   if (maxRating == null) {
     // Section not covered by our simplified table; skip check.
-    return { passed: true }
+    return {
+      passed: true,
+      coverage: {
+        status: 'unavailable',
+        reason: 'cross-section-not-covered-by-supported-ampacity-table',
+        missingFacts: ['validated ampacity for this cross-section and installation method'],
+      },
+    }
   }
 
   const breakerRating = protection.ratingA
 
   if (breakerRating <= maxRating) {
-    return { passed: true }
+    const missingInstallationMethod = query.getCableSegments(scope.id).some(
+      (segment) => !query.getInstallationMethod(segment)
+    )
+    return {
+      passed: true,
+      coverage: missingInstallationMethod
+        ? {
+            status: 'missing-information',
+            reason: 'breaker-ampacity-table-does-not-model-installation-method',
+            missingFacts: ['cable installation method'],
+          }
+        : { status: 'passed' },
+    }
   }
 
   return {
@@ -181,7 +244,16 @@ function minimumCrossSection(
     (circuit.cable?.sectionMm2 && circuit.cable.sectionMm2 > 0
       ? circuit.cable.sectionMm2
       : undefined)
-  if (section == null || section <= 0) return { passed: true }
+  if (section == null || section <= 0) {
+    return {
+      passed: true,
+      coverage: {
+        status: 'missing-information',
+        reason: 'cable-section-unavailable',
+        missingFacts: ['cable cross-section'],
+      },
+    }
+  }
 
   const kind = query.getCircuitKind(scope.id)
 
@@ -259,7 +331,19 @@ function minimumCrossSection(
         : 1.5
 
   if (section >= required) {
-    return { passed: true }
+    const missingInstallationMethod = query.getCableSegments(scope.id).some(
+      (segment) => !query.getInstallationMethod(segment)
+    )
+    return {
+      passed: true,
+      ...(missingInstallationMethod ? {
+        coverage: {
+          status: 'missing-information' as const,
+          reason: 'basic-section-rule-does-not-model-current-or-installation-method',
+          missingFacts: ['design current', 'cable installation method'],
+        },
+      } : { coverage: { status: 'passed' as const } }),
+    }
   }
 
   return {
@@ -309,7 +393,9 @@ function dcCrossSectionHeuristic(
 
   const { segments } = getCircuitSegmentsForValidation(query, scope.id)
   const dcSegments = segments.filter((segment) => segment.domain === 'DC')
-  if (dcSegments.length === 0) return { passed: true }
+  if (dcSegments.length === 0) {
+    return { passed: true, coverage: { status: 'skipped', reason: 'no-dc-cable-segments' } }
+  }
 
   const dcSections = dcSegments
     .map((segment) => ({ id: segment.id, section: query.getCrossSection(segment) }))
@@ -317,7 +403,16 @@ function dcCrossSectionHeuristic(
       (entry): entry is { id: string; section: number } =>
         entry.section != null && entry.section > 0
     )
-  if (dcSections.length === 0) return { passed: true }
+  if (dcSections.length === 0) {
+    return {
+      passed: true,
+      coverage: {
+        status: 'missing-information',
+        reason: 'dc-cable-sections-unavailable',
+        missingFacts: ['DC cable cross-section'],
+      },
+    }
+  }
 
   const minSection = dcSections.reduce(
     (min, s) => (s.section < min ? s.section : min),
@@ -328,7 +423,16 @@ function dcCrossSectionHeuristic(
     minSection,
     CONSERVATIVE_DC_AMPACITY_BY_SECTION
   )
-  if (sectionAmpacity == null) return { passed: true }
+  if (sectionAmpacity == null) {
+    return {
+      passed: true,
+      coverage: {
+        status: 'unavailable',
+        reason: 'dc-ampacity-not-covered-by-supported-table',
+        missingFacts: ['validated DC ampacity for this cross-section'],
+      },
+    }
+  }
 
   const voltageCandidates: number[] = []
   let voltageSource = 'fallback-48V'
@@ -382,12 +486,35 @@ function dcCrossSectionHeuristic(
     const solarW = parsePositiveNumber(ep.solarPanelProps?.wattageW)
     if (solarW != null) powerCandidatesW.push(solarW)
   }
-  if (powerCandidatesW.length === 0) return { passed: true }
+  if (powerCandidatesW.length === 0) {
+    return {
+      passed: true,
+      coverage: {
+        status: 'missing-information',
+        reason: 'dc-load-power-unavailable',
+        missingFacts: ['DC design power/current'],
+      },
+    }
+  }
 
   const estimatedPowerW = Math.max(...powerCandidatesW)
   const estimatedCurrentA = estimatedPowerW / estimatedVoltage
-  if (!Number.isFinite(estimatedCurrentA) || estimatedCurrentA <= sectionAmpacity)
-    return { passed: true }
+  const missingFacts = [
+    ...(voltageSource === 'fallback-48V' ? ['DC operating voltage'] : []),
+    ...(dcSegments.some((segment) => !query.getInstallationMethod(segment)) ? ['DC cable installation method'] : []),
+  ]
+  if (!Number.isFinite(estimatedCurrentA) || estimatedCurrentA <= sectionAmpacity) {
+    return {
+      passed: true,
+      ...(missingFacts.length > 0 ? {
+        coverage: {
+          status: 'missing-information' as const,
+          reason: 'dc-sizing-estimate-uses-incomplete-design-facts',
+          missingFacts,
+        },
+      } : {}),
+    }
+  }
 
   const voltageSourceLabel = i18n.t(
     `validation.primitives.dcCrossSectionHeuristic.voltageSources.${voltageSource}`,
@@ -403,6 +530,13 @@ function dcCrossSectionHeuristic(
 
   return {
     passed: false,
+    ...(missingFacts.length > 0 ? {
+      coverage: {
+        status: 'failed' as const,
+        reason: 'dc-sizing-limit-exceeded-with-estimate-inputs-incomplete',
+        missingFacts,
+      },
+    } : {}),
     offenders: [
       { kind: 'circuit', id: circuit.id, viewHint: 'eendraad' },
       ...minSegmentIds.map((id) => ({
@@ -597,16 +731,9 @@ function postMainBusRequiresPeConductor(
     }
   }
 
-  let panelSegments: WireSegment[] = []
-  try {
-    if (!installation) throw new Error('Missing electrical installation')
-    const layout = calculateBottomUpLayout(project, new Map())
-    const tree = buildLayoutTree(layout)
-    const allSegments = deriveWires(tree, projectPanels(project), installation, [], undefined, selectProjectWireRuns(project))
-    panelSegments = allSegments.filter((s) => s.panelId === scope.id)
-  } catch {
-    return issues.length > 0 ? issues : { passed: true }
-  }
+  const snapshot = getDerivedWiresForValidation(query, project)
+  if (!snapshot) return issues.length > 0 ? issues : { passed: true }
+  const panelSegments = snapshot.byPanel.get(scope.id) ?? []
 
   const flaggedCircuits = new Set<string>()
 

@@ -1,3 +1,5 @@
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
+import { useViewportUIStore as useCanvasUIStore, useViewportUIApi } from '@/components/viewport/ViewportUIStore'
 import {
   updatePanelGridSlots,
   updatePanelGrid,
@@ -31,7 +33,6 @@ import CanvasFloatingControlRail from './CanvasFloatingControlRail'
 import { CanvasOverlayScaleProvider } from '@/contexts/CanvasOverlayScaleContext'
 import { FloatingControl } from './FloatingControls'
 import { PanelSelectorIcon, VisibilityIcon } from '@/components/icons/UiIcons'
-import { useUIStore } from '@/stores/uiStore'
 
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useProjectStore } from '@/stores/projectStore'
@@ -73,7 +74,7 @@ import {
   isSharedSupplyTrunkRef,
   validatePanelRewireOperation,
 } from '@/lib/panel/panelRewire'
-import { getPanelCanvasOverflowModuleKeys } from '@/lib/export/labelStripReadiness'
+import { getCachedPanelOverflowCount } from '@/lib/panel/panelCanvasReadCache'
 import type { PanelGridSlot, PanelGridModuleRef, Circuit, Panel } from '@/types/schema'
 import type { ProjectState } from '@/stores/projectStore'
 import { getPanelDisplayName } from '@/utils/panelNames'
@@ -210,35 +211,37 @@ const PANEL_RELATION_DEBUG_MODULE_LEGEND = [
 ] as const
 
 export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelCanvasProps = {}) {
+  const window = useCanvasWindow()
+  const viewportUI = useViewportUIApi()
   const { t } = useTranslation()
   const canvasRef = useRef<BaseCanvasHandle>(null)
   const canPlaceSymbols = capabilities?.canPlaceSymbols ?? true
   const canDeleteItems = capabilities?.canDeleteItems ?? true
   const canEditProject = capabilities?.canEditProject ?? true
   const containerRef = useRef<HTMLDivElement>(null)
-  const isTouchDevice = useMemo(() => 'ontouchstart' in window || navigator.maxTouchPoints > 0, [])
+  const isTouchDevice = useMemo(() => 'ontouchstart' in window || navigator.maxTouchPoints > 0, [window])
   const isSafariBrowser = useMemo(() => {
     const ua = navigator.userAgent
     const hasSafari = ua.includes('Safari')
     const hasChromium = ua.includes('Chrome') || ua.includes('Chromium') || ua.includes('CriOS')
     return hasSafari && !hasChromium
   }, [])
-  const panelZoom = useUIStore((s) => s.panelView.zoom)
-  const panelPan = useUIStore((s) => s.panelView.pan)
+  const panelZoom = useCanvasUIStore((s) => s.panelView.zoom)
+  const panelPan = useCanvasUIStore((s) => s.panelView.pan)
   const panelRelationDebug = useSettingsStore((s) =>
     process.env.NODE_ENV !== 'production' ? s.panelRelationDebug : false
   )
   const leftDragPansCanvas = useSettingsStore((s) => s.leftDragPansCanvas)
   void leftDragPansCanvas
-  const requestFitToView = useUIStore((s) => s.requestFitToView)
-  const activePanelId = useUIStore((s) => s.activePanelId)
-  const setActivePanelId = useUIStore((s) => s.setActivePanelId)
-  const panelCanvasMode = useUIStore((s) => s.panelCanvasMode)
-  const setPanelCanvasMode = useUIStore((s) => s.setPanelCanvasMode)
+  const requestFitToView = useCanvasUIStore((s) => s.requestFitToView)
+  const activePanelId = useCanvasUIStore((s) => s.activePanelId)
+  const setActivePanelId = useCanvasUIStore((s) => s.setActivePanelId)
+  const panelCanvasMode = useCanvasUIStore((s) => s.panelCanvasMode)
+  const setPanelCanvasMode = useCanvasUIStore((s) => s.setPanelCanvasMode)
   
-  const selection = useUIStore((s) => s.selection)
-  const syncSitplanFilterWithPanelView = useUIStore((s) => s.syncSitplanFilterWithPanelView)
-  const setSitplanPanelFilterId = useUIStore((s) => s.setSitplanPanelFilterId)
+  const selection = useCanvasUIStore((s) => s.selection)
+  const syncSitplanFilterWithPanelView = useCanvasUIStore((s) => s.syncSitplanFilterWithPanelView)
+  const setSitplanPanelFilterId = useCanvasUIStore((s) => s.setSitplanPanelFilterId)
   const {
     closePanelOptionsMenu,
     feedSideDirection,
@@ -251,9 +254,8 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
   // Register canvas for export
   // Always return stage if available - export will handle switching panels as needed
   const registerPanel = useCanvasRegistryStore((s) => s.registerPanel)
-  const unregisterPanel = useCanvasRegistryStore((s) => s.unregisterPanel)
   useEffect(() => {
-    registerPanel(
+    return registerPanel(
       () => {
         // Always return stage if available - export handles switching to the right panel
         // The stage will contain the currently active panel, which export will switch to match.
@@ -264,8 +266,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         canvasRef.current?.fitToView()
       }
     )
-    return () => unregisterPanel()
-  }, [registerPanel, unregisterPanel])
+  }, [registerPanel])
   const currentProject = useProjectStore((s: ProjectState) => s.currentProject)
   const getPanelById = useProjectStore((s: ProjectState) => s.getPanelById)
   const getProtectionById = useProjectStore((s: ProjectState) => s.getProtectionById)
@@ -274,10 +275,10 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
   const getTrunkDeviceById = useProjectStore((s: ProjectState) => s.getTrunkDeviceById)
   const getEndpointById = useProjectStore((s: ProjectState) => s.getEndpointById)
   const colors = useThemeColors()
-  const clearSelection = useUIStore((s) => s.clearSelection)
+  const clearSelection = useCanvasUIStore((s) => s.clearSelection)
   const openDialog = useDialogStore((s) => s.openDialog)
 
-  const fitTrigger = useUIStore((s) => s.fitToViewTrigger.panel)
+  const fitTrigger = useCanvasUIStore((s) => s.fitToViewTrigger.panel)
   useEffect(() => {
     if (fitTrigger === 0) return
     const id = requestAnimationFrame(() => {
@@ -371,13 +372,13 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
   )
 
   const handleFitToView = useCallback(() => {
-    const viewportLayout = useUIStore.getState().viewportLayout
+    const viewportLayout = viewportUI.getState().viewportLayout
     const canvasesToFit =
       viewportLayout.panels.length === 1
         ? ['panel' as const]
         : Array.from(new Set(viewportLayout.panels.map((panel) => panel.canvas)))
     requestFitToView(canvasesToFit)
-  }, [requestFitToView])
+  }, [requestFitToView, viewportUI])
 
   const modules = useMemo(
     () =>
@@ -465,12 +466,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         ? panelList.map((panelOption) => panelOption.panel)
         : [panel]
     return visiblePanels.reduce((count, visiblePanel) => {
-      const visibleModules = getPanelGridModules(visiblePanel.id).filter(
-        (module) => !(module.ref.kind === 'trunkDevice' && module.ref.scope === 'ground')
-      )
-      return (
-        count + getPanelCanvasOverflowModuleKeys(visiblePanel, currentProject, visibleModules).size
-      )
+      return count + getCachedPanelOverflowCount(currentProject, visiblePanel, getPanelGridModules)
     }, 0)
   }, [currentProject, effectivePanelCanvasMode, getPanelGridModules, panel, panelList])
   const supplyPlacements = useMemo(() => {
@@ -523,7 +519,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
 
   // Selection bounds for panel modules (protections, trunk devices, domotica endpoints)
   const handleGetSelectionBounds = useCallback(() => {
-    const { selection } = useUIStore.getState()
+    const { selection } = viewportUI.getState()
     if (!panel) return null
     if (!selection.type || selection.ids.length === 0) return null
     const frameMargin = 40
@@ -639,7 +635,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
       allPlacements.filter((placement) => selectedKeys.has(panelGridModuleRefKey(placement.ref))),
       selection
     )
-  }, [panel, modules, placements, supplyPlacements, getEndpointById, supplyPanelVisibleForPanel])
+  }, [panel, modules, placements, supplyPlacements, getEndpointById, supplyPanelVisibleForPanel, viewportUI])
 
   const selectedRef = useMemo((): PanelGridModuleRef | null => {
     if (!selection.type || selection.ids.length === 0) return null
@@ -758,9 +754,9 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
     (position: import('@/types/ui').Point, elementId: string | null) =>
       withJunctionEditorItem(basePanelContextMenuItems(position, elementId), [
         elementId,
-        ...useUIStore.getState().selection.ids,
+        ...viewportUI.getState().selection.ids,
       ]),
-    [basePanelContextMenuItems, withJunctionEditorItem]
+    [basePanelContextMenuItems, withJunctionEditorItem, viewportUI]
   )
 
   // Calculate panel frame dimensions with margin
@@ -1176,7 +1172,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         rawX,
         rawY,
         panelId: panel?.id ?? null,
-        selection: useUIStore.getState().selection,
+        selection: viewportUI.getState().selection,
       })
       multiDragInitialRef.current.clear()
       multiDragPreviewRef.current.clear()
@@ -1398,7 +1394,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         const { row: newRow, col: newCol } = snapToSupplyPanel()
         logger.warn('[PanelCanvas drag] supply-drop', { newRow, newCol })
         const supplySlots = panel.gridView?.supplyPanelSlots ?? []
-        const selSupply = useUIStore.getState().selection
+        const selSupply = viewportUI.getState().selection
         const multiMoveSupply =
           wasInSupply &&
           selSupply.ids.length >= 2 &&
@@ -1510,7 +1506,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
       logger.warn('[PanelCanvas drag] main-drop', { newRow, newCol })
 
       const existingSlots = panel.gridView?.slots ?? []
-      const sel = useUIStore.getState().selection
+      const sel = viewportUI.getState().selection
       const multiMoveMain =
         !wasInSupply &&
         sel.ids.length >= 2 &&
@@ -1641,6 +1637,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
       moduleWidthOverrides,
       combinedPlacements,
       setModuleDropPreview,
+      viewportUI,
     ]
   )
   void handleCombinedDragEnd
@@ -1746,7 +1743,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
     const targetPanels = explicitTargetPanel ? [explicitTargetPanel] : visiblePanels
     if (targetPanels.length === 0) return
     // Ensure sitplan reset-scale UI is closed before showing the confirm dialog.
-    useUIStore.getState().bumpCancelPlanResetScaleTrigger()
+    viewportUI.getState().bumpCancelPlanResetScaleTrigger()
     openDialog({
       type: 'confirm',
       title: t('panelCanvas.autoArrange'),
@@ -1779,6 +1776,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
     panelList,
     selection,
     t,
+    viewportUI,
   ])
   void handleAutoArrange
 

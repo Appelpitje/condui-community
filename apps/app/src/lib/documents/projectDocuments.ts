@@ -1,4 +1,9 @@
-import type { AssetModelV2, ProjectDocumentMetadataV2 } from '@/types/projectV2'
+import type {
+  AssetModelV2,
+  OneWireReferenceV2,
+  ProjectDocumentMetadataV2,
+  RoomScanDocumentMetadataV2,
+} from '@/types/projectV2'
 import {
   isProjectDocumentAsset,
   PROJECT_DOCUMENT_ASSET_KIND,
@@ -28,6 +33,8 @@ export type ProjectDocumentKind =
   | 'cableSchedule'
   | 'controlAddresses'
   | 'junctionOverview'
+  | 'roomScanModel'
+  | 'roomScanPlacements'
 
 /**
  * `projectAsset` documents are derived from files the project already owns and are read-only;
@@ -100,6 +107,9 @@ export interface ProjectDocumentLink {
   label?: string
 }
 
+/** Drag data type of a document card dragged out of the Documents canvas; the value is its id. */
+export const PROJECT_DOCUMENT_DRAG_TYPE = 'application/x-condui-document'
+
 export interface ProjectDocument {
   id: string
   name: string
@@ -127,6 +137,9 @@ export interface ProjectDocument {
   addedAt: string
   /** Copied from the team library (hosted team projects). */
   teamDocumentId?: string
+  /** Shown as a reference on the one-wire canvas (scanned one-wire pages). */
+  oneWire?: OneWireReferenceV2
+  roomScan?: RoomScanDocumentMetadataV2
 }
 
 export interface ProjectDocumentGroup {
@@ -304,7 +317,13 @@ export function exportPagesAfterPagesDeletion(
 export type ProjectDocumentPatch = Partial<
   Pick<
     ProjectDocument,
-    'name' | 'category' | 'includeInExport' | 'exportPages' | 'links' | 'teamDocumentId'
+    | 'name'
+    | 'category'
+    | 'includeInExport'
+    | 'exportPages'
+    | 'links'
+    | 'teamDocumentId'
+    | 'oneWire'
   >
 >
 
@@ -329,6 +348,8 @@ function applyDocumentMetadata(
     links: metadata.links ?? document.links,
     addedAt: metadata.addedAt || document.addedAt,
     ...(metadata.teamDocumentId ? { teamDocumentId: metadata.teamDocumentId } : {}),
+    ...(metadata.oneWire ? { oneWire: metadata.oneWire } : {}),
+    ...(metadata.roomScan ? { roomScan: metadata.roomScan } : {}),
   }
 }
 
@@ -422,6 +443,14 @@ export function getProjectDocuments(
         // Settings of a derived view, read by that view.
       } else if (sourceAssetId) {
         derivedMetadataBySourceId.set(sourceAssetId, asset.document ?? {})
+      } else if (asset.document?.roomScan?.version === 1 && ['model', 'placements'].includes(asset.document.roomScan.kind)) {
+        userDocuments.push(applyDocumentMetadata({
+          id: asset.id, name: asset.document.name ?? asset.sourceName ?? '', category: 'sourcePlan',
+          kind: asset.document.roomScan.kind === 'model' ? 'roomScanModel' : 'roomScanPlacements',
+          mimeType: asset.mimeType ?? 'application/json', url: asset.dataUrl ?? '', origin: 'upload',
+          visibleToViewers: false, includeInExport: false, links: [], addedAt,
+          sizeBytes: asset.sizeBytes,
+        }, asset.document))
       } else if (asset.document?.externalInfluences) {
         userDocuments.push(generatedDocumentFromAsset(asset, addedAt))
       } else {
@@ -578,7 +607,7 @@ export function getProjectDocumentReplacementAsset(
   file: { fileName: string; mimeType: string; dataUrl: string; sizeBytes: number }
 ): AssetModelV2 | null {
   const upload = assets.find((asset) => asset.id === documentId && isProjectDocumentAsset(asset))
-  if (!upload || upload.document?.sourceAssetId) return null
+  if (!upload || upload.document?.sourceAssetId || upload.document?.roomScan) return null
   const renamed = Boolean(upload.document?.name) && upload.document?.name !== upload.sourceName
   // A new file is no longer the team library's copy.
   const { teamDocumentId: _teamDocumentId, ...metadata } = upload.document ?? {}
@@ -644,6 +673,7 @@ export function canExportProjectDocument(
   document: Pick<ProjectDocument, 'sourceKind'> &
     Partial<Pick<ProjectDocument, 'kind' | 'origin'>>
 ): boolean {
+  if (document.kind === 'roomScanModel' || document.kind === 'roomScanPlacements') return false
   if (document.origin === 'builtIn') {
     return document.kind === 'cableSchedule' || document.kind === 'controlAddresses'
   }

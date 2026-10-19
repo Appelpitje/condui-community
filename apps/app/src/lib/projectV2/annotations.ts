@@ -1,5 +1,6 @@
 import type { Frame, Note, WireSegment } from '@/types/schema'
 import type { DisciplineModelsV2, ElementModelV2 } from '@/types/projectV2'
+import { PROJECT_SCOPE_IDS } from '@/types/projectV2'
 
 export type AnnotationProject = { disciplines?: Partial<DisciplineModelsV2>; elements?: ElementModelV2[] }
 const SYSTEM_ANNOTATION = 'system_annotation'
@@ -9,7 +10,7 @@ const EMPTY_WIRE_SEGMENTS: WireSegment[] = []
 
 function layerIdFor(floorId: string | undefined): string { return floorId ? `layer_${floorId}_annotations` : 'layer_annotations' }
 function sitplanNoteElement(note: Note): ElementModelV2 {
-  return { id: `elem_note_sitplan_${note.id}`, kind: 'annotation.note', name: note.text, floorId: note.floorId,
+  return { id: `elem_note_sitplan_${note.id}`, kind: 'annotation.note', scopeId: PROJECT_SCOPE_IDS.coordination, name: note.text, floorId: note.floorId,
     systemId: SYSTEM_ANNOTATION, layerId: layerIdFor(note.floorId), geometry: { kind: 'point', position: note.pos },
     properties: { v1: note, scope: 'sitplan', fontSize: note.fontSize, formatting: note.formatting, panelId: note.panelId },
     sourceRefs: [{ kind: 'v1', id: note.id, path: 'sitplanNotes' }] }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, type CSSProperties } from 'react'
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import { clamp } from '@/lib/geometry'
 
 const DIVIDER_SIZE_PX = 4
@@ -37,6 +38,8 @@ export function ResizableDivider({
   perpSlopNegativePx = DEFAULT_PERP_SLOP_PX,
   perpSlopPositivePx = DEFAULT_PERP_SLOP_PX,
 }: ResizableDividerProps) {
+  const window = useCanvasWindow()
+  const document = window.document
   const rootRef = useRef<HTMLDivElement | null>(null)
   const handleRef = useRef<HTMLDivElement | null>(null)
   const handlePositionRafRef = useRef<number | null>(null)
@@ -98,7 +101,7 @@ export function ResizableDivider({
       document.addEventListener('touchend', cleanup)
       document.addEventListener('touchcancel', cleanup)
     },
-    [direction, onDragEnd, onDragStart, onRatioChange]
+    [direction, document, onDragEnd, onDragStart, onRatioChange, window]
   )
 
   const handleMouseDown = useCallback(
@@ -139,7 +142,7 @@ export function ResizableDivider({
         }
       })
     },
-    [direction]
+    [direction, window]
   )
 
   const setHandleVisible = useCallback((visible: boolean) => {
@@ -198,7 +201,7 @@ export function ResizableDivider({
         handlePositionRafRef.current = null
       }
     }
-  }, [])
+  }, [window])
   const style: CSSProperties = { touchAction: 'none' }
   if (isAbsolute) {
     const half = DIVIDER_SIZE_PX / 2

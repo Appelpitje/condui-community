@@ -5,6 +5,7 @@ import {
 } from '@/lib/projectV2/electrical'
 import { getModularSocketModuleWidth, isModularSocket } from '@/lib/socket/modularSocket'
 import type { Endpoint, Panel, PanelGridModuleRef, ProtectionDevice } from '@/types/schema'
+import { getPanelReadContext } from './panelReadContext'
 
 function polesFromPolesConfig(config: string | undefined): number {
   if (!config) return 1
@@ -49,7 +50,10 @@ export function getModuleWidthInCols(
 ): number {
   if (!project) return 1
   if (ref.kind === 'protection') {
-    const protection = findProtectionRecursive(getProjectElectricalPanels(project), ref.id)
+    const read = getPanelReadContext(project)
+    const protection = read
+      ? read.entities.protectionsById.get(ref.id)
+      : findProtectionRecursive(getProjectElectricalPanels(project), ref.id)
     if (protection) {
       return Math.max(1, protection.poles ?? polesFromPolesConfig(protection.polesConfig))
     }
@@ -67,7 +71,10 @@ export function getModuleWidthInCols(
     }
   }
   if (ref.kind === 'domotica') {
-    const endpoint = findEndpointRecursive(getProjectElectricalPanels(project), ref.endpointId)
+    const read = getPanelReadContext(project)
+    const endpoint = read
+      ? read.entities.endpointsById.get(ref.endpointId)?.endpoint
+      : findEndpointRecursive(getProjectElectricalPanels(project), ref.endpointId)
     if (endpoint && isModularSocket(endpoint)) return getModularSocketModuleWidth(endpoint)
     if (endpoint?.symbol === 'terminal_strip') return 1 / 3
     return 2
@@ -81,7 +88,12 @@ export function moduleWidthFollowsDevice(
   project: ProjectWithOptionalV2Electrical | null
 ): boolean {
   if (!project || ref.kind !== 'domotica') return false
-  return isModularSocket(findEndpointRecursive(getProjectElectricalPanels(project), ref.endpointId))
+  const read = getPanelReadContext(project)
+  return isModularSocket(
+    read
+      ? read.entities.endpointsById.get(ref.endpointId)?.endpoint
+      : findEndpointRecursive(getProjectElectricalPanels(project), ref.endpointId)
+  )
 }
 
 /** True for trunk-device and endpoint-form terminal strips shown as panel modules. */
@@ -95,9 +107,12 @@ export function isTerminalStripModuleRef(
     return device?.symbol === 'terminal_strip' || device?.type === 'terminal_strip'
   }
   if (ref.kind === 'domotica') {
+    const read = getPanelReadContext(project)
     return (
-      findEndpointRecursive(getProjectElectricalPanels(project), ref.endpointId)?.symbol ===
-      'terminal_strip'
+      (read
+        ? read.entities.endpointsById.get(ref.endpointId)?.endpoint
+        : findEndpointRecursive(getProjectElectricalPanels(project), ref.endpointId)
+      )?.symbol === 'terminal_strip'
     )
   }
   return false

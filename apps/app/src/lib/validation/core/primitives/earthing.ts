@@ -11,14 +11,14 @@ function installationHasEarthing(
   _params?: Record<string, unknown>
 ): CheckResult {
   const { scope, project } = context
-  if (scope.type !== 'board') return { passed: true }
+  if (scope.type !== 'board') return { passed: true, coverage: { status: 'skipped', reason: 'rule-requires-board-scope' } }
 
   const panels = projectPanels(project)
   const main = findCanonicalEarthingBoard(panels)
-  if (!main || main.id !== scope.id) return { passed: true }
+  if (!main || main.id !== scope.id) return { passed: true, coverage: { status: 'skipped', reason: 'not-canonical-earthing-board' } }
 
   if (collectEarthingStems(panels, projectInstallation(project)).length > 0) {
-    return { passed: true }
+    return { passed: true, coverage: { status: 'passed' } }
   }
 
   return {
@@ -39,14 +39,14 @@ function installationHasSingleEarthingLocation(
   _params?: Record<string, unknown>
 ): CheckResult {
   const { scope, project } = context
-  if (scope.type !== 'board') return { passed: true }
+  if (scope.type !== 'board') return { passed: true, coverage: { status: 'skipped', reason: 'rule-requires-board-scope' } }
 
   const panels = projectPanels(project)
   const main = findCanonicalEarthingBoard(panels)
-  if (!main || main.id !== scope.id) return { passed: true }
+  if (!main || main.id !== scope.id) return { passed: true, coverage: { status: 'skipped', reason: 'not-canonical-earthing-board' } }
 
   const stems = collectEarthingStems(panels, projectInstallation(project))
-  if (stems.length < 2) return { passed: true }
+  if (stems.length < 2) return { passed: true, coverage: { status: 'passed' } }
 
   const offenders = stems.map((stem) => ({
     kind: 'board' as const,

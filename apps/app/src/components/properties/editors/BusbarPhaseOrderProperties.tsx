@@ -23,10 +23,7 @@ export function BusbarPhaseOrderProperties({
   }))
   const updateOrder = (index: number, nextPhase: AcLinePhase) => {
     const next = [...order]
-    const previousIndex = next.indexOf(nextPhase)
-    if (previousIndex >= 0)
-      [next[index], next[previousIndex]] = [next[previousIndex]!, next[index]!]
-    else next[index] = nextPhase
+    next[index] = nextPhase
     editProperties({
       actions: [
         { kind: 'busbarPhaseOrder', panelId: panel.id, ownerId, busSectionId, order: next },

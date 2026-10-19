@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-69.3 -35.3 138.6 138.6" role="img" aria-label="Trekschakelaar">
+<g stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M-19.6 -14.0V0.0A19.6 11.3 0 0 0 19.6 0.0V-14.0Z" fill="#283548"/>
+  <ellipse cx="0.0" cy="-14.0" rx="19.6" ry="11.3" fill="#334155"/>
+  <path d="M0.0 11.3V81.3" stroke-width="2"/>
+  <path d="M-4.0 81.3h8l-1.5 11h-5Z" fill="#64748b" stroke-width="1.2"/>
+</g>
+</svg>

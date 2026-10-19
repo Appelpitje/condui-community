@@ -32,6 +32,8 @@ import {
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
 import { findPanelById } from '@/lib/panel/panelTree'
+import { cloneCircuitWireRuns } from '@/lib/wires/cloneCircuitWireRuns'
+import { remapClonedEndpointDependencies } from '@/lib/eendraad/cloneCircuitContent'
 
 function findPanelDirectlyContainingProtection(panels: Panel[], protectionId: string): Panel | undefined {
   for (const panel of panels) {
@@ -269,6 +271,7 @@ export function runDuplicateProtectionLeft(
   bridge: DuplicateProtectionLeftBridge,
   mainBusPlacement?: DuplicateProtectionMainBusPlacement,
   options?: DuplicateProtectionOptions,
+  newId: () => string = generateId,
 ): string | null {
   let createdRootId: string | null = null
 
@@ -340,10 +343,10 @@ export function runDuplicateProtectionLeft(
     for (const oldCircuitId of orderedCircuitIds) {
       const sourceCircuit = sourceCircuitSnapshots.get(oldCircuitId)
       if (!sourceCircuit) continue
-      const newCircuitId = generateId()
+      const newCircuitId = newId()
       const newCode = takeNextAlphabeticCode()
       const newCircuit = copyCircuitContents
-        ? cloneCircuitContent(sourceCircuit, maps, newCircuitId, newCode)
+        ? cloneCircuitContent(sourceCircuit, maps, newCircuitId, newCode, newId, true)
         : cloneCircuitShell(sourceCircuit, newCircuitId, newCode)
       if (copyCircuitContents) {
         wireClonedSubCircuitIds(sourceCircuit, newCircuit, maps)
@@ -351,9 +354,16 @@ export function runDuplicateProtectionLeft(
       clonedCircuits.set(oldCircuitId, newCircuit)
     }
 
+    if (copyCircuitContents) {
+      remapClonedEndpointDependencies(
+        Array.from(clonedCircuits.values()).flatMap((circuit) => circuit.endpoints),
+        maps,
+      )
+    }
+
     const newProtectionByOldId = new Map<string, ProtectionDevice>()
     for (const sourceProt of protectionsOrdered) {
-      const newProtId = generateId()
+      const newProtId = newId()
       const primarySourceCircuit =
         sourceProt.circuits?.find((c) => circuitClosure.has(c.id)) ?? sourceProt.circuits?.[0]
       const clonedPrimary = primarySourceCircuit
@@ -444,6 +454,10 @@ export function runDuplicateProtectionLeft(
           )
         }
       }
+      cloneCircuitWireRuns(state.currentProject, panel.id, {
+        ...maps,
+        protection: new Map(Array.from(newProtectionByOldId, ([id, protection]) => [id, protection.id])),
+      }, newId)
       const installationAfter = getProjectElectricalInstallation(state.currentProject)
       if (installationAfter?.eendraadAutomaticNaming) {
         applyAutomaticMainBusNamingToPanel(

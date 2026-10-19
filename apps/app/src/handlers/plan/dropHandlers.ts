@@ -214,14 +214,11 @@ export function createPlanDropHandler(
     if (!activeFloor) return
 
     if (symbol.id === 'note') {
-      const noteId = `note-${Date.now()}`
-      useProjectStore.getState().addSitplanNote({
-        id: noteId,
-        text: 'New note',
-        fontSize: 14,
-        pos: position,
-        floorId: activeFloorId,
+      const outcome = runProjectCommand('annotation.createNote', {
+        scope: 'sitplan', pos: position, floorId: activeFloorId,
       })
+      const noteId = outcome?.results[0]?.created.find((ref) => ref.kind === 'note')?.id
+      if (!noteId) return
       setSelection({ type: 'note', ids: [noteId] })
       trackGoogleAnalyticsEvent('note_place', {
         canvas: 'plan',

@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next'
 import { getAuxiliaryEnclosureLabel } from '@/lib/panel/auxiliaryEnclosureLabel'
 import HiddenItemsDialog, { type HiddenItem } from '@/components/common/HiddenItemsDialog'
-import { getSymbolById } from '@/lib/symbols'
+import { getSymbolById, getSymbolIconPath } from '@/lib/symbols'
 import { hasCustomPlacement } from '@/lib/plan/customPlacement'
 import { restoreHiddenSituationPlanPlacementsToActiveView } from '@/lib/plan/restoreHiddenSituationPlanPlacements'
 import { useDialogStore } from '@/stores/dialogStore'
@@ -42,7 +42,7 @@ export function openHiddenSituationPlanDialogForFloor(
           id,
           label: t('symbols.earthing', 'Earthing'),
           icon: symbol ? (
-            <img src={symbol.svgPath} alt="" className="h-7 w-7 object-contain dark:invert" />
+            <img src={getSymbolIconPath(symbol)} alt="" className="h-7 w-7 object-contain dark:invert" />
           ) : undefined,
         },
       ]
@@ -62,7 +62,7 @@ export function openHiddenSituationPlanDialogForFloor(
             store.currentProject?.disciplines?.electrical?.auxiliaryEnclosures
           ),
           icon: symbol ? (
-            <img src={symbol.svgPath} alt="" className="h-7 w-7 object-contain dark:invert" />
+            <img src={getSymbolIconPath(symbol)} alt="" className="h-7 w-7 object-contain dark:invert" />
           ) : undefined,
         },
       ]
@@ -96,7 +96,7 @@ export function openHiddenSituationPlanDialogForFloor(
         id,
         label,
         icon: symbol ? (
-          <img src={symbol.svgPath} alt="" className="h-7 w-7 object-contain dark:invert" />
+          <img src={getSymbolIconPath(symbol)} alt="" className="h-7 w-7 object-contain dark:invert" />
         ) : undefined,
       },
     ]

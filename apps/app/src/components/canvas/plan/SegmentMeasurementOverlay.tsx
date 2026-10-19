@@ -1,3 +1,6 @@
+import { useCanvasWindow } from '@/components/viewport/ViewportContext'
+import { useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
+import { isKeyboardTypingTarget } from '@/lib/ui/keyboardTypingTarget'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Line, Rect, Text } from 'react-konva'
 import type { Wall } from '@/types/schema'
@@ -93,6 +96,8 @@ export function SegmentMeasurementOverlay({
   onOpeningDistanceCommit,
   onSegmentDimensionDrag,
 }: SegmentMeasurementOverlayProps) {
+  const window = useCanvasWindow()
+  const isActiveViewport = useIsActiveViewport()
   const [editingSegmentIndex, setEditingSegmentIndex] = useState<number | null>(null)
   const [draftText, setDraftText] = useState('')
   const dimensionDragRef = useRef<DimensionDragState | null>(null)
@@ -121,14 +126,8 @@ export function SegmentMeasurementOverlay({
     )
       return
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
-      ) {
-        return
-      }
+      if (!isActiveViewport()) return
+      if (isKeyboardTypingTarget(event.target)) return
       if (/^[0-9]$/.test(event.key)) {
         event.preventDefault()
         event.stopImmediatePropagation()
@@ -180,6 +179,8 @@ export function SegmentMeasurementOverlay({
     distanceIntervals,
     onOpeningDistanceCommit,
     onSegmentLengthCommit,
+    window,
+    isActiveViewport,
   ])
 
   useEffect(() => {
@@ -307,7 +308,7 @@ export function SegmentMeasurementOverlay({
       window.removeEventListener('touchend', handleTouchEnd)
       window.removeEventListener('touchcancel', handleTouchCancel)
     }
-  }, [onSegmentDimensionDrag, zoom])
+  }, [onSegmentDimensionDrag, window, zoom])
 
   const extensionOffset = screenPxToCanvasUnits(zoom, 60, 40, 84)
   const extensionStartOffset = screenPxToCanvasUnits(zoom, 2, 1, 4)

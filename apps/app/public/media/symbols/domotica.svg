@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-86.4 -100.0 165.0 165.0" role="img" aria-label="Domotica">
+<g stroke="#334155" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+  <polygon points="-48.5,28.0 -1.7,55.0 -1.7,-35.0 -48.5,-62.0" fill="#f1f5f9"/>
+  <polygon points="46.8,27.0 -1.7,55.0 -1.7,-35.0 46.8,-63.0" fill="#cbd5e1"/>
+  <polygon points="0.0,-90.0 46.8,-63.0 -1.7,-35.0 -48.5,-62.0" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -48.50 28.00)"><circle cx="10" cy="-80" r="3.6" fill="#e2e8f0"/><circle cx="10" cy="-10" r="3.6" fill="#e2e8f0"/><circle cx="27" cy="-80" r="3.6" fill="#e2e8f0"/><circle cx="27" cy="-10" r="3.6" fill="#e2e8f0"/><circle cx="44" cy="-80" r="3.6" fill="#e2e8f0"/><circle cx="44" cy="-10" r="3.6" fill="#e2e8f0"/></g>
+  <polygon points="-54.6,8.5 -9.5,34.5 -9.5,-7.5 -54.6,-33.5" fill="#f1f5f9"/>
+  <polygon points="-2.6,30.5 -9.5,34.5 -9.5,-7.5 -2.6,-11.5" fill="#cbd5e1"/>
+  <polygon points="-47.6,-37.5 -2.6,-11.5 -9.5,-7.5 -54.6,-33.5" fill="#ffffff"/>
+  <g transform="matrix(0.8660 0.5 0 1 -55.43 32.00)"><rect x="8" y="-62" width="38" height="6" rx="1" fill="#1e293b"/><circle cx="10" cy="-50" r="1.6" fill="#22c55e" stroke-width="0.6"/><circle cx="10" cy="-42" r="1.6" fill="#22c55e" stroke-width="0.6"/><circle cx="18" cy="-50" r="1.6" fill="#22c55e" stroke-width="0.6"/><circle cx="18" cy="-42" r="1.6" fill="#e2e8f0" stroke-width="0.6"/><circle cx="26" cy="-50" r="1.6" fill="#e2e8f0" stroke-width="0.6"/><circle cx="26" cy="-42" r="1.6" fill="#22c55e" stroke-width="0.6"/><circle cx="34" cy="-50" r="1.6" fill="#22c55e" stroke-width="0.6"/><circle cx="34" cy="-42" r="1.6" fill="#22c55e" stroke-width="0.6"/><circle cx="42" cy="-50" r="1.6" fill="#22c55e" stroke-width="0.6"/><circle cx="42" cy="-42" r="1.6" fill="#e2e8f0" stroke-width="0.6"/></g>
+  <polygon points="-26.0,-55.0 -13.9,-48.0 -13.9,-56.0 -26.0,-63.0" fill="#b91c1c"/>
+  <polygon points="-5.2,-53.0 -13.9,-48.0 -13.9,-56.0 -5.2,-61.0" fill="#7f1d1d"/>
+  <polygon points="-17.3,-68.0 -5.2,-61.0 -13.9,-56.0 -26.0,-63.0" fill="#ef4444"/>
+</g>
+</svg>

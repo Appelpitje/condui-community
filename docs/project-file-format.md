@@ -26,8 +26,65 @@ The current manifest has archive format version `1`, the format label `project-w
 
 The current schema version is `2.3.0`.
 
+`disciplines.electrical.installation.connectionCurrentA` is an optional positive
+integer in amperes: the rated incoming connection current per phase (the installed
+connection-breaker setting). Missing means unspecified; readers must not infer
+40 A or copy a downstream RCD rating. Clearing the field omits it. Older projects
+remain valid and the value is independent of the domestic/non-domestic profile.
+It is not a prospective short-circuit current or a network-impedance measurement.
+New blank projects start with 25 A as an editable creation default; this does not
+fill missing values when loading existing projects. Editing the connection setting
+also updates an existing serial utility-side MCB before the meter in the same
+transaction; it does not infer or resize downstream protection or conductors.
+
+Transformer devices may optionally persist positive finite nameplate values on
+`conversionProps` (trunk devices) or `energyConversionProps` (endpoints):
+`transformerPrimaryVoltageV` and `transformerSecondaryVoltageV` in volts
+(line-to-line for three-phase units), `transformerRatedPowerKva` in kVA, and
+`transformerShortCircuitVoltagePercent` (`uk`) in percent, greater than zero and
+at most 100. Missing values are unspecified, and clearing a value omits it.
+Legacy text fields remain accepted and preserved independently. A transformer
+added to the supply wire is an ordinary serial AC/AC trunk device; it does not
+create an inverter/backup supply assembly, change the installation profile or
+resize downstream devices. No new schema version is required for these optional
+fields. Older projects without them remain valid.
+
+An optional `conversionProps.transformerRole: "supply"` on a common serial
+transformer identifies the installation's medium-voltage source transformer.
+There is no second copy of its nameplate in project metadata. The installation's
+`nominalVoltage` remains the low-voltage output; changing it updates the marked
+transformer's secondary voltage in the same transaction. A marked transformer's
+known primary voltage must exceed 1,000 V, and its secondary must match the
+installation's line-to-line voltage. Choosing Own transformer initializes an
+editable 10,600 V primary and the selected LV output; kVA and uk remain unknown.
+Missing roles preserve legacy/generic transformers without inferring nameplates
+on load. Explicitly choosing Own transformer can adopt an existing common
+transformer and move it before the LV meter/protections. No schema bump is needed.
+Returning to Direct low voltage removes only marked supply transformers; generic
+and panel-local transformers remain independent.
+Marked supply transformers are external equipment: panel-grid slots, mounting
+and explicit visibility choices cannot place them in a cabinet. Their one-wire
+supply frame stays separate even while the receiving panel has no circuits.
+With a marked supply transformer, `connectionCurrentA` is the LV connection
+setting: it updates the first LV MCB after that transformer, never MV protection
+before it. The MV source label does not display the LV current as primary current.
+
 The project locale supports `nl-BE`, `en`, `fr-BE`, `de`, `pl`, and `ro`.
 Electrical JSON imports accept the same locale codes. Dutch remains the default.
+
+Missing protection ratings and residual-current types are unspecified. Readers
+must not fill an absent breaking capacity or residual-current type from creation
+defaults. Legacy supply protections with only a known `breakingCapacityOption`
+or `breakingCapacityKa` may derive the matching representation. Explicit capacity
+clears remove both fields; clearing another rating omits that field. New device
+creation may still provide editable defaults. No schema version change is required.
+
+`project.lastViewportLayout` may repeat the same canvas type in multiple slots.
+For the `grid` preset, optional integer `rows` and `columns` each range from 1 to 4;
+the layout contains `rows × columns` panels, in row-major order. Omitting both
+dimensions preserves the legacy resizable 2×2 grid. Detached windows, their screen
+positions, and individual slot cameras/document viewers are session state and are
+not serialized into the portable project. No schema version change is required.
 
 Plan-wiring visibility may include `wireToolCategoriesVisible`, an optional map of
 `lighting`, `sockets`, `devices`, `feeders`, `supply`, `dc`, `earthing`, and `other`
@@ -55,6 +112,12 @@ The root document contains these portable domains:
 | `assets`                 | Metadata and references for floor-plan and other project-owned files.                                                                          |
 | `disciplines.electrical` | Installation, panels, devices, plan wiring, one-wire annotations, optional supply assemblies, and optional canonical wire runs.                 |
 | `validation`             | Optional quarantined data retained for recovery and diagnostics.                                                                               |
+
+Elements can carry a `scopeId` identifying their portable domain, including
+`shared-building`, `electrical`, and `coordination`. Missing legacy scopes are derived
+from the element's layer/system during loading. New building geometry and plan notes
+write the corresponding scope immediately so saving and reopening preserves their
+canonical representation. This does not change the schema version or reject older files.
 
 The optional `project.showInspectionAgencyInInfoBlock` boolean controls whether the
 portable inspection-agency contact stored in `project.inspectionAgency` is rendered as
@@ -313,7 +376,8 @@ changeover, `"changeover-grid"` for serial devices on the grid-only lower lane b
 the changeover grid tap, or `"converter-grid"` for serial protection between that tap
 and the converter grid input. A `"converter-grid"` device is inline on the horizontal
 run by default; `converterGridPlacement: "input-leg"` places it on the converter's
-vertical input leg. A `"changeover-grid"` device is inline on the lower horizontal
+vertical input leg, and `"converter-leg"` places it on that leg above a changeover
+grid tap (see below). A `"changeover-grid"` device is inline on the lower horizontal
 rail by default; `changeoverGridPlacement: "input-leg"` places it on the modular
 changeover's vertical grid-input leg after the grid branch. With a separate normal bus,
 inline lower-lane devices feed that bus; otherwise they continue in series to the
@@ -411,16 +475,24 @@ situation-plan instance.
 A passive terminal strip uses `type: "terminal_strip"` and
 `symbol: "terminal_strip"`. Its `junctionIdentity` stores the shared physical strip ID
 without the fixed display prefix (for example `1` displays as `X1`), while
-`terminalStripPin` stores the positive pin number. The combined display is therefore
-`X1-3`. An in-line trunk occurrence additionally stores `terminalStripOutgoingPin`,
-so its two wire connections can address distinct terminals and display as `X1-3/4`.
-`terminalStripPin` is the incoming connection and remains the sole pin for an endpoint
-occurrence. These fields are connection-endpoint data owned by the canonical V2
-electrical device occurrence; they do not create duplicate physical strip identities.
-Pins are unique within one strip identity. Assigning an occupied pin moves only
-the conflicting occurrence to the vacated pin when possible, otherwise to the nearest
-free positive pin. Gaps are valid and stored identities are never renumbered on load.
-Legacy combined identities such as `1-3` remain accepted and are split when edited.
+`terminalStripPin` stores the positive circuit group number. The combined display is
+therefore `X1-3`. New occurrences default to strip `X1`: all occurrences on the same
+circuit and strip reuse one number, including both connections of an in-line trunk
+and any outgoing branches. Another circuit receives the next free number on that strip.
+A group can contain several conductively isolated terminals; the group label alone
+never joins its conductors. Individual conductor connections belong to the detailed
+junction wiring model.
+
+An in-line trunk occurrence may additionally store `terminalStripOutgoingPin`. It
+defaults to the incoming group number when absent; equal numbers display once as
+`X1-3`. Explicit different numbers remain accepted and display as `X1-3/4`.
+`terminalStripPin` remains the sole number for an endpoint occurrence. These fields
+are owned by the canonical V2 electrical device occurrence and do not create duplicate
+physical strip identities. Manual numbers are preserved without renumbering peers.
+Using one strip/group number across different circuits produces a validation error,
+including an explicit outgoing number. Gaps are valid and existing numbers are never
+renumbered on load. Legacy combined identities such as `1-3` remain accepted and are
+split when edited.
 
 Junction boxes, junction panels, and terminal strips may persist `junctionIdentity`.
 Equal identities on occurrences of the same symbol identify one shared physical
@@ -586,7 +658,10 @@ polyline. Doors, windows, and bare openings must not reference a curved wall.
 Panels may optionally contain `busbarPhases`. Its `main` array stores the repeating
 `L1`/`L2`/`L3` order for the panel's main busbar. Its `secondary` object stores an
 independent repeating order keyed by the stable id of the grouping protection or parent
-circuit that owns that secondary busbar. Missing or invalid orders use `L1`, `L2`, `L3`.
+circuit that owns that secondary busbar. Each order contains three line-phase entries;
+phases may repeat. For example, `L1`, `L2`, `L1` assigns successive two-pole devices in
+`3N~` to `L1+N`, `L2+N`, `L1+N`, `L1+N`, `L2+N`, `L1+N`, and so on.
+Missing or invalid orders use `L1`, `L2`, `L3`.
 Each busbar restarts its own sequence. In `3N~`, two-pole slots derive `L1+N`, `L2+N`,
 and `L3+N`. In `3~`, the order applies per physical pole: each two-pole device consumes
 two consecutive positions, producing `L1-L2`, `L3-L1`, `L2-L3`, then repeating for the
@@ -607,7 +682,9 @@ and unprotected circuits may reference a section through `busSectionId`; circuit
 below a protection inherit the protection's section. A section's optional `role`
 (`normal`, `backup`, or `custom`) is a presentation hint only. Its optional
 `phaseOrder` controls independent automatic phase sequencing and may contain a single
-line phase for a single-phase bus in a multi-phase installation. Missing
+line phase for a single-phase bus in a multi-phase installation. Three-entry orders
+allow repeated phases, just like `busbarPhases`; shorter orders describe available
+line phases and contain no duplicates. Missing
 `busSections` retains the historical single main bus and does not add persisted
 placeholder data.
 
@@ -634,6 +711,21 @@ grid run before its split. `backup-output` is serial between the inverter backup
 output and the changeover backup input. `changeover-grid` is serial between the grid
 split and the normal-bus handoff; `changeoverGridPlacement: "input-leg"` places that
 serial protection on the vertical leg between the split and the changeover's grid port.
+The changeover record may persist `changeoverGridSource`: missing or `"grid"` taps its
+grid input from the grid run as described above; `"converter-input"` taps it part-way
+up the inverter's grid-input leg instead. That choice is effective only when the panel
+has both a normal and a backup bus section and the inverter's grid input is connected;
+otherwise readers treat it as `"grid"` and keep the value. With the converter tap,
+`converter-grid` devices with `converterGridPlacement: "input-leg"` are serial below
+the tap and feed both the inverter and the changeover grid input, `"converter-leg"`
+devices are serial between the tap and the inverter grid input only, and
+`changeover-grid` input-leg devices are serial between the tap and the changeover's
+grid port. The assembly graph then contains an `ac-distribution` node with id
+`<assemblyId>-converter-input-split`, and the changeover's grid-input path carries the
+inverter's AC conductors. With the grid tap, `"converter-leg"` devices are serial on the
+inverter grid input after the `"input-leg"` devices, so switching the source never
+reassigns devices. Leg devices are ordered by `trunkPosition` from the grid side toward
+the inverter.
 Ordinary serial devices after the changeover record
 are on its load path before the backup-bus handoff. The supply-assembly graph persists
 the corresponding split node, both panel-bus handoffs, and these separate paths; a
@@ -740,12 +832,31 @@ or `manual`, and manual `waypoints`. Two optional fields describe cable routing:
   stores the same `pos`, and loaders apply it to that source's other cables to that floor.
 
 Both are optional, and readers that ignore them still draw the trace between its placements.
+A manual `lighting-control` trace may connect a switched light to the entry switch of a
+separate branch in the same circuit. Such a trace has no `branchId`: it fixes the physical
+feed between the two branches and does not merge their switch/light control groups. Readers
+preserve these traces while rejecting directed feed cycles. Connecting an unassigned singleton
+light to a switch instead changes the ordinary branch `endpointIds`; no extra scan-only
+connection model is stored.
+
 `disciplines.electrical.planWiring.visibility` may also carry optional cable-routing settings:
 - `homeRunsVisible`: wires from the board to the first point of a circuit (absent means off).
 - `branchFeedsVisible`: wires linking lighting branches (absent means off).
 - `supplyVisible`: supply cables (inverter, solar panels, batteries) and earthing conductors
   (absent means on).
-- `colorCoded`: colour plan wires by group outside wire mode too (absent means off).
+- `colorCoded`: colour plan symbols and ordinary plan wires (absent means off).
+  The wire tool still colours wires by group independently.
+- `symbolColors`: optional map of `sockets`, `lights`, `switches`, `panels`,
+  `fixedAppliances`, `dc`, `energyConversion`, `earthing`, and `other` to
+  six-digit `#RRGGBB` colours. Missing/invalid entries use the established wire palette: blue sockets, orange lights/switches, pink boards,
+  ochre appliances, red DC, purple energy conversion/supply, green earthing,
+  and grey other symbols. Pure DC symbols (solar panels, batteries and DC/DC
+  converters) use `dc`; mixed-domain converters and transformers use
+  `energyConversion`. Supply, DC and earthing wires use those same palette entries;
+  other wires use their destination symbol category, falling back to their cable
+  group or wire kind. These settings affect the plan and its export only;
+  one-wire and panel drawings keep their normal theme colours. Older projects remain valid;
+  no schema version change is required.
 - `cableRouteSettings`: mounting heights in metres the length estimate assumes, each optional:
   `floorHeightM`, `socketHeightM`, `switchHeightM`, `panelHeightM`.
 
@@ -839,6 +950,19 @@ edition must preserve document entries, including ones they do not display. A do
 a hosted team library may carry an opaque `document.teamDocumentId`; readers preserve it and need
 not interpret it.
 
+An uploaded image or PDF document may carry `document.oneWire`, which shows it as a reference on
+the one-wire canvas (scanned one-wire pages are imported this way, and documents dragged onto the
+one-wire become schematics with it). Its optional members are `placements`, mapping a 1-based page
+number (`"1"` for an image) to that page's top-left corner `x`, `y` and displayed `width` in
+one-wire canvas units (pages keep their aspect ratio; readers place pages without one next to the
+document's placed pages, otherwise above the diagram); `hiddenPages`, the page numbers taken off
+the one-wire; `levels` and `highPass` enhancement strengths from 0 to 2 (default 1, both 0 draws
+the page as stored); `opacity` from 10 to 100 (default 35); and `blend` (default false: when true
+the paper is left out and the ink follows the canvas theme). Early files may hold an image's
+placement as top-level `x`, `y` and `width`, read as page 1. Removing the object takes the
+document off the one-wire and keeps it. Readers that do not show references preserve the object;
+it is never part of an export.
+
 A document entry without a payload and without `document.sourceAssetId` may instead carry an
 external influences table in `document.externalInfluences`: a `rooms` list whose entries have an
 `id`, a `name`, a `publiclyAccessible` flag, and `classes`, which maps two-letter AREI parameter
@@ -854,6 +978,64 @@ A document entry without a payload may instead carry `document.builtIn` and an
 goes along with a PDF export: `"cableSchedule"` (the cable schedule, derived from the cables) or
 `"controlAddresses"` (the domotica address table, derived from domotica modules and their
 connections). Readers that do not know the value preserve the entry and ignore it.
+
+### Room-scan reference documents
+
+Room scanning may add two independent `kind: "document"` assets. Their optional
+`document.roomScan` metadata contains `version: 1`, `kind: "model" | "placements"`, a
+shared opaque `scanId`, the target `floorId`, the scan name in legacy field `roomName` (the floor name for floor scans), and optionally a
+`relatedDocumentId`. Removing one document must not remove the other or the electrical
+entities. Unknown document types remain portable assets even in readers without a viewer.
+
+Both payloads are JSON carried by the asset's `dataUrl` with MIME type `application/json`.
+The normal document asset externalization writes them below the existing `documents/`
+archive directory; reference JPEG crops stay inside the placement document's payload.
+No new archive or project schema version is required. They are source/reference material
+and are not PDF annex pages.
+
+- A model payload has `version: 1`, `units: "meters"`, `parts`, and `capturedRoomJson`.
+  Each part has an opaque `id`, `kind` (`wall`, `door`, `window`, `opening`, `floor`, or
+  `object`), `dimensions: { x, y, z }` in meters, and a 16-number column-major local-to-world
+  `transform`. Object parts may additionally carry `category` and `confidence` strings
+  from RoomPlan. Missing values remain valid for older scan documents. `capturedRoomJson` preserves the original captured-room JSON as an opaque
+  string. The viewer accepts up to 3,000 parts and a 3,000,000-character original JSON.
+- A placement payload has `version: 1`, `units: "meters"`, and up to 80 `entries`. Each
+  entry has the original observation `id`, a library `symbolId`, raw world `position`
+  and surface `normal` (`{ x, y, z }`), `quantity` (1–4), and optionally `photoDataUrl`
+  (a JPEG data URL, at most 160,000 characters). It also records `target: { type, id }`
+  (`endpoint` or `panel`), `placementId`, optional `circuitId`, the imported plan `pos`
+  in canvas units, the captured `heightCm`, and optionally `rotationDeg`, detected
+  `roomId`, and the accepted `roomName`. Target identity stays stable across
+  renaming and circuit moves. A removed target leaves the reference evidence intact.
+
+Scanned fixtures are ordinary electrical endpoints and plan placements. Socket-bank
+quantity uses `socketProps.socketCount`; a two-way or cross switch is one recorded
+physical endpoint, with no inferred companion switches or control links. Panels remain
+normal panels with their panel-symbol endpoint. Source coordinates and photo crops do
+not create a plan-only electrical entity class.
+
+Generated circuits may carry optional `scanReview: { scanId, roomName }`. This marks
+provisional room/type organization whose electrical connections and cable settings have
+not been confirmed. New scan groups use the same visible MCB design defaults as normal
+plan placement: C10/2P for lighting, C16/2P for sockets and equipment, with 1.5/2.5 mm²
+cable defaults respectively. These values are editable defaults, never scan measurements.
+Historical scans may retain unspecified `OTHER` carriers and remain readable. Cable
+fields retain required editable defaults, with
+`hideWireLabel: true` until review. Clearing `scanReview` does not change endpoint or
+placement identities. Older readers preserve these optional fields.
+
+Detected closed rooms produce ordinary editable situation-plan note labels, and accepted
+names organize separate socket/lighting groups per room. Room detection uses virtual
+intersection vertices without changing persisted wall vertices. Names are inferred
+conservatively from RoomPlan sections and recognized furniture; conflicting or insufficient
+evidence uses numbered rooms.
+
+A plan placement may carry optional `mountingHeightM`, a finite nonnegative height in
+metres above its own floor's finished level. Scan imports round measurements to whole
+centimetres and store them here as well as in reference evidence. Cable estimates use
+this per-placement value instead of the generic socket/switch/panel/device defaults;
+missing values preserve the previous behavior. Heights belong to placements because one
+device may have occurrences on different floors.
 
 CAD-derived floor plans use imported-plan asset kind `cad-vector` (distinct from PDF vector imports). When present, `cadReference` stores versioned source-coordinate metadata: source units, uncropped asset size, per-floor crop in both asset and model space, import-session linkage for multi-floor splits, and the forward/inverse transform parameters captured at import. Legacy projects imported before this metadata existed do not carry `cadReference`.
 
