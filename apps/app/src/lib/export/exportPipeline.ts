@@ -51,7 +51,6 @@ import {
   collectEendraadSecondaryBusReferenceOverlays,
   getTextOverlaysForSlice,
   drawEendraadTextOverlaysOnPdf,
-  injectEendraadLabelsIntoSvg,
 } from './eendraadLabelOverlay'
 import { addExportFontToPdf } from './pdfFontRegistration'
 import { getInstallerProfile, type InstallerProfile } from '@/lib/installerProfile'
@@ -59,6 +58,7 @@ import { getInfoBlockBrandForCurrentDomain } from '@/utils/language'
 import i18n from '@/i18n'
 import { buildPanelCircuitLegendRows, buildPanelLegendSvgs } from './panelLegendSvg'
 import { getPanelDiagramTitleLine } from '@/lib/panel/panelDiagramLabels'
+import { getEendraadPackingTitle } from './eendraadPackingTitle'
 import { buildSitplanExportTargets } from './sitplanExportPlan'
 import { exportLog } from './exportLogger'
 import { normalizeExportOptions } from './types'
@@ -231,7 +231,8 @@ async function prepareSceneForPage(
       })
       try {
         const slicing = await calculateEendraadSlices(
-          panelLayout, fullScene, undefined, getEendraadPaperSize(options)
+          panelLayout, fullScene, undefined, getEendraadPaperSize(options),
+          getEendraadPackingTitle(context.project, panelLayout.panel)
         )
         return createSlicedExportPage(fullScene, diagramId, slicing)
       } catch (error) {
@@ -364,7 +365,7 @@ export async function exportToPDF(
             (p) => getPanelDiagramId(p) === diagramId
           )
           if (!panelLayout) continue
-          const baseOverlays = collectEendraadTextOverlays(panelLayout, exportTheme)
+          const baseOverlays = collectEendraadTextOverlays(panelLayout, exportTheme, context.eendraadLayout.controlLinkNotes)
           const noteOverlays =
             panelLayout.frameRole === 'supply'
               ? []
@@ -535,24 +536,6 @@ export async function exportToPDF(
               )
             }
             svgString = applyExportFontToSvg(svgString)
-            if (isLimitedRasterExport && scene.kind === 'eendraad' && context.eendraadLayout) {
-              const diagramId = scene.id.replace(/^eendraad-/, '').replace(/-slice-\d+$/, '')
-              const panelLayout = context.eendraadLayout.panels.find(
-                (candidate) => getPanelDiagramId(candidate) === diagramId
-              )
-              const circuitIds = (scene.metadata?.circuitIds ?? '').split(',').filter(Boolean)
-              if (panelLayout && circuitIds.length > 0) {
-                // The scene provider strips these labels for the vector PDF overlay pass.
-                // Limited PDFs rasterize the SVG before that pass, so restore the labels
-                // inside the SVG to make them part of the single rasterized page image.
-                svgString = injectEendraadLabelsIntoSvg(
-                  svgString,
-                  circuitIds,
-                  panelLayout,
-                  exportTheme
-                )
-              }
-            }
             svgString = await embedExternalImagesInExportSvg(svgString)
 
             completedOperations++

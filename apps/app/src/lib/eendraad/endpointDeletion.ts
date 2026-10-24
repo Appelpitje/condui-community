@@ -53,10 +53,11 @@ export function deleteEndpointsFromProject(project: ProjectV2, ids: readonly str
     for (const panel of getProjectElectricalPanels(project)) {
       const result = findEndpointById(panel, endpointId)
       if (!result) continue
-      if (result.endpoint.symbol !== 'panel_distribution') continue
-      const linkedPanel = resolvePanelForDistributionEndpoint(project, result.endpoint)
-      if (linkedPanel && !linkedPanel.isMain) {
-        panelIdsToDelete.add(linkedPanel.id)
+      const removedIds = collectDomoticaEndpointIdsForDeletion(result.circuit, [endpointId])
+      for (const removed of result.circuit.endpoints) {
+        if (!removedIds.has(removed.id) || removed.symbol !== 'panel_distribution') continue
+        const linkedPanel = resolvePanelForDistributionEndpoint(project, removed)
+        if (linkedPanel && !linkedPanel.isMain) panelIdsToDelete.add(linkedPanel.id)
       }
     }
   }

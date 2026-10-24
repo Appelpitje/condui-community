@@ -20,6 +20,7 @@ import {
 } from './projectElectricalDomain'
 import { collectAllGroundTrunkDevices, installationHasAnyEarthing } from './panelGround'
 import { queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { pruneOrphanJunctionPanelPlacements } from '@/lib/plan/sharedJunctionPlacements'
 import { walkPanels } from '@/lib/panel/panelTree'
 import {
   getProjectElectricalInstallation,
@@ -278,6 +279,7 @@ export function deleteEntitiesInProject(project: ProjectV2, input: EntityDeletio
       deleteBuildingEntitiesInProject(project, ref.kind, [ref.id])
   }
   pruneStaleElectricalEndpointRecords(project)
+  pruneOrphanJunctionPanelPlacements(project)
   healPlanWiring(project)
   const surviving = deletionInventory(project)
   for (const ref of oldModuleRefs) {

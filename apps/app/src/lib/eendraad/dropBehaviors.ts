@@ -13,6 +13,7 @@ import {
   getTerminalStripTrunkCreationProps,
 } from '@/lib/terminalStrip/labels'
 import { getNextJunctionIdentity, isSharedJunctionSymbol } from '@/lib/junctionIdentity'
+import { isDomoticaPanelFeedEndpoint } from '@/lib/eendraad/panelSupplyLink'
 import type {
   EditorCanvasAnalytics,
   SymbolPlaceAnalyticsOptions as SymbolPlaceEvent,
@@ -116,6 +117,7 @@ import {
   DEFAULT_SECONDARY_PANEL_GRID_ROWS,
 } from '@/lib/panel/panelGridDefaults'
 import { clamp } from '@/lib/geometry'
+import { DOMOTICA_MAX_ENDPOINT_OUTPUTS } from '@/lib/domoticaLayout'
 import {
   selectProjectBuildingFloors,
   type ProjectWithOptionalV2Building,
@@ -253,6 +255,41 @@ export type DropBehaviorEditorHooks = Pick<
 /** The visible plan centre, when the plan shows the floor that receives the placement. */
 function viewportCenterOn(target: SitplanPlacementTarget, floorId: string): Point | null {
   return target.viewportCenter && target.activeFloorId === floorId ? target.viewportCenter : null
+}
+
+/**
+ * Inserts an endpoint into one branch and removes any provisional membership
+ * assigned by addEndpoint from the other branches.
+ */
+function insertEndpointIntoBranch(
+  branches: Branch[],
+  branchId: string,
+  endpointId: string,
+  insertAfterEndpointId?: string | null
+): Branch[] {
+  const targetBranch = branches.find((branch) => branch.id === branchId)
+  if (!targetBranch) return branches
+
+  return branches.map((branch) => {
+    const endpointIds = branch.endpointIds.filter((id) => id !== endpointId)
+    if (branch.id === branchId) {
+      const anchorIndex =
+        typeof insertAfterEndpointId === 'string'
+          ? endpointIds.indexOf(insertAfterEndpointId)
+          : -1
+      const insertIndex =
+        typeof insertAfterEndpointId !== 'string'
+          ? 0
+          : anchorIndex >= 0
+            ? anchorIndex + 1
+            : endpointIds.length
+      endpointIds.splice(insertIndex, 0, endpointId)
+      return { ...branch, endpointIds }
+    }
+    return endpointIds.length === branch.endpointIds.length
+      ? branch
+      : { ...branch, endpointIds }
+  })
 }
 
 function getOrderedTrunkDevices(circuit: Circuit): TrunkDevice[] {
@@ -991,6 +1028,7 @@ const SUPPLY_DC_SWITCH_SYMBOL_IDS = new Set([
   'switch_2p_twoway',
   'switch_dimmer',
   'switch_1p_changeover',
+  'switch_shutter',
   'switch_1p_pull',
   'contact',
   'switch_impulse',
@@ -1739,6 +1777,11 @@ const endpointBehavior: DropBehavior = {
       : undefined
 
     const isDomoticaOutputDrop = !!target.domoticaOutput && !!target.endpointId
+    const panelOnTargetOutput = isDomoticaOutputDrop && target.domoticaOutput?.group === 'endpoint'
+      ? circuit.endpoints.find((candidate) => isDomoticaPanelFeedEndpoint(candidate) &&
+          candidate.domoticaChildProps.parentEndpointId === target.endpointId &&
+          candidate.domoticaChildProps.outputIndex === target.domoticaOutput!.index)
+      : undefined
     const isDomoticaChildReplace =
       target.domoticaChildDropIntent === 'replace' && !!target.endpointId
 
@@ -1820,6 +1863,14 @@ const endpointBehavior: DropBehavior = {
     const hadAnyEndpointsBeforeAdd = (circuit.endpoints?.length ?? 0) > 0
     const computedInsert = computeEndpointInsertAfter(target, circuit, symbol)
     let { insertAfterEndpointId, createNewBranch } = computedInsert
+    if (panelOnTargetOutput) {
+      // Adding a load to a board's existing output shares that row. Keep the
+      // board last so its caption and incoming reference remain unambiguous.
+      const branch = circuit.branches?.find((candidate) => candidate.endpointIds.includes(panelOnTargetOutput.id))
+      const index = branch?.endpointIds.indexOf(panelOnTargetOutput.id) ?? -1
+      insertAfterEndpointId = index > 0 ? branch!.endpointIds[index - 1] : target.endpointId
+      createNewBranch = false
+    }
     const existingDcBusBranch = dcBusId
       ? (circuit.branches ?? []).find(
           (branch) =>
@@ -1886,18 +1937,18 @@ const endpointBehavior: DropBehavior = {
       callbacks.deleteEndpoint(target.endpointId)
     }
 
-    // Domotica output drop: insert a new root child at the chosen output row.
-    // Existing occupants shift down; chained children stay with their root row.
+    // Ordinary output insertion shifts existing occupants down. A board-fed
+    // output is shared instead: the new load precedes the board on that row.
     if (isDomoticaOutputDrop && target.endpointId) {
       const circuitAfterAdd = callbacks.getCircuitById(circuitId)
       if (circuitAfterAdd) {
-        const nextCircuit = insertDomoticaChildEndpoint(
-          circuitAfterAdd,
-          endpointId,
-          target.endpointId,
-          'endpoint',
-          target.domoticaOutput!.index
-        )
+        const nextCircuit = panelOnTargetOutput
+          ? { ...circuitAfterAdd, endpoints: updateDomoticaChainHeadAfterInsert(
+              circuitAfterAdd, endpointId, panelOnTargetOutput.id
+            ) }
+          : insertDomoticaChildEndpoint(
+              circuitAfterAdd, endpointId, target.endpointId, 'endpoint', target.domoticaOutput!.index
+            )
         if (nextCircuit) {
           callbacks.updateCircuit(circuitId, {
             endpoints: nextCircuit.endpoints,
@@ -1924,7 +1975,7 @@ const endpointBehavior: DropBehavior = {
           ...b,
           endpointIds: (b.endpointIds ?? []).filter((id: string) => id !== endpointId),
         }))
-        .filter((b: Branch) => (b.endpointIds ?? []).length > 0)
+        .filter((b: Branch) => (b.endpointIds ?? []).length > 0 || (b.branchDevices?.length ?? 0) > 0)
 
       const branchIndexFromLayout = resolveLayoutBranchIndex(target.branchId, circuitId)
       const branchIndexFromEndpoints =
@@ -1975,20 +2026,12 @@ const endpointBehavior: DropBehavior = {
       const branchIndex = resolveLayoutBranchIndex(target.branchId, circuitId)
       const storedBranches = branches.length ? branches : initializeBranchesIfNeeded(circuit)
       const targetBranch = branchIndex !== null ? storedBranches[branchIndex] : undefined
-      if (targetBranch && !targetBranch.endpointIds.includes(endpointId)) {
-        const updatedIds = [...targetBranch.endpointIds]
-        if (typeof insertAfterEndpointId === 'string') {
-          const idx = updatedIds.indexOf(insertAfterEndpointId)
-          if (idx >= 0) {
-            updatedIds.splice(idx + 1, 0, endpointId)
-          } else {
-            updatedIds.push(endpointId)
-          }
-        } else {
-          updatedIds.unshift(endpointId)
-        }
-        const updatedBranches = storedBranches.map((b: Branch) =>
-          b.id === targetBranch.id ? { ...b, endpointIds: updatedIds } : b
+      if (targetBranch) {
+        const updatedBranches = insertEndpointIntoBranch(
+          storedBranches,
+          targetBranch.id,
+          endpointId,
+          insertAfterEndpointId
         )
         callbacks.updateCircuit(circuitId, { branches: updatedBranches })
       }
@@ -2000,21 +2043,12 @@ const endpointBehavior: DropBehavior = {
       const targetBranch = branches.find((b: Branch) =>
         b.endpointIds.some((id: string) => target.branchEndpoints!.includes(id))
       )
-      if (targetBranch && !targetBranch.endpointIds.includes(endpointId)) {
-        const updatedIds = [...targetBranch.endpointIds]
-        if (typeof insertAfterEndpointId === 'string') {
-          const idx = updatedIds.indexOf(insertAfterEndpointId)
-          if (idx >= 0) {
-            updatedIds.splice(idx + 1, 0, endpointId)
-          } else {
-            updatedIds.push(endpointId)
-          }
-        } else {
-          // null or undefined = insert at start of branch
-          updatedIds.unshift(endpointId)
-        }
-        const updatedBranches = branches.map((b: Branch) =>
-          b.id === targetBranch.id ? { ...b, endpointIds: updatedIds } : b
+      if (targetBranch) {
+        const updatedBranches = insertEndpointIntoBranch(
+          branches,
+          targetBranch.id,
+          endpointId,
+          insertAfterEndpointId
         )
         callbacks.updateCircuit(circuitId, { branches: updatedBranches })
       }
@@ -2854,6 +2888,70 @@ const panelBehavior: DropBehavior = {
 
     const newPanel = createPanel(false)
     const newPanelId = newPanel.id
+    const outputCircuit = target.circuitId ? callbacks.getCircuitById(target.circuitId) : null
+    const outputRef = target.domoticaOutput && target.endpointId
+      ? {
+          parentEndpointId: target.endpointId,
+          outputGroup: 'endpoint' as const,
+          outputIndex: target.domoticaOutput.index,
+        }
+      : outputCircuit
+        ? domoticaChildRefForEndpoint(outputCircuit, target.endpointId) ??
+          domoticaChildRefForBranchInsert(outputCircuit, target.insertAfterEndpointId, target.branchEndpoints)
+        : undefined
+    if (outputRef && outputCircuit) {
+      const module = outputCircuit.endpoints.find((endpoint) => endpoint.id === outputRef.parentEndpointId)
+      if (!module || module.symbol !== 'domotica' || !findProtectionByCircuitIdInProject(panels, outputCircuit.id) ||
+        (target.domoticaOutput && target.domoticaOutput.group !== 'endpoint') ||
+        outputRef.outputIndex < 0 || outputRef.outputIndex >= DOMOTICA_MAX_ENDPOINT_OUTPUTS ||
+        outputRef.outputIndex >= (module.domoticaProps?.endpointCount ?? 1) + (target.domoticaOutput?.expands ? 1 : 0)) return
+      const wireDomain = getWireDomainAtDropTarget(target, project, callbacks)
+      if (wireDomain !== 'AC') {
+        const ports = getPortDomainsForSymbol(_symbol.id)
+        callbacks.onDropRejected?.(t('wires.domainMismatchDrop', {
+          component: _symbol.name, wireDomain, domain: 'AC', portA: ports[0], portB: ports[1],
+        }))
+        return
+      }
+
+      // This board consumes one switched output, alongside any existing loads.
+      // subPanelId would incorrectly turn the entire module circuit into a feeder.
+      callbacks.addPanel(newPanel, parentPanel.id)
+      const endpoint: Endpoint = {
+        id: callbacks.newId?.() ?? generateId(),
+        type: 'fixed_appliance',
+        symbol: 'panel_distribution',
+        panelId: newPanelId,
+        label: newPanel.name,
+        placements: [],
+        domoticaChildProps: outputRef,
+      }
+      const insertion = computeEndpointInsertAfter(target, outputCircuit, _symbol)
+      const existingRow = outputCircuit.endpoints.filter((candidate) =>
+        candidate.domoticaChildProps?.parentEndpointId === outputRef.parentEndpointId &&
+        candidate.domoticaChildProps.outputGroup === outputRef.outputGroup &&
+        candidate.domoticaChildProps.outputIndex === outputRef.outputIndex)
+      callbacks.addEndpoint(outputCircuit.id, endpoint,
+        target.domoticaOutput && existingRow.length ? existingRow.at(-1)!.id : insertion.insertAfterEndpointId)
+      const afterAdd = callbacks.getCircuitById(outputCircuit.id)
+      if (afterAdd && target.domoticaOutput && existingRow.length === 0) {
+        const inserted = insertDomoticaChildEndpoint(
+          afterAdd, endpoint.id, outputRef.parentEndpointId, 'endpoint', outputRef.outputIndex
+        )
+        if (inserted) callbacks.updateCircuit(outputCircuit.id, {
+          endpoints: inserted.endpoints,
+          branches: inserted.branches,
+        })
+      } else if (afterAdd && target.domoticaChildDropIntent === 'insertBefore') {
+        callbacks.updateCircuit(outputCircuit.id, {
+          endpoints: updateDomoticaChainHeadAfterInsert(afterAdd, endpoint.id, target.endpointId),
+        })
+      }
+      callbacks.setSelection({ type: 'panel', ids: [newPanelId] })
+      return
+    }
+    if (outputCircuit?.endpoints.some((endpoint) =>
+      endpoint.id === target.endpointId && endpoint.symbol === 'domotica')) return
     const converterBackupCircuit = target.circuitId
       ? callbacks.getCircuitById(target.circuitId)
       : null
@@ -3713,6 +3811,7 @@ export const dropBehaviors: Record<string, DropBehavior> = {
   switch_2p_twoway: switchBehavior,
   switch_dimmer: switchBehavior,
   switch_1p_changeover: switchBehavior,
+  switch_shutter: switchBehavior,
   switch_1p_pull: switchBehavior,
   contact: switchBehavior,
   switch_impulse: switchBehavior,

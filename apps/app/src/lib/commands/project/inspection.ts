@@ -102,6 +102,8 @@ const deviceFields = [
   'curve',
   'sensitivityMa',
   'residualCurrentType',
+  'selective',
+  'superImmunized',
   'breakingCapacityKa',
   'breakingCapacityOption',
   'hasPE',

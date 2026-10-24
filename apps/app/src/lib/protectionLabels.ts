@@ -103,6 +103,8 @@ export function protectionLabelKeyAppliesToType(
 export function getProtectionTypeChangeClears(next: ProtectionType): {
   sensitivityMa?: undefined
   residualCurrentType?: undefined
+  selective?: undefined
+  superImmunized?: undefined
   curve?: undefined
   breakingCapacityKa?: undefined
   breakingCapacityOption?: undefined
@@ -110,6 +112,8 @@ export function getProtectionTypeChangeClears(next: ProtectionType): {
   const out: {
     sensitivityMa?: undefined
     residualCurrentType?: undefined
+    selective?: undefined
+    superImmunized?: undefined
     curve?: undefined
     breakingCapacityKa?: undefined
     breakingCapacityOption?: undefined
@@ -117,6 +121,8 @@ export function getProtectionTypeChangeClears(next: ProtectionType): {
   if (!protectionLabelKeyAppliesToType(next, 'protectionResidualCurrent')) {
     out.sensitivityMa = undefined
     out.residualCurrentType = undefined
+    out.selective = undefined
+    out.superImmunized = undefined
   }
   if (!protectionLabelKeyAppliesToType(next, 'protectionCharacteristic')) {
     out.curve = undefined
@@ -295,6 +301,8 @@ function buildResidualTopWireLines(
   const effectiveType = storedType
   const maPart = byKey.get('protectionResidualCurrent')
   const chunks: string[] = []
+  if (source.selective) chunks.push('S')
+  if (source.superImmunized) chunks.push('SI')
   if (
     effectiveType &&
     isProtectionLabelPartVisible(source, 'protectionResidualCurrentType')
@@ -311,20 +319,19 @@ function buildResidualTopWireLines(
 }
 
 function buildSpecsWireLine(
+  source: ProtectionLike,
   byKey: Map<ProtectionLabelKey, ProtectionLabelPart>,
 ): ProtectionOneWireLabelLine | null {
-  const specsParts: ProtectionLabelPart[] = []
-  for (const key of [
-    'protectionPoles',
-    'protectionCharacteristic',
-    'protectionCurrent',
-  ] as const) {
-    const part = byKey.get(key)
-    if (part) specsParts.push(part)
-  }
-  if (specsParts.length === 0) return null
+  const poles = byKey.get('protectionPoles')
+  const curve = byKey.get('protectionCharacteristic')
+  const current = byKey.get('protectionCurrent')
+  const ratingText = curve && current
+    ? formatProtectionCurveRating(source.curve, source.ratingA)
+    : curve?.text ?? current?.text
+  const text = [poles?.text, ratingText].filter(Boolean).join(' ')
+  if (!text) return null
   return {
-    text: specsParts.map((part) => part.text).join(' '),
+    text,
     role: 'specs',
   }
 }
@@ -338,7 +345,7 @@ export function getProtectionOneWireLabelLines(
 ): ProtectionOneWireLabelLine[] {
   const kind = getProtectionElectricalKind(source)
   const visible = getVisibleProtectionLabelParts(source)
-  if (visible.length === 0) return []
+  if (visible.length === 0 && !source.selective && !source.superImmunized) return []
 
   const byKey = new Map(visible.map((part) => [part.key, part]))
   const lines: ProtectionOneWireLabelLine[] = []
@@ -355,7 +362,7 @@ export function getProtectionOneWireLabelLines(
       })
     }
 
-    const specsLine = buildSpecsWireLine(byKey)
+    const specsLine = buildSpecsWireLine(source, byKey)
     if (specsLine) lines.push(specsLine)
     return lines
   }
@@ -369,7 +376,7 @@ export function getProtectionOneWireLabelLines(
     })
   }
 
-  const specsLine = buildSpecsWireLine(byKey)
+  const specsLine = buildSpecsWireLine(source, byKey)
   if (specsLine) lines.push(specsLine)
 
   return lines
@@ -392,6 +399,12 @@ export function getProtectionOneWireAnchorLineIndex(
 
 export function getVisibleProtectionLabelLines(source: ProtectionLike): string[] {
   return getProtectionOneWireLabelLines(source).map((line) => line.text)
+}
+
+/** Standard compact breaker notation; retain amperes when no curve is known. */
+export function formatProtectionCurveRating(curve?: string, ratingA?: number): string {
+  if (curve && ratingA != null) return `${curve}${ratingA}`
+  return curve || (ratingA != null ? `${ratingA}A` : '')
 }
 
 export function getProtectionInfoSummaryParts(source: ProtectionLike): string[] {
@@ -430,11 +443,8 @@ export function getProtectionInfoSummaryParts(source: ProtectionLike): string[] 
   if (polesDisplay) parts.push(polesDisplay)
 
   if (type === 'MCB') {
-    // MCB: "2P - C 16A"
-    const ratingParts: string[] = []
-    if (curve) ratingParts.push(curve)
-    if (ratingA) ratingParts.push(`${ratingA}A`)
-    const ratingText = ratingParts.join(' ')
+    // MCB: "2P - C16"
+    const ratingText = formatProtectionCurveRating(curve, ratingA)
     if (ratingText) parts.push(ratingText)
   } else if (type === 'RCD') {
     // RCD: "2P - 40A 30mA" (optionally + type A)
@@ -442,11 +452,8 @@ export function getProtectionInfoSummaryParts(source: ProtectionLike): string[] 
     if (sensitivityMa) parts.push(`${sensitivityMa}mA`)
     if (residualCurrentType) parts.push(`Type ${residualCurrentType}`)
   } else if (type === 'RCBO') {
-    // RCBO: "2P - C40A 300mA"
-    const ratingParts: string[] = []
-    if (curve) ratingParts.push(curve)
-    if (ratingA) ratingParts.push(`${ratingA}A`)
-    const ratingText = ratingParts.join('')
+    // RCBO: "2P - C40 - 300mA"
+    const ratingText = formatProtectionCurveRating(curve, ratingA)
     if (ratingText) parts.push(ratingText)
     if (sensitivityMa) parts.push(`${sensitivityMa}mA`)
     if (residualCurrentType) parts.push(`Type ${residualCurrentType}`)
@@ -461,11 +468,13 @@ export function getProtectionInfoSummaryParts(source: ProtectionLike): string[] 
     if (ratingText) parts.push(ratingText)
   }
 
+  if ((type === 'RCD' || type === 'RCBO') && source.selective) parts.push('S')
+  if ((type === 'RCD' || type === 'RCBO') && source.superImmunized) parts.push('SI')
   return parts
 }
 
 /**
- * Format a concise technical summary for protection devices (e.g. "2P - C16A").
+ * Format a concise technical summary for protection devices (e.g. "2P - C16").
  * Shared between panel protections and trunk/supply protections.
  */
 export function formatProtectionInfoSummary(source: ProtectionLike): string {

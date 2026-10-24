@@ -46,6 +46,7 @@ export function ViewportMountedDiagram({
   virtualized,
   initialZoom = 1,
   forceMounted = false,
+  materializeForcedDetail = true,
   overview,
   children,
 }: {
@@ -55,6 +56,8 @@ export function ViewportMountedDiagram({
   virtualized: boolean
   initialZoom?: number
   forceMounted?: boolean
+  /** Selection keeps a live board mounted without expanding all its offscreen regions. */
+  materializeForcedDetail?: boolean
   overview?: (forward: ForwardOverviewInteraction) => ReactNode
   children: ReactNode
 }) {
@@ -69,11 +72,11 @@ export function ViewportMountedDiagram({
   const detailScope = useMemo(
     () => ({
       localized: virtualized || parentDetail.localized,
-      materialized: forceMounted || exportMounts > 0 || parentDetail.materialized,
+      materialized: (forceMounted && materializeForcedDetail) || exportMounts > 0 || parentDetail.materialized,
     }),
-    [virtualized, forceMounted, exportMounts, parentDetail]
+    [virtualized, forceMounted, materializeForcedDetail, exportMounts, parentDetail]
   )
-  const mounted = !virtualized || detailScope.materialized || viewportVisible
+  const mounted = !virtualized || forceMounted || detailScope.materialized || viewportVisible
   const mountedRef = useRef(mounted)
   mountedRef.current = mounted
   const interactionQueue = useRef(Promise.resolve())
@@ -219,7 +222,7 @@ export function ViewportMountedDiagram({
     <Group ref={groupRef} name={name}>
       {mounted ? (
         <ViewportCulledGroup boundsRevision={boundsRevision} conservativeBounds={logicalBounds}>
-          {overview && overviewScale && !detailScope.materialized ? (
+          {overview && overviewScale && !forceMounted && !detailScope.materialized ? (
             overview(forwardInteraction)
           ) : (
             <DiagramDetailContext.Provider value={detailScope}>

@@ -35,6 +35,7 @@ import {
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
 import type { Selection } from '@/types/ui'
+import { skipSupplyPanelItems } from './skipSupplyPanelItems'
 
 /** Selection payload to select this item in the app */
 export type TallyDetailSelection = Pick<Selection, 'type' | 'ids' | 'wireMetadata'>
@@ -63,6 +64,8 @@ export interface TallyGroup {
   totalLengthM?: number
   /** Part of {@link totalLengthM} comes from plan-based estimates. */
   lengthIncludesEstimates?: boolean
+  /** Logical cable runs with neither an entered length nor a usable plan estimate. */
+  missingLengthCount?: number
   /**
    * When set, expanded tally UI shows an “Options” heading and these lines only
    * (no repeat of the row title / base device name).
@@ -302,7 +305,9 @@ function protectionGroupKey(pr: ProtectionDevice | TrunkDevice): string {
   const res = pr.residualCurrentType ?? ''
   const breakCap = pr.breakingCapacityKa != null ? `${pr.breakingCapacityKa}kA` : ''
   const poles = pr.polesConfig ?? ''
-  return [type, rating, curve, sens, res, breakCap, poles].filter(Boolean).join('|')
+  const selective = (type === 'RCD' || type === 'RCBO') && pr.selective ? 'S' : ''
+  const superImmunized = (type === 'RCD' || type === 'RCBO') && pr.superImmunized ? 'SI' : ''
+  return [type, rating, curve, sens, res, selective, superImmunized, breakCap, poles].filter(Boolean).join('|')
 }
 
 function protectionSummaryLabel(
@@ -316,6 +321,8 @@ function protectionSummaryLabel(
   if (pr.curve) parts.push(pr.curve)
   if (pr.sensitivityMa != null) parts.push(`IΔn ${pr.sensitivityMa}mA`)
   if (pr.residualCurrentType) parts.push(pr.residualCurrentType)
+  if ((type === 'RCD' || type === 'RCBO') && pr.selective) parts.push('S')
+  if ((type === 'RCD' || type === 'RCBO') && pr.superImmunized) parts.push('SI')
   if (pr.breakingCapacityKa != null) parts.push(`${pr.breakingCapacityKa}kA`)
   const spec = parts.length ? ` ${parts.join(' ')}` : ''
   const typeLabel = t(`symbols.${type.toLowerCase()}`) || type
@@ -680,6 +687,8 @@ export function buildHardwareTally(
   options: {
     /** Plan-estimated length per wire anchor, used where no length was entered. */
     estimatedLengthByAnchor?: ReadonlyMap<string, number>
+    /** Exclude hardware physically assigned to the supply panel, retaining normal-board feeds. */
+    skipSupplyPanel?: boolean
   } = {}
 ): TallyData {
   if (!project) return []
@@ -1369,6 +1378,7 @@ export function buildHardwareTally(
       hasSupply: boolean
       totalLengthM: number
       includesEstimates: boolean
+      missingLengthCount: number
     }
   >()
   for (const segments of logicalWireRuns.values()) {
@@ -1402,6 +1412,7 @@ export function buildHardwareTally(
       existing.details.push(detail)
       if (isSupply) existing.hasSupply = true
       existing.totalLengthM += lengthM
+      if (lengthM <= 0) existing.missingLengthCount++
       if (estimatedLengthM != null) existing.includesEstimates = true
     } else {
       wireMap.set(key, {
@@ -1410,12 +1421,13 @@ export function buildHardwareTally(
         hasSupply: isSupply,
         totalLengthM: lengthM,
         includesEstimates: estimatedLengthM != null,
+        missingLengthCount: lengthM > 0 ? 0 : 1,
       })
     }
   }
   if (wireMap.size > 0) {
     const groups: TallyGroup[] = []
-    for (const [, { details, summaryLabel, hasSupply, totalLengthM, includesEstimates }] of wireMap) {
+    for (const [, { details, summaryLabel, hasSupply, totalLengthM, includesEstimates, missingLengthCount }] of wireMap) {
       const lengthText = `${includesEstimates ? '≈ ' : ''}${formatWireLengthMeters(totalLengthM, t)}`
       const specLines = [
         ...(totalLengthM > 0 ? [t('tally.wireLengthTotal', { length: lengthText })] : []),
@@ -1427,6 +1439,7 @@ export function buildHardwareTally(
         hasSupply,
         totalLengthM: totalLengthM > 0 ? totalLengthM : undefined,
         ...(totalLengthM > 0 && includesEstimates ? { lengthIncludesEstimates: true } : {}),
+        ...(missingLengthCount > 0 ? { missingLengthCount } : {}),
         specLines: specLines.length > 0 ? specLines : undefined,
       })
     }
@@ -1442,5 +1455,5 @@ export function buildHardwareTally(
     })
   }
 
-  return categories
+  return options.skipSupplyPanel ? skipSupplyPanelItems(categories, project) : categories
 }

@@ -4,6 +4,7 @@ import { getPlacementWorldBounds } from '@/utils/plan/placementBounds'
 export type LabelDirection = 'right' | 'left' | 'below' | 'above'
 export type LabelPlacement = Placement & {
   endpointId?: string
+  trunkDeviceId?: string
   junctionPanelLabel?: string
   planLabel?: string
 }

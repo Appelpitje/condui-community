@@ -97,6 +97,8 @@ export interface EendraadSliceExportMeta {
   globalScale: number
   /** Main bus Y in scene coordinates; kept at same page Y on every slice. */
   mainBusY: number
+  /** Approved export-only top position; painted regions may pass beside the info box. */
+  schematicTopMm?: number
 }
 
 /**

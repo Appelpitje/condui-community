@@ -6,19 +6,19 @@ import type {
   ValidationProject,
   InstallationQueryAPI,
   Panel,
-  TrunkDevice,
 } from './common'
 import { isHouseholdInstallation } from '@/lib/installationProfile'
 import {
-  getPanelFeedProjection,
-  trunkDeviceCountsAsProtection,
-  resolvePanelSupplyLinkForPanelInPanels,
   i18n,
+  isPanelPlacementCarrierCircuit,
   projectPanels,
   projectInstallation,
   validationCircuitCode,
 } from './common'
+import { isBelgianInstallation } from './earthing'
+import { resolveEffectiveEarthingSystem } from '@/lib/panel/panelEarthingSync'
 import type { ResidualCurrentType } from '@/types/schema'
+import { circuitUpstreamProtections } from '../../upstreamProtection'
 
 const FIXED_LOAD_ONLY_CIRCUIT_KINDS = new Set([
   'fixed_appliance',
@@ -49,48 +49,6 @@ function findPanelOwningCircuit(panels: Panel[], circuitId: string): Panel | und
   return undefined
 }
 
-function findRootPanelForPanel(panels: Panel[], targetPanelId: string): Panel | undefined {
-  const walk = (panel: Panel, rootPanel: Panel | undefined): Panel | undefined => {
-    const nextRootPanel = panel.isMain === true ? panel : rootPanel
-    if (panel.id === targetPanelId) return nextRootPanel ?? panel
-
-    for (const child of panel.subPanels) {
-      const found = walk(child, nextRootPanel)
-      if (found) return found
-    }
-
-    return undefined
-  }
-
-  for (const panel of panels) {
-    const found = walk(panel, panel.isMain === true ? panel : undefined)
-    if (found) return found
-  }
-
-  return undefined
-}
-
-function findFeederCircuitIdsForPanel(panels: Panel[], targetPanelId: string): string[] {
-  const link = resolvePanelSupplyLinkForPanelInPanels(panels, targetPanelId)
-  return link?.feederCircuit ? [link.feederCircuit.id] : []
-}
-
-function getSupplyProtectionsForCircuit(
-  project: ValidationProject,
-  circuitId: string,
-  query: InstallationQueryAPI
-): TrunkDevice[] {
-  const panels = projectPanels(project)
-  const installation = projectInstallation(project)
-  const owningPanel = findPanelOwningCircuit(panels, circuitId)
-  const rootPanel = owningPanel ? findRootPanelForPanel(panels, owningPanel.id) : undefined
-  const projection =
-    installation && rootPanel ? getPanelFeedProjection(installation, panels, rootPanel) : null
-
-  const devices = projection?.devices ?? query.getMainSupplyProtections()
-  return devices.filter((td) => trunkDeviceCountsAsProtection(td))
-}
-
 type RcdProtectionDetails = {
   sensitivityMa?: number
   residualCurrentType?: ResidualCurrentType
@@ -101,30 +59,8 @@ function getRcdProtectionDetailsForCircuit(
   project: ValidationProject,
   circuitId: string
 ): RcdProtectionDetails[] {
-  const upstream = query.getUpstream(circuitId)
-  const panelRcds =
-    upstream
-      .filter((item) => item.type === 'protection' && !item.id.startsWith('synthetic-mcb:'))
-      .map((item) => query.getProtectionById(item.id))
-      .filter((p): p is NonNullable<typeof p> => !!p && (p.type === 'RCD' || p.type === 'RCBO')) ??
-    []
-
-  const supplyDevices = getSupplyProtectionsForCircuit(project, circuitId, query)
-  const supplyRcds = supplyDevices.filter(
-    (td) => td.protectionType === 'RCD' || td.protectionType === 'RCBO'
-  )
-  const panels = projectPanels(project)
-  const owningPanel = findPanelOwningCircuit(panels, circuitId)
-  const feederCircuitIds = owningPanel ? findFeederCircuitIdsForPanel(panels, owningPanel.id) : []
-  const feederUpstreamRcds =
-    feederCircuitIds
-      .flatMap((feederCircuitId) => query.getUpstream(feederCircuitId))
-      .filter((item) => item.type === 'protection' && !item.id.startsWith('synthetic-mcb:'))
-      .map((item) => query.getProtectionById(item.id))
-      .filter((p): p is NonNullable<typeof p> => !!p && (p.type === 'RCD' || p.type === 'RCBO')) ??
-    []
-
-  return [...panelRcds, ...supplyRcds, ...feederUpstreamRcds].map((device) => ({
+  return circuitUpstreamProtections({ query, project, scope: { type: 'circuit', id: circuitId } }, circuitId)
+    .filter((device) => device.type === 'RCD' || device.type === 'RCBO').map((device) => ({
     sensitivityMa: device.sensitivityMa,
     residualCurrentType: device.residualCurrentType,
   }))
@@ -251,9 +187,8 @@ function circuitHasRcdProtection(
   if (has30mA) {
     if (kind !== 'ev') return { passed: true }
 
-    const hasIntegratedDcResidualProtection = circuit.endpoints.some(
+    const hasIntegratedDcResidualProtection = circuit.endpoints.filter((endpoint) => endpoint.symbol === 'ev').every(
       (endpoint) =>
-        endpoint.symbol === 'ev' &&
         endpoint.evChargerProps?.integratedDcResidualProtection === true,
     )
     const hasTypeBRcd = rcdProtections.some(
@@ -372,5 +307,89 @@ function wetRoomRequires30mAFromCircuitNotes(
   }
 }
 
+/** AREI table 2.3: conventional touch-voltage limit UL for dry conditions (BB1). */
+const CONVENTIONAL_TOUCH_VOLTAGE_LIMIT_V = 50
+
+/**
+ * AREI 4.2.4.4(b, d): in a non-household TT installation, automatic disconnection relies on
+ * residual-current protection with IΔn × RE ≤ UL. Circuits without any RCD path are reported
+ * because overcurrent devices alone cannot disconnect in time on a TT earth electrode.
+ */
+function nonHouseholdTtIndirectContact(context: CheckContext): CheckResult {
+  const { scope, query, project } = context
+  if (scope.type !== 'circuit') return { passed: true }
+  const installation = projectInstallation(project)
+  if (isHouseholdInstallation(installation) || !isBelgianInstallation(installation)) {
+    return { passed: true }
+  }
+  if (isPanelPlacementCarrierCircuit(query, scope.id)) return { passed: true }
+  const circuit = query.getCircuitById(scope.id)
+  if (!circuit || circuit.endpoints.length === 0 || circuit.subCircuitIds?.length) {
+    return { passed: true }
+  }
+  const panels = projectPanels(project)
+  const owningPanel = findPanelOwningCircuit(panels, scope.id)
+  if (!owningPanel || resolveEffectiveEarthingSystem(owningPanel, panels) !== 'TT') {
+    return { passed: true, coverage: { status: 'skipped', reason: 'tt-indirect-contact-rule-requires-tt-board' } }
+  }
+
+  const rcds = getRcdProtectionDetailsForCircuit(query, project, scope.id)
+  const offenders = [{ kind: 'circuit' as const, id: circuit.id, viewHint: 'eendraad' as const }]
+  const circuitCode = validationCircuitCode(circuit.code)
+  if (rcds.length === 0) {
+    return {
+      passed: false,
+      offenders,
+      mergeBucket: `${owningPanel.id}:missing`,
+      message: i18n.t('validation.primitives.nonHouseholdTtIndirectContact.missing.message', {
+        circuitCode,
+        defaultValue: `Circuit ${circuitCode} has no residual-current protection on a TT network`,
+      }),
+      details: i18n.t('validation.primitives.nonHouseholdTtIndirectContact.missing.details', {
+        defaultValue:
+          'On a TT network, overcurrent devices alone do not disconnect an earth fault in time. Protect the circuit with an RCD or RCBO, or use class II equipment, SELV or electrical separation.',
+      }),
+    }
+  }
+
+  const resistance = installation?.earthResistanceOhm
+  const sensitivities = rcds
+    .map((rcd) => rcd.sensitivityMa)
+    .filter((value): value is number => value != null && value > 0)
+  if (resistance == null || resistance <= 0 || sensitivities.length === 0) {
+    return {
+      passed: true,
+      coverage: {
+        status: 'missing-information',
+        reason: 'earth-resistance-or-rcd-sensitivity-unknown',
+        missingFacts: ['earth electrode resistance', 'RCD sensitivity (mA)'],
+      },
+    }
+  }
+  const sensitivityMa = Math.min(...sensitivities)
+  const touchVoltageV = (sensitivityMa / 1000) * resistance
+  if (touchVoltageV <= CONVENTIONAL_TOUCH_VOLTAGE_LIMIT_V) {
+    return { passed: true, coverage: { status: 'passed' } }
+  }
+  const maxSensitivityMa = Math.floor((CONVENTIONAL_TOUCH_VOLTAGE_LIMIT_V / resistance) * 1000)
+  return {
+    passed: false,
+    offenders,
+    mergeBucket: `${owningPanel.id}:insensitive:${sensitivityMa}`,
+    message: i18n.t('validation.primitives.nonHouseholdTtIndirectContact.insensitive.message', {
+      circuitCode,
+      sensitivityMa,
+      defaultValue: `Circuit ${circuitCode}: ${sensitivityMa} mA RCD is not sensitive enough for the earth resistance`,
+    }),
+    details: i18n.t('validation.primitives.nonHouseholdTtIndirectContact.insensitive.details', {
+      sensitivityMa,
+      ohm: String(Math.round(resistance * 10) / 10),
+      maxSensitivityMa,
+      defaultValue: `IΔn × RE must not exceed 50 V. With ${Math.round(resistance * 10) / 10} Ω, use an RCD of at most ${maxSensitivityMa} mA. In wet conditions (BB2) the limit is 25 V.`,
+    }),
+  }
+}
+
 registerPrimitive('circuitHasRcdProtection', circuitHasRcdProtection)
+registerPrimitive('nonHouseholdTtIndirectContact', nonHouseholdTtIndirectContact)
 registerPrimitive('wetRoomRequires30mAFromCircuitNotes', wetRoomRequires30mAFromCircuitNotes)

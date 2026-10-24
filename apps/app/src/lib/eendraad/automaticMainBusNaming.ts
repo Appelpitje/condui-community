@@ -6,6 +6,16 @@ import {
 } from '@/lib/eendraad/automaticEndpointBranchNaming'
 import { getPanelSupplyTrunkDevices } from '@/lib/feedTopology'
 import { excelColumnLabelFromZeroBasedIndex } from '@/utils/project'
+import type { LabelScheme } from '@/types/schema'
+import {
+  buildPanelCodesById,
+  formatCircuitCode,
+  isSchemeCircuitLabel,
+  panelPartForCircuitLabels,
+  resolveLabelScheme,
+} from '@/lib/eendraad/labelScheme'
+import { withLabelScheme } from '@/lib/eendraad/labelSchemeContext'
+import { relabelDomoticaChildRows } from '@/lib/eendraad/domoticaOutputOrdering'
 import { installationHideFeederLetters } from '@/lib/eendraad/eendraadNamingInstall'
 import { getMainBusOrder } from '@/lib/eendraad/mainBusOrder'
 import { renameCircuitCodeKeepingEndpoints } from '@/lib/eendraad/circuitEndpointLabels'
@@ -142,9 +152,13 @@ function normalizeProtectionLabelForUniqueness(label: string): string {
   return label.trim().toLocaleLowerCase()
 }
 
-/** Automatic circuit names use Excel-style uppercase letters: A..Z, AA, AB, ... */
-export function isRegularAutomaticCircuitLabel(label: string): boolean {
-  return /^[A-Z]+$/.test(label.trim())
+/** Whether `label` looks like an automatic circuit label (classic: A..Z, AA, AB, ...). */
+export function isRegularAutomaticCircuitLabel(
+  label: string,
+  scheme: LabelScheme = resolveLabelScheme(undefined),
+  panelPart = '',
+): boolean {
+  return isSchemeCircuitLabel(scheme, label, panelPart)
 }
 
 export interface ManualCircuitLabelWarnings {
@@ -243,8 +257,13 @@ export function getManualCircuitLabelWarnings(
     labels.push({ rowKey: `supply:${device.id}`, label: device.label ?? '' })
   }
 
+  const scheme = resolveLabelScheme(getProjectElectricalInstallation(project)?.labelScheme)
   return {
-    nonStandard: !isRegularAutomaticCircuitLabel(label),
+    nonStandard: !isRegularAutomaticCircuitLabel(
+      label,
+      scheme,
+      circuitLabelPanelPart(panel, project, scheme, getProjectElectricalInstallation(project)?.panelNumberingEnabled),
+    ),
     duplicate: labels.some(
       (candidate) =>
         candidate.rowKey !== targetRowKey &&
@@ -265,11 +284,14 @@ function isManualExcelStyleLabel(label: string): boolean {
   return /^[A-Z]{1,3}$/.test(label)
 }
 
-function addAlphabeticLabelToReservedSet(reserved: Set<string>, label: string | undefined | null): void {
-  const code = String(label ?? '').trim().toUpperCase()
-  if (code && /^[A-Z]+$/.test(code)) {
-    reserved.add(code)
-  }
+/** Reserved labels are compared case-insensitively against generated circuit labels. */
+function addLabelToReservedSet(reserved: Set<string>, label: string | undefined | null): void {
+  const code = reservedLabelKey(label)
+  if (code) reserved.add(code)
+}
+
+function reservedLabelKey(label: string | undefined | null): string {
+  return String(label ?? '').trim().toUpperCase()
 }
 
 function addProtectionLabelKeyToUsedSet(usedLabels: Set<string>, label: string | undefined | null): void {
@@ -318,11 +340,11 @@ function resolveLabelAgainstUsedSet(requestedLabel: string, usedLabels: Set<stri
 }
 
 /**
- * Excel-style letters manually assigned on this panel's supply path (shared/root feed
- * protections and sub-panel incoming PANEL-circuit protections). Auto main-bus naming must
- * skip these so supply and bus labels stay unique per panel.
+ * Labels manually assigned on this panel's supply path (shared/root feed protections and
+ * sub-panel incoming PANEL-circuit protections). Auto main-bus naming must skip these so supply
+ * and bus labels stay unique per panel.
  */
-export function collectReservedAlphabeticLabelsOnPanel(
+export function collectReservedCircuitLabelsOnPanel(
   panel: Panel,
   project: ProjectWithOptionalV2Electrical
 ): Set<string> {
@@ -331,29 +353,29 @@ export function collectReservedAlphabeticLabelsOnPanel(
   const panels = getProjectElectricalPanels(project)
   for (const device of installation ? getPanelSupplyTrunkDevices(installation, panels, panel) : []) {
     if (device.type === 'protection') {
-      addAlphabeticLabelToReservedSet(reserved, device.label)
+      addLabelToReservedSet(reserved, device.label)
     }
   }
   const panelSupplyCircuit = panel.circuits.find((c) => c.code === 'PANEL')
   for (const device of panelSupplyCircuit?.trunkDevices ?? []) {
     if (device.type === 'protection') {
-      addAlphabeticLabelToReservedSet(reserved, device.label)
+      addLabelToReservedSet(reserved, device.label)
     }
   }
   return reserved
 }
 
-function collectManualLockedAlphabeticLabelsOnPanel(panel: Panel): Set<string> {
+function collectManualLockedLabelsOnPanel(panel: Panel): Set<string> {
   const reserved = new Set<string>()
   for (const circuit of panel.circuits ?? []) {
     if (circuit.code === 'PANEL') continue
-    if (circuitHasManualCodeLock(circuit)) addAlphabeticLabelToReservedSet(reserved, circuit.code)
+    if (circuitHasManualCodeLock(circuit)) addLabelToReservedSet(reserved, circuit.code)
   }
   for (const protection of panel.protections ?? []) {
     if (!protectionHasManualCodeLock(protection)) continue
-    addAlphabeticLabelToReservedSet(reserved, protection.label)
+    addLabelToReservedSet(reserved, protection.label)
     for (const circuit of protection.circuits ?? []) {
-      if (circuitHasManualCodeLock(circuit)) addAlphabeticLabelToReservedSet(reserved, circuit.code)
+      if (circuitHasManualCodeLock(circuit)) addLabelToReservedSet(reserved, circuit.code)
     }
   }
   return reserved
@@ -537,6 +559,29 @@ export function reconcileSupplyProtectionLabelsOnPanel(
 
 export interface AutomaticMainBusNamingOpts {
   hideFeederLetters: boolean
+  /** Label scheme to apply; defaults to the project's stored scheme. */
+  scheme?: LabelScheme
+  /** Panel numbering on (needed for the panel part of circuit labels); defaults to the project's. */
+  panelNumberingEnabled?: boolean
+}
+
+function resolveNamingScheme(
+  opts: AutomaticMainBusNamingOpts,
+  project: ProjectWithOptionalV2Electrical,
+): LabelScheme {
+  return opts.scheme ?? resolveLabelScheme(getProjectElectricalInstallation(project)?.labelScheme)
+}
+
+/** Panel part that starts each circuit label on `panel` (empty unless the scheme and numbering ask for it). */
+export function circuitLabelPanelPart(
+  panel: Panel,
+  project: ProjectWithOptionalV2Electrical,
+  scheme: LabelScheme,
+  panelNumberingEnabled: boolean | undefined,
+): string {
+  if (!panelNumberingEnabled || scheme.circuit.panelPart === 'none') return ''
+  const codes = buildPanelCodesById(getProjectElectricalPanels(project), scheme)
+  return panelPartForCircuitLabels(scheme, codes.get(panel.id))
 }
 
 type NamingTarget =
@@ -731,19 +776,26 @@ function walkAutomaticNamingTargets(
   project: ProjectWithOptionalV2Electrical,
 ): void {
   const { primarySequence, deferredFeeders } = collectNamingTargets(panel, opts)
-  const reserved = collectReservedAlphabeticLabelsOnPanel(panel, project)
-  for (const lockedLabel of collectManualLockedAlphabeticLabelsOnPanel(panel)) {
+  const reserved = collectReservedCircuitLabelsOnPanel(panel, project)
+  for (const lockedLabel of collectManualLockedLabelsOnPanel(panel)) {
     reserved.add(lockedLabel)
   }
+  const scheme = resolveNamingScheme(opts, project)
+  const panelPart = circuitLabelPanelPart(
+    panel,
+    project,
+    scheme,
+    opts.panelNumberingEnabled ?? getProjectElectricalInstallation(project)?.panelNumberingEnabled,
+  )
   let slot = 0
   const nextCode = () => {
     for (let attempt = 0; attempt < MAX_MANUAL_EXCEL_LABEL_ATTEMPTS; attempt += 1) {
-      const candidate = excelColumnLabelFromZeroBasedIndex(slot++)
-      if (!reserved.has(candidate)) {
+      const candidate = formatCircuitCode(scheme, slot++, panelPart)
+      if (!reserved.has(reservedLabelKey(candidate))) {
         return candidate
       }
     }
-    return excelColumnLabelFromZeroBasedIndex(slot++)
+    return formatCircuitCode(scheme, slot++, panelPart)
   }
   applyTargetsWithVisitor(panel, primarySequence, visitor, nextCode, opts)
   applyTargetsWithVisitor(panel, deferredFeeders, visitor, nextCode, opts)
@@ -751,6 +803,15 @@ function walkAutomaticNamingTargets(
 
 /** Whether applying automatic naming would change codes or letter visibility on the main bus and nested buses. */
 export function automaticMainBusNamingWouldChangePanel(
+  panel: Panel,
+  opts: AutomaticMainBusNamingOpts,
+  project: ProjectWithOptionalV2Electrical,
+): boolean {
+  // Branch and domotica output labels follow the same scheme as the circuit labels.
+  return withLabelScheme(resolveNamingScheme(opts, project), () => automaticMainBusNamingWouldChangePanelUnpinned(panel, opts, project))
+}
+
+function automaticMainBusNamingWouldChangePanelUnpinned(
   panel: Panel,
   opts: AutomaticMainBusNamingOpts,
   project: ProjectWithOptionalV2Electrical,
@@ -845,6 +906,8 @@ export function resolveAutomaticNamingOptsFromInstallation(
 ): AutomaticMainBusNamingOpts {
   return {
     hideFeederLetters: installationHideFeederLetters(installation),
+    scheme: resolveLabelScheme(installation?.labelScheme),
+    panelNumberingEnabled: !!installation?.panelNumberingEnabled,
   }
 }
 
@@ -853,6 +916,15 @@ export function resolveAutomaticNamingOptsFromInstallation(
  * the next main-bus row; feeder-only rows with hidden letters are coded last. Mutates in place.
  */
 export function applyAutomaticMainBusNamingToPanel(
+  panel: Panel,
+  opts: AutomaticMainBusNamingOpts,
+  project: ProjectWithOptionalV2Electrical,
+): void {
+  // Branch and domotica output labels follow the same scheme as the circuit labels.
+  return withLabelScheme(resolveNamingScheme(opts, project), () => applyAutomaticMainBusNamingToPanelUnpinned(panel, opts, project))
+}
+
+function applyAutomaticMainBusNamingToPanelUnpinned(
   panel: Panel,
   opts: AutomaticMainBusNamingOpts,
   project: ProjectWithOptionalV2Electrical,
@@ -880,4 +952,16 @@ export function applyAutomaticMainBusNamingToPanel(
   }, project)
   reconcileSupplyProtectionLabelsOnPanel(panel, project)
   applyAutomaticEndpointBranchLabelsToPanel(panel)
+  relabelDomoticaOutputsOnPanel(panel)
+}
+
+/** Domotica output rows follow their module's (possibly renamed) branch label. */
+function relabelDomoticaOutputsOnPanel(panel: Panel): void {
+  forEachCircuitOnPanel(panel, (circuit) => {
+    if (!circuit.endpoints.some((endpoint) => endpoint.symbol === 'domotica' && endpoint.domoticaProps)) return
+    const relabelled = relabelDomoticaChildRows(circuit)
+    if (relabelled.some((endpoint, index) => endpoint.label !== circuit.endpoints[index]?.label)) {
+      circuit.endpoints = relabelled
+    }
+  })
 }

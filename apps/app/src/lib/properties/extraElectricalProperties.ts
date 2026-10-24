@@ -183,7 +183,9 @@ export function applyExtraElectricalPropertyEdit(
         project,
         id,
         (current as { cable: CableSpec }).cable,
-        patch as WireRunChanges
+        patch as WireRunChanges,
+        undefined,
+        edit.sharedGeometryAnchors
       )
       changed.push({ kind: 'element', id })
     } else {

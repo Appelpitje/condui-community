@@ -13,6 +13,8 @@ import {
 import { ensurePanelDistributionPlacementInProject } from '@/lib/plan/panelPlacementMutations'
 import { isAwaitingPlanPlacement } from '@/lib/plan/customPlacement'
 import { collectSharedJunctions } from '@/lib/plan/sharedJunctionPlacements'
+import { getEndpointPlanWallFacingSide } from '@/lib/plan/planWallOrientation'
+import { suggestRotationForPlacement } from '@/utils/planAutoOrient'
 import {
   getEditableProjectElectricalInstallation,
   getEditableProjectElectricalPanels,
@@ -22,6 +24,7 @@ import {
   getBuildingFloorById,
   mutateBuildingFloorView,
   selectProjectBuildingFloors,
+  selectProjectFloorPlan,
 } from '@/lib/projectV2/buildingFloors'
 import type { ProjectV2 } from '@/types/projectV2'
 import type { Placement } from '@/types/schema'
@@ -234,11 +237,20 @@ export const planPlaceExisting = defineProjectCommand({
         (isAwaitingPlanPlacement(placementToComplete) ||
           (boardPlacement && placementToComplete.floorId !== input.floorId))
       ) {
+        const wallFacingSide = endpoint && getEndpointPlanWallFacingSide(endpoint)
+        const rotationDeg = wallFacingSide && placementToComplete.rotationMode !== 'explicit'
+          ? suggestRotationForPlacement(
+              { ...placementToComplete, pos: input.pos },
+              { walls: selectProjectFloorPlan(project, input.floorId)?.walls ?? [] },
+              wallFacingSide
+            )
+          : null
         if (placementToComplete.floorId === input.floorId) {
           const updated = updatePlacementInProject(project, placementToComplete.id, {
             floorId: input.floorId,
             layer: input.layer,
             pos: input.pos,
+            ...(rotationDeg != null ? { rotationDeg } : {}),
           })
           moved = !!updated
           circuitId = updated?.circuitId
@@ -250,6 +262,7 @@ export const planPlaceExisting = defineProjectCommand({
           )
           const updated = updatePlacementInProject(project, placementToComplete.id, {
             layer: input.layer,
+            ...(rotationDeg != null ? { rotationDeg } : {}),
           })
           circuitId = updated?.circuitId
         }
@@ -277,6 +290,17 @@ export const planPlaceExisting = defineProjectCommand({
       pos: input.pos,
       rotationDeg: 0,
       scale: 1,
+    }
+    const wallFacingSide = endpoint && getEndpointPlanWallFacingSide(endpoint)
+    if (wallFacingSide) {
+      placement.rotationDeg = suggestRotationForPlacement(
+        placement,
+        {
+          walls: selectProjectFloorPlan(project, input.floorId)?.walls ?? [],
+          ...(endpoint?.type === 'socket' ? { socketCount: endpoint.socketProps?.socketCount ?? 1 } : {}),
+        },
+        wallFacingSide
+      ) ?? placement.rotationDeg
     }
     const added =
       input.target.kind === 'trunkDevice'

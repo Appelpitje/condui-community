@@ -252,6 +252,8 @@ function trunkDeviceFromProtection(
     ...(targetProtection.residualCurrentType
       ? { residualCurrentType: targetProtection.residualCurrentType }
       : {}),
+    ...(targetProtection.selective != null ? { selective: targetProtection.selective } : {}),
+    ...(targetProtection.superImmunized != null ? { superImmunized: targetProtection.superImmunized } : {}),
     ...(targetProtection.poles ? { poles: targetProtection.poles } : {}),
   }
 }

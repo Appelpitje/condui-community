@@ -935,7 +935,7 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
       }
     }),
 
-  updateWireRunAtAnchor: (anchor, cable, changes) =>
+  updateWireRunAtAnchor: (anchor, cable, changes, sharedGeometryAnchors) =>
     set((state) => {
       if (!state.currentProject) return
       if (
@@ -948,7 +948,14 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
         )
       )
         return
-      editWireRunAtAnchor(state.currentProject, anchor, cable, changes)
+      editWireRunAtAnchor(
+        state.currentProject,
+        anchor,
+        cable,
+        changes,
+        undefined,
+        sharedGeometryAnchors
+      )
       state.isDirty = true
     }),
 
@@ -958,14 +965,21 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
       if (acceptWireLengthEstimatesInProject(state.currentProject, entries)) state.isDirty = true
     }),
 
-  makeWireCableProjectDefault: (anchor, cable) =>
+  makeWireCableProjectDefault: (anchor, cable, sharedGeometryAnchors) =>
     set((state) => {
       const installation = state.currentProject
         ? getEditableProjectElectricalInstallation(state.currentProject)
         : undefined
       if (!state.currentProject || !installation) return
       installation.defaultCableKind = cable.kind
-      editWireRunAtAnchor(state.currentProject, anchor, cable, { followsDefaultCable: true })
+      editWireRunAtAnchor(
+        state.currentProject,
+        anchor,
+        cable,
+        { followsDefaultCable: true },
+        undefined,
+        sharedGeometryAnchors
+      )
       state.isDirty = true
     }),
 

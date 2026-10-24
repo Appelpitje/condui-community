@@ -14,6 +14,7 @@ import { getProjectElectricalInstallation, getProjectElectricalPanels } from '@/
 import { logger } from '@/lib/logger'
 import { cancelActiveValidationWorker } from '@/lib/validation/validationWorkerClient'
 import { getValidationJurisdiction } from '@/lib/validation/core/jurisdiction'
+import { useCanValidateCurrentProject } from '@/hooks/useCanValidateCurrentProject'
 
 type IdleDeadlineLike = { didTimeout: boolean; timeRemaining: () => number }
 type RequestIdleCallbackHandle = number
@@ -91,6 +92,7 @@ export function ValidationStateIcon({
 }
 
 function ValidationStatusIcon() {
+  const canValidate = useCanValidateCurrentProject()
   const { t } = useTranslation()
   const currentProject = useProjectStore((state: ProjectState) => state.currentProject)
   const validationWindowOpen = useUIStore((state) => state.validationWindowOpen)
@@ -230,7 +232,7 @@ function ValidationStatusIcon() {
   }, [])
 
   useEffect(() => {
-    if (!signature) return
+    if (!signature || !canValidate) return
 
     if (lastSignatureRef.current !== signature) {
       logger.info('[Validation] signature changed')
@@ -287,6 +289,7 @@ function ValidationStatusIcon() {
       idleHandleRef.current = null
     }
   }, [
+    canValidate,
     cancelScheduledValidation,
     signature,
     validate,
@@ -348,6 +351,7 @@ function ValidationStatusIcon() {
     }
   }
 
+  if (!canValidate) return null
   return (
     <button
       type="button"

@@ -1,4 +1,5 @@
 import { isSupplyBranchDevice } from '@/lib/supplyAssembly/electricalTopology'
+import { nanoid } from 'nanoid'
 import { hideInlineConverterMetadataByDefault } from '@/lib/conversionLabels'
 import type {
   Panel,
@@ -35,6 +36,7 @@ import {
   canChainLightOnLightBranch,
   isDcOnlyEndpointSymbol,
   isEnergyConversionEndpointSymbol,
+  normalizeDomoticaChildDropIntent,
   shouldDefaultRelayToImpulse,
 } from '@/lib/eendraad/endpointInsertAfter'
 import { DEFAULT_ELECTRICAL_DOMAIN } from '@/types/schema'
@@ -130,9 +132,15 @@ import {
 } from '@/lib/eendraad/supplyTrunkDeviceMove'
 import { reconcileDirectConverterDcDevices } from '@/lib/supplyAssembly/editorIntegration'
 import { promoteDcBusConverterEndpoint } from '@/lib/eendraad/resizeConverterDcConnections'
+import { isProjectV2 } from '@/lib/projectV2/migration'
+import { electricalPlaceSymbol } from '@/lib/commands/project/commands/electricalPlaceSymbol'
+import { ProjectCommandRegistry } from '@/lib/commands/project/registry'
+import { applyCommandBatch } from '@/lib/commands/project/transaction'
+import { CommandError } from '@/lib/commands/project/types'
 import type { ElectricalEnclosureRef } from '@/types/supplyAssembly'
 
 type PreviewProject = ProjectWithOptionalV2Electrical
+let outputPlacementRegistry: ProjectCommandRegistry | undefined
 
 export interface EendraadPreviewChangeSet {
   project: PreviewProject
@@ -291,7 +299,7 @@ function circuitFeedsSubPanelSim(project: PreviewProject, circuitId: string): bo
   while (stack.length) {
     const p = stack.pop()!
     for (const link of resolvePanelSupplyLinksForSourcePanel(project, p)) {
-      if (link.feederCircuit?.id === circuitId) return true
+      if (link.feederCircuit?.id === circuitId && !link.sourcePanelEndpoint?.domoticaChildProps) return true
     }
     if (p.subPanels?.length) stack.push(...p.subPanels)
   }
@@ -823,7 +831,7 @@ function simulateEndpointDrop(
         ...b,
         endpointIds: (b.endpointIds ?? []).filter((id) => id !== endpointId),
       }))
-      .filter((b) => (b.endpointIds ?? []).length > 0)
+      .filter((b) => (b.endpointIds ?? []).length > 0 || (b.branchDevices?.length ?? 0) > 0)
     const branchIndexFromEndpoints =
       branchEndpointIds && branchEndpointIds.length > 0
         ? branchesSansNewEndpoint.findIndex((b) =>
@@ -2210,6 +2218,10 @@ export function simulateDropOnProject(
     const circuit = findCircuitInProject(project, target.circuitId)
     if (circuit) target = resolveDomoticaConversionDropTarget(circuit, target)
   }
+  if (target.circuitId) {
+    const circuit = findCircuitInProject(project, target.circuitId)
+    if (circuit) target = normalizeDomoticaChildDropIntent(circuit, target, symbol)
+  }
   if (!canCreateSupplyTopologyFromDrop(symbol, target.type)) return null
   if (symbol.id === 'dc_bus' && !canDropDcBusOnTarget(target, project)) return null
   if (
@@ -2218,6 +2230,50 @@ export function simulateDropOnProject(
     !canDropSymbolOnSupplyConverterDcWire(symbol.id, false)
   ) {
     return null
+  }
+
+  const outputCircuit = target.circuitId ? findCircuitInProject(project, target.circuitId) : null
+  const outputRef = target.domoticaOutput && target.endpointId
+    ? { parentEndpointId: target.endpointId, outputIndex: target.domoticaOutput.index, outputGroup: target.domoticaOutput.group }
+    : outputCircuit
+      ? domoticaChildRefForEndpoint(outputCircuit, target.endpointId) ??
+        domoticaChildRefForBranchInsert(outputCircuit, target.insertAfterEndpointId, target.branchEndpoints)
+      : null
+  const rowFeedsBoard = !!outputRef && outputCircuit?.endpoints.some((endpoint) =>
+    endpoint.symbol === 'panel_distribution' && endpoint.domoticaChildProps &&
+    endpoint.domoticaChildProps.parentEndpointId === outputRef?.parentEndpointId &&
+    endpoint.domoticaChildProps.outputIndex === outputRef.outputIndex &&
+    endpoint.domoticaChildProps.outputGroup === outputRef.outputGroup)
+  if (isProjectV2(project) && outputRef && (symbol.id === 'panel_distribution' || rowFeedsBoard)) {
+    // Output-fed boards and their sibling loads must preview the real placement.
+    // The legacy board simulation attaches the whole circuit to the new board.
+    outputPlacementRegistry ??= new ProjectCommandRegistry().register(electricalPlaceSymbol)
+    try {
+      const placed = applyCommandBatch(project, outputPlacementRegistry.parse([
+        { id: 'electrical.placeSymbol', input: { symbolId: symbol.id, target } },
+      ]), { newId: () => nanoid(16), now: () => '2000-01-01T00:00:00.000Z', language: 'en' })
+      if (placed.project === project) return null
+      const created = placed.results.flatMap((result) => result.created)
+      return {
+        project: placed.project,
+        affectedPanelIds: [...new Set([
+          ...(target.panelId ? [target.panelId] : []),
+          ...created.filter((ref) => ref.kind === 'panel').map((ref) => ref.id),
+        ])],
+        affectedCircuitIds: [...new Set([
+          ...(target.circuitId ? [target.circuitId] : []),
+          ...created.filter((ref) => ref.kind === 'circuit').map((ref) => ref.id),
+        ])],
+        createdEndpointIds: created.filter((ref) => ref.kind === 'endpoint').map((ref) => ref.id),
+        createdProtectionIds: created.filter((ref) => ref.kind === 'protection').map((ref) => ref.id),
+        createdTrunkDeviceIds: created.filter((ref) => ref.kind === 'trunkDevice').map((ref) => ref.id),
+        movedTrunkDeviceIds: [],
+        createdSupplyTrunkDeviceIds: [], createdGroundTrunkDeviceIds: [],
+      }
+    } catch (error) {
+      if (error instanceof CommandError) return null
+      throw error
+    }
   }
 
   const cloned = cloneProject(project)

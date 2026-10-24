@@ -3,6 +3,7 @@ import { placeElectricalSymbolInProject } from '@/lib/eendraad/electricalSymbolD
 import { findPanelById } from '@/lib/panel/panelTree'
 import { getEditableProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { getSymbolById } from '@/lib/symbols'
+import { DOMOTICA_MAX_ENDPOINT_OUTPUTS } from '@/lib/domoticaLayout'
 import { PROTECTION_SYMBOL_IDS } from '@/lib/protectionKind'
 import {
   isModularSocketLibraryId,
@@ -17,6 +18,7 @@ import {
   DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS,
 } from '@/lib/wires/circuitWireDefaults'
 import { collectCircuits } from '@/lib/panel/panelTree'
+import { findCircuitOwner } from '@/lib/eendraad/projectElectricalDomain'
 import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
 import { canSymbolAppearOnSituationPlan } from '@/lib/plan/situationPlanSymbolEligibility'
 import type { ProjectV2 } from '@/types/projectV2'
@@ -97,6 +99,15 @@ export const electricalPlaceSymbol = defineProjectCommand({
     const target = resolved.target
     const targetCheck = checkElectricalDropTarget(project, target, input.planPlacement?.floorId ?? input.sitplan?.activeFloorId)
     if (!targetCheck.ok) return targetCheck
+    if (input.symbolId === 'panel_distribution' && target.domoticaOutput) {
+      const owner = findCircuitOwner(getEditableProjectElectricalPanels(project), target.circuitId ?? '')
+      const module = owner?.circuit.endpoints.find((endpoint) => endpoint.id === target.endpointId)
+      if (!owner?.protection || !module || module.symbol !== 'domotica' || target.domoticaOutput.group !== 'endpoint' ||
+        target.domoticaOutput.index >= DOMOTICA_MAX_ENDPOINT_OUTPUTS ||
+        target.domoticaOutput.index >= (module.domoticaProps?.endpointCount ?? 1) +
+          (target.domoticaOutput.expands ? 1 : 0))
+        return { ok: false, code: 'output_not_found', message: 'Domotica output no longer exists.' }
+    }
     if (
       input.sitplan?.activePanelId &&
       !findPanelById(getEditableProjectElectricalPanels(project), input.sitplan.activePanelId)

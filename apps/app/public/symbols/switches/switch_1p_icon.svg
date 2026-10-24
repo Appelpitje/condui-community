@@ -1,0 +1,8 @@
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" width="48" height="48">
+  <!-- Icon for lists and pickers (not the canvas drawing): switch_1p scaled 1.3x around its own centre. -->
+  <g transform="translate(24 24) scale(1.3) translate(-28.8 -15.65)" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="24" cy="24.1" r="6"/>
+    <line x1="26.2" y1="18.5" x2="33.3" y2="1.2"/>
+    <line x1="33.2" y1="1.3" x2="39.6" y2="3.8"/>
+  </g>
+</svg>

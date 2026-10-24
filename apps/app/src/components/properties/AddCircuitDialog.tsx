@@ -5,6 +5,7 @@
 import React, { useState, useEffect } from 'react'
 import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import { getProtectionCurveOptions } from './protectionCurveOptions'
+import { getProtectionResidualTypeOptions } from './protectionResidualTypeOptions'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { runProjectCommand } from '@/stores/liveProjectCommandSession'
@@ -274,12 +275,8 @@ export default function AddCircuitDialog({
             <CustomDropdown
               value={residualCurrentType}
               onChange={setResidualCurrentType}
-              options={[
-                { value: 'AC', label: t('protections.residualType_AC', 'AC (sinusoidal)') },
-                { value: 'A', label: t('protections.residualType_A', 'A (pulsating DC)') },
-                { value: 'F', label: t('protections.residualType_F', 'F (mixed frequency)') },
-                { value: 'B', label: t('protections.residualType_B', 'B (smooth DC)') },
-              ]}
+              options={getProtectionResidualTypeOptions(t)}
+              wrapLabels
               className={selectClass}
             />
           </div>

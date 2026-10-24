@@ -5,6 +5,7 @@ import { isLayoutPreset } from '@/lib/viewport/layoutPresets'
 import { getThemeColor } from '@/lib/theme/colors'
 import { clearSymbolCache, warmSymbolSvgCache } from '@/lib/symbolImage'
 import { setManualPlanPlacement } from '@/lib/plan/manualPlanPlacementPreference'
+import { parseSavedLabelStyles, type SavedLabelStyle } from '@/lib/eendraad/labelScheme'
 import {
   persistLanguagePreference,
   persistThemePreference,
@@ -37,6 +38,8 @@ interface Settings {
   placePlanSymbolsManually: boolean
   /** Viewport layout a project opens with when it has no saved layout. */
   defaultLayoutPreset: LayoutPreset
+  /** Label styles the user saved from the automatic label settings ("My styles"). */
+  labelStyles: SavedLabelStyle[]
   /** Plain wheel / two-finger scroll: zoom (mouse) or pan (trackpad). Pinch and Ctrl/Cmd + wheel always zoom. */
   wheelBehavior: WheelBehavior
   /** The one-time "using a trackpad?" hint was answered or dismissed, or the user chose a mode. */
@@ -75,6 +78,7 @@ interface SettingsState extends Settings {
   setLeftDragPansCanvas: (enabled: boolean) => void
   setPlacePlanSymbolsManually: (enabled: boolean) => void
   setDefaultLayoutPreset: (preset: LayoutPreset) => void
+  setLabelStyles: (styles: SavedLabelStyle[]) => void
   setWheelBehavior: (behavior: WheelBehavior) => void
   dismissWheelBehaviorHint: () => void
   reset: () => void
@@ -108,6 +112,7 @@ const defaultSettings: Settings = {
   leftDragPansCanvas: true,
   placePlanSymbolsManually: false,
   defaultLayoutPreset: 'sideBySide',
+  labelStyles: [],
   wheelBehavior: 'zoom',
   wheelBehaviorHintDone: false,
 }
@@ -140,6 +145,11 @@ export const useSettingsStore = create<SettingsState>()(
       setLeftDragPansCanvas: (enabled) => set({ leftDragPansCanvas: enabled }),
       setPlacePlanSymbolsManually: (enabled) => set({ placePlanSymbolsManually: enabled }),
       setDefaultLayoutPreset: (preset) => set({ defaultLayoutPreset: preset }),
+      setLabelStyles: (styles) => {
+        // Keep the given array when it is already valid so preference sync sees no change.
+        const parsed = parseSavedLabelStyles(styles)
+        set({ labelStyles: JSON.stringify(parsed) === JSON.stringify(styles) ? styles : parsed })
+      },
       setWheelBehavior: (behavior) => set({ wheelBehavior: behavior, wheelBehaviorHintDone: true }),
       dismissWheelBehaviorHint: () => set({ wheelBehaviorHintDone: true }),
       reset: () => set(defaultSettings),
@@ -159,6 +169,7 @@ export const useSettingsStore = create<SettingsState>()(
           defaultLayoutPreset: isLayoutPreset(persisted.defaultLayoutPreset)
             ? persisted.defaultLayoutPreset
             : currentState.defaultLayoutPreset,
+          labelStyles: parseSavedLabelStyles(persisted.labelStyles),
         }
       },
     }

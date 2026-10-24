@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Installation } from '@/types/schema'
+import { createDefaultSupplyCable } from '@/lib/electrical/supplyCable'
 import {
   DEFAULT_SUPPLY_VOLTAGE_SYSTEM,
   applyNominalVoltageSystem,
-  supplyCableConductorsForSystem,
 } from '@/constants/nominalVoltage'
 import { NominalVoltageSystemPicker } from '@/components/properties/NominalVoltageSystemPicker'
 import { ConnectionCurrentField } from '@/components/properties/ConnectionCurrentField'
@@ -80,12 +80,7 @@ export default function CommunityNewProjectDialog({
         voltageSystem,
       ),
       mainSupply: {
-        cable: {
-          kind: 'XVB',
-          conductors: supplyCableConductorsForSystem(voltageSystem),
-          sectionMm2: 6,
-          hasPE: true,
-        },
+        cable: createDefaultSupplyCable(voltageSystem),
         origin: 'grid',
       },
     }

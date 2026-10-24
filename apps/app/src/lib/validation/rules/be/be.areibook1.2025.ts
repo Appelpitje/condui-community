@@ -3,6 +3,7 @@
  * Contains 5-8 sample rules demonstrating the validation framework
  */
 import type { RulePack } from '../../core/types'
+import { householdSafetyRules } from './householdSafetyRules'
 
 export const beAreiBook1_2025: RulePack = {
   id: 'be.areibook1.2025',
@@ -16,6 +17,7 @@ export const beAreiBook1_2025: RulePack = {
     source: 'AREI',
   },
   rules: [
+    ...householdSafetyRules,
     {
       id: 'be.areibook1.2025.supply-mode-paths',
       title: 'Grid and backup supply paths',
@@ -214,6 +216,132 @@ export const beAreiBook1_2025: RulePack = {
       tags: ['non-household', 'circuit', 'cable-length', 'documentation'],
     },
     {
+      id: 'be.areibook1.2025.earth-resistance',
+      title: 'Earth resistance within AREI limits',
+      severity: 'warning',
+      appliesTo: ['board'],
+      checks: [{ name: 'earthResistanceWithinLimits' }],
+      message: 'validation.rules.be.areibook1.2025.earth-resistance.message',
+      details: 'validation.rules.be.areibook1.2025.earth-resistance.details',
+      remediation: 'validation.rules.be.areibook1.2025.earth-resistance.remediation',
+      citations: [
+        {
+          code: 'AREI',
+          title: 'Algemeen Reglement op de Elektrische Installaties',
+          section: '§ 4.2.3.2, § 4.2.4.3(b), § 4.2.4.4(d)',
+        },
+      ],
+      tags: ['earthing', 'earth-resistance', 'rcd'],
+    },
+    {
+      id: 'be.areibook1.2025.nonhousehold-earth-resistance-entered',
+      title: 'Non-household earth resistance entered',
+      severity: 'info',
+      appliesTo: ['board'],
+      checks: [{ name: 'nonHouseholdEarthResistanceEntered' }],
+      message: 'validation.rules.be.areibook1.2025.nonhousehold-earth-resistance-entered.message',
+      details: 'validation.rules.be.areibook1.2025.nonhousehold-earth-resistance-entered.details',
+      remediation: 'validation.rules.be.areibook1.2025.nonhousehold-earth-resistance-entered.remediation',
+      citations: [
+        {
+          code: 'AREI',
+          title: 'Algemeen Reglement op de Elektrische Installaties',
+          section: '§ 4.2.4.4(d)',
+        },
+      ],
+      tags: ['non-household', 'earthing', 'earth-resistance'],
+    },
+    {
+      id: 'be.areibook1.2025.nonhousehold-tt-indirect-contact',
+      title: 'Non-household TT indirect-contact protection',
+      severity: 'warning',
+      appliesTo: ['circuit'],
+      checks: [{ name: 'nonHouseholdTtIndirectContact' }],
+      message: 'validation.rules.be.areibook1.2025.nonhousehold-tt-indirect-contact.message',
+      details: 'validation.rules.be.areibook1.2025.nonhousehold-tt-indirect-contact.details',
+      remediation: 'validation.rules.be.areibook1.2025.nonhousehold-tt-indirect-contact.remediation',
+      citations: [
+        {
+          code: 'AREI',
+          title: 'Algemeen Reglement op de Elektrische Installaties',
+          section: '§ 4.2.4.4(b), § 4.2.4.4(d)',
+        },
+      ],
+      tags: ['non-household', 'rcd', 'earthing', 'indirect-contact'],
+    },
+    {
+      id: 'be.areibook1.2025.nonhousehold-board-short-circuit-current',
+      title: 'Non-household board short-circuit current stated',
+      severity: 'info',
+      appliesTo: ['board'],
+      checks: [{ name: 'nonHouseholdBoardShortCircuitStated' }],
+      message: 'validation.rules.be.areibook1.2025.nonhousehold-board-short-circuit-current.message',
+      details: 'validation.rules.be.areibook1.2025.nonhousehold-board-short-circuit-current.details',
+      remediation: 'validation.rules.be.areibook1.2025.nonhousehold-board-short-circuit-current.remediation',
+      citations: [
+        {
+          code: 'AREI',
+          title: 'Algemeen Reglement op de Elektrische Installaties',
+          section: '§ 3.1.2.2(b), § 3.1.3.3(b)',
+        },
+      ],
+      tags: ['non-household', 'board', 'short-circuit', 'documentation'],
+    },
+    {
+      id: 'be.areibook1.2025.nonhousehold-breaking-capacity',
+      title: 'Non-household breaking capacity',
+      severity: 'warning',
+      appliesTo: ['board'],
+      checks: [{ name: 'nonHouseholdBreakingCapacity' }],
+      message: 'validation.rules.be.areibook1.2025.nonhousehold-breaking-capacity.message',
+      details: 'validation.rules.be.areibook1.2025.nonhousehold-breaking-capacity.details',
+      remediation: 'validation.rules.be.areibook1.2025.nonhousehold-breaking-capacity.remediation',
+      citations: [
+        {
+          code: 'AREI',
+          title: 'Algemeen Reglement op de Elektrische Installaties',
+          section: '§ 4.4.2.1, § 5.3.5.5(e)',
+        },
+      ],
+      tags: ['non-household', 'protection', 'short-circuit'],
+    },
+    {
+      id: 'be.areibook1.2025.nonhousehold-breaking-capacity-shown',
+      title: 'Non-household breaking capacity shown',
+      severity: 'warning',
+      appliesTo: ['board'],
+      checks: [{ name: 'nonHouseholdBreakingCapacityShown' }],
+      message: 'validation.rules.be.areibook1.2025.nonhousehold-breaking-capacity-shown.message',
+      details: 'validation.rules.be.areibook1.2025.nonhousehold-breaking-capacity-shown.details',
+      remediation: 'validation.rules.be.areibook1.2025.nonhousehold-breaking-capacity-shown.remediation',
+      citations: [
+        {
+          code: 'AREI',
+          title: 'Algemeen Reglement op de Elektrische Installaties',
+          section: '§ 3.1.2.2(b)',
+        },
+      ],
+      tags: ['non-household', 'protection', 'documentation'],
+    },
+    {
+      id: 'be.areibook1.2025.nonhousehold-supply-transformer',
+      title: 'Non-household supply transformer characteristics',
+      severity: 'warning',
+      appliesTo: ['board'],
+      checks: [{ name: 'nonHouseholdSupplyTransformerDocumented' }],
+      message: 'validation.rules.be.areibook1.2025.nonhousehold-supply-transformer.message',
+      details: 'validation.rules.be.areibook1.2025.nonhousehold-supply-transformer.details',
+      remediation: 'validation.rules.be.areibook1.2025.nonhousehold-supply-transformer.remediation',
+      citations: [
+        {
+          code: 'AREI',
+          title: 'Algemeen Reglement op de Elektrische Installaties',
+          section: '§ 3.1.2.2(b)',
+        },
+      ],
+      tags: ['non-household', 'supply', 'transformer', 'documentation'],
+    },
+    {
       id: 'be.areibook1.2025.household-breaking-capacity',
       title: 'Household breaking capacity',
       severity: 'warning',
@@ -301,7 +429,7 @@ export const beAreiBook1_2025: RulePack = {
         {
           code: 'AREI',
           title: 'Algemeen Reglement op de Elektrische Installaties',
-          section: '§ 5.3.5.3(a)',
+          section: '§ 4.2.4.3(b), § 5.3.5.3(a)',
         },
       ],
       tags: ['rcd', 'supply', 'protection'],
@@ -440,7 +568,7 @@ export const beAreiBook1_2025: RulePack = {
       id: 'be.areibook1.2025.rcd-grouping',
       title: 'RCD grouping - max circuits',
       severity: 'warning',
-      appliesTo: ['device'],
+      appliesTo: ['device', 'board'],
       checks: [
         {
           name: 'rcdHasTooManyCircuits',
@@ -448,6 +576,7 @@ export const beAreiBook1_2025: RulePack = {
             threshold: 8,
           },
         },
+        { name: 'supplyRcdCircuitCount' },
       ],
       message: 'validation.rules.be.areibook1.2025.rcd-grouping.message',
       details: 'validation.rules.be.areibook1.2025.rcd-grouping.details',
@@ -456,7 +585,7 @@ export const beAreiBook1_2025: RulePack = {
         {
           code: 'AREI',
           title: 'Algemeen Reglement op de Elektrische Installaties',
-          section: '§ 5.3.5.3(a)',
+          section: '§ 4.2.4.3(b)',
         },
       ],
       tags: ['rcd', 'grouping'],
@@ -721,7 +850,7 @@ export const beAreiBook1_2025: RulePack = {
         {
           code: 'AREI',
           title: 'Algemeen Reglement op de Elektrische Installaties',
-          section: '§ 5.3.4.1',
+          section: '§ 5.2.1.2',
         },
       ],
       tags: ['circuit', 'fixed_appliance'],
@@ -743,7 +872,7 @@ export const beAreiBook1_2025: RulePack = {
         {
           code: 'AREI',
           title: 'Algemeen Reglement op de Elektrische Installaties',
-          section: '§ 5.3.4.4',
+          section: '§ 5.2.1.2',
         },
       ],
       tags: ['circuit', 'stove'],

@@ -16,6 +16,8 @@ WORKDIR /workspace
 LABEL org.opencontainers.image.title="Condui Community" \
       org.opencontainers.image.licenses="PolyForm-Perimeter-1.0.1"
 COPY --from=build /workspace/node_modules ./node_modules
+COPY --from=build /workspace/.node-version ./.node-version
+COPY --from=build /workspace/scripts/verify-node-version.mjs ./scripts/verify-node-version.mjs
 COPY --from=build /workspace/apps/app/dist ./apps/app/dist
 COPY --from=build /workspace/apps/app/community ./apps/app/community
 COPY --from=build /workspace/apps/app/netlify/functions-offline ./apps/app/netlify/functions-offline

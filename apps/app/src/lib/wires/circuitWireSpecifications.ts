@@ -1,0 +1,106 @@
+import type { CableSpec, Circuit, Panel, WireSegment } from '@/types/schema'
+import type { WireRun } from '@/types/projectV2'
+import { deriveWireAnchorKey, fromWireRunRoute, toWireRunRoute } from '@/lib/projectV2/wireRuns'
+import { getCircuitBranches } from '@/lib/layout/endpointChains'
+import { circuitWireDomains } from './circuitWireIdentity'
+
+export type WireInstallationSpecification = Pick<WireRun, 'route' | 'inTube'> & {
+  fireClass?: CableSpec['fireClass']
+}
+
+/** Missing placement and fire-class fields inherit upstream within one circuit/domain.
+ * Explicit downstream values override only those fields, independently of cable dimensions.
+ * Cable dimensions, lengths, cores and run identity remain specific to each connection.
+ */
+export function circuitWireSpecifications(
+  panels: Panel[], runs: readonly WireRun[]
+): Map<string, WireInstallationSpecification> {
+  const domains = circuitWireDomains(panels)
+  const own = new Map(runs.flatMap((run) => run.medium === 'busbar' ? [] : run.members.map((anchor) =>
+    [anchor, { fireClass: run.cable.fireClass, route: run.route, inTube: run.inTube }] as const)))
+  const parents = new Map<string, string>()
+  const defaults = new Map<string, WireInstallationSpecification>()
+  const visitCircuit = (circuit: Circuit) => {
+    const trunkIds = new Set([...(circuit.trunkDevices ?? []),
+      ...(circuit.branches ?? []).flatMap((branch) => branch.branchDevices ?? [])].map((device) => device.id))
+    const anchor = (id: string) => deriveWireAnchorKey({
+      kind: 'circuit-section', circuitId: circuit.id,
+      nodeRef: `${trunkIds.has(id) ? 'trunk-device' : 'endpoint'}:${id}`,
+      domain: domains.get(`${circuit.id}:${id}`) ?? 'AC',
+    })
+    const devices = [...(circuit.trunkDevices ?? []),
+      ...(circuit.branches ?? []).flatMap((branch) => branch.branchDevices ?? []),
+      ...circuit.endpoints]
+    for (const device of devices) defaults.set(anchor(device.id), {
+      fireClass: circuit.cable.fireClass, route: toWireRunRoute(circuit.wireRoute, circuit.inWall), inTube: circuit.inTube,
+    })
+    const connect = (from: string | undefined, to: string) => {
+      if (!from) return
+      if (domains.get(`${circuit.id}:${from}`) !== domains.get(`${circuit.id}:${to}`)) return
+      parents.set(anchor(to), anchor(from))
+    }
+    const trunks = [...(circuit.trunkDevices ?? [])].sort((a, b) => a.trunkPosition - b.trunkPosition)
+    trunks.forEach((device, index) => connect(trunks[index - 1]?.id, device.id))
+    const branches = getCircuitBranches(circuit)
+    branches.forEach((endpoints, branchIndex) => {
+      const branch = circuit.branches?.[branchIndex]
+      let previous = branch?.dcBusId ?? trunks.filter((device) => device.trunkPosition <= branchIndex).at(-1)?.id
+      for (const device of branch?.branchDevices ?? []) {
+        connect(previous, device.id)
+        previous = device.id
+      }
+      const outputTails = new Map<string, string>()
+      for (const endpoint of endpoints) {
+        const child = endpoint.domoticaChildProps
+        if (child) {
+          // Outputs inherit the module input, never another output's overrides.
+          const key = `${child.parentEndpointId}:${child.outputGroup}:${child.outputIndex}`
+          connect(outputTails.get(key) ?? child.parentEndpointId, endpoint.id)
+          outputTails.set(key, endpoint.id)
+        } else {
+          connect(previous, endpoint.id)
+          previous = endpoint.id
+        }
+      }
+    })
+  }
+  const visit = (panel: Panel) => {
+    for (const circuit of [...panel.circuits, ...panel.protections.flatMap((protection) => protection.circuits ?? [])])
+      visitCircuit(circuit)
+    panel.subPanels.forEach(visit)
+  }
+  panels.forEach(visit)
+  const resolved = new Map<string, WireInstallationSpecification>()
+  const resolving = new Set<string>()
+  const completed = new Set<string>()
+  const resolve = (anchor: string): WireInstallationSpecification | undefined => {
+    if (completed.has(anchor)) return resolved.get(anchor)
+    if (resolving.has(anchor)) return undefined
+    resolving.add(anchor)
+    const parent = parents.get(anchor)
+    const authored = own.get(anchor)
+    const upstream = (parent ? resolve(parent) : undefined) ?? (authored ? defaults.get(anchor) : undefined)
+    const specification = authored || upstream ? {
+      fireClass: authored?.fireClass ?? upstream?.fireClass,
+      route: authored?.route ?? upstream?.route,
+      inTube: authored?.inTube ?? upstream?.inTube,
+    } : undefined
+    resolving.delete(anchor)
+    completed.add(anchor)
+    if (specification) resolved.set(anchor, specification)
+    return specification
+  }
+  for (const anchor of new Set([...defaults.keys(), ...own.keys()])) resolve(anchor)
+  return resolved
+}
+
+export function hasWirePlacement(segment: Pick<WireSegment, 'installationType' | 'wireRoute' | 'inTube'>): boolean {
+  return Boolean(segment.installationType || segment.wireRoute || segment.inTube)
+}
+
+export function applyWireInstallationSpecification(
+  segment: WireSegment, specification: WireInstallationSpecification
+): void {
+  segment.cable = { ...segment.cable, fireClass: specification.fireClass }
+  Object.assign(segment, fromWireRunRoute(specification.route), { inTube: specification.inTube })
+}

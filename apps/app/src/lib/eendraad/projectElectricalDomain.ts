@@ -50,8 +50,8 @@ import { queryOneWireFrames, replaceOneWireFrames } from '@/lib/projectV2/annota
 import { findParentCircuitInfo } from '@/lib/eendraad/findParentCircuitInfo'
 import {
   findPanelOwnDistributionEndpoint,
-  resolvePanelSupplyLinkForPanel,
   resolvePanelSupplyLinkForPanelInPanels,
+  resolvePanelSupplyLinksForSourcePanelInPanels,
 } from '@/lib/eendraad/panelSupplyLink'
 import { syncDerivedEndpointFlags } from '@/lib/eendraad/endpointInsertAfter'
 import { relabelDomoticaChildRows } from '@/lib/eendraad/domoticaOutputOrdering'
@@ -316,10 +316,8 @@ export function syncLinkedSubPanelHierarchy(project: ElectricalDomainProject): b
 
   const collect = (panels: Panel[]) => {
     for (const panel of panels) {
-      for (const protection of panel.protections ?? []) {
-        if (protection.subPanelId) {
-          links.push({ sourcePanel: panel, targetPanelId: protection.subPanelId })
-        }
+      for (const link of resolvePanelSupplyLinksForSourcePanelInPanels(getProjectElectricalPanels(project), panel)) {
+        links.push({ sourcePanel: panel, targetPanelId: link.targetPanel.id })
       }
       collect(panel.subPanels ?? [])
     }
@@ -443,6 +441,16 @@ export function deletePanelFromProject(project: ElectricalDomainProject, panelId
 
   const cleanupPanelCircuits = (panels: Panel[]) => {
     for (const panel of panels) {
+      // Output-fed boards have a real endpoint in their module circuit, rather
+      // than only a whole-protection subPanelId. Remove that occurrence while
+      // keeping the module and any lights on the same output.
+      for (const circuit of [...panel.circuits, ...panel.protections.flatMap((protection) => protection.circuits ?? [])]) {
+        if (circuit.code === 'PANEL') continue
+        const deletedIds = new Set(circuit.endpoints.filter(isDeletedPanelEndpoint).map((endpoint) => endpoint.id))
+        if (!deletedIds.size) continue
+        removeEndpointIdsFromCircuit(circuit, deletedIds)
+        normalizeDomoticaCircuit(circuit)
+      }
       panel.circuits = panel.circuits.filter((circuit) => {
         if (circuit.code !== 'PANEL') return true
         const panelEndpoint = circuit.endpoints.find((e) => e.symbol === 'panel_distribution')
@@ -804,11 +812,8 @@ export function ensureLinkedSubPanelsHaveOwnPanelEndpoint(
 
   const visit = (panels: Panel[]) => {
     for (const sourcePanel of panels) {
-      for (const protection of sourcePanel.protections ?? []) {
-        const link = protection.subPanelId
-          ? resolvePanelSupplyLinkForPanel(project, protection.subPanelId)
-          : null
-        if (!link || link.targetPanelEndpoint) continue
+      for (const link of resolvePanelSupplyLinksForSourcePanelInPanels(getProjectElectricalPanels(project), sourcePanel)) {
+        if (link.targetPanelEndpoint) continue
 
         let panelCircuit = link.targetPanel.circuits.find((circuit) => circuit.code === 'PANEL')
         if (!panelCircuit) {

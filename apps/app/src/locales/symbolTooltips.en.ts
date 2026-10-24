@@ -35,6 +35,7 @@ export const symbolTooltipsEn = {
   switch_cross: 'Cross switch for more than two control points.',
   switch_dimmer: 'Dimmer to control lighting.',
   switch_1p_changeover: 'Changeover switch between two circuits.',
+  switch_shutter: "Up/down control for roller shutters or blinds.",
   switch_1p_pull: 'Pull switch, often at the ceiling.',
   contact: 'Loose contact, e.g. an input contact for home automation.',
   switch_impulse: 'Push button or impulse switch for teleruptor or smart home.',

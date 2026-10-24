@@ -41,6 +41,7 @@ import {
 import { ModularSocketModuleGraphic } from './ModularSocketModuleGraphic'
 import { measureSymbolLabelTextWidth } from '@/lib/symbolLabelTextWidth'
 import { getPanelModuleLabelFontSize } from './panelModuleLabelLayout'
+import { getPanelModuleSpecLayout } from './panelModuleSpecLayout'
 
 const DRAG_THRESHOLD = 8
 const RESIZE_HANDLE_W = 10
@@ -618,7 +619,7 @@ function ModuleBox({
   const textColor = colors.moduleText
   const secondaryColor = colors.moduleSecondary
 
-  const compactRating = info.specLines.find((line) => /^\d+(?:[.,]\d+)?A$/i.test(line))
+  const compactRating = info.specLines.find((line) => /^(?:[A-Z]\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?A)$/i.test(line))
   const compactCurve = info.specLines.find((line) => /^[A-Z]$/i.test(line))
   const compactResidualType = info.specLines.find((line) => /^Type\s+/i.test(line))
   const compactSensitivity = info.specLines
@@ -657,6 +658,10 @@ function ModuleBox({
   const middleTextHeight = compactLabelMode ? centerBandHeight * 0.5 : Math.max(1, centerBandHeight - MODULE_BAND_PADDING * 2)
   const bottomTextY = bottomBandTop + MODULE_BAND_PADDING
   const bottomTextHeight = Math.max(1, bottomBandHeight - MODULE_BAND_PADDING * 2)
+  const protectionSpecLayout = info.specRows && !compactLabelMode
+    ? getPanelModuleSpecLayout(info.specRows, textWidth, middleTextHeight,
+      (text, size) => measureSymbolLabelTextWidth(text, fontFamily, size))
+    : null
 
   // In rewire mode, disable dragging only on target modules (not on origin or other modules)
   const effectiveDraggable = isRewireTarget ? false : draggable
@@ -1407,7 +1412,42 @@ function ModuleBox({
         />
       )}
       {/* Spec block - vertically centered as one multiline text box. */}
-      {visibleSpecLines.length > 0 && !isSpdModule && !isTerminalStripModule && (
+      {protectionSpecLayout && !isSpdModule && !isTerminalStripModule && (
+        <Group name="panel-protection-specs" x={textSidePadding} y={middleTextY} listening={false}>
+          {protectionSpecLayout.map((row, index) => (
+            <Group key={index} x={row.x} y={row.y}>
+              {row.frame && (
+                <Rect
+                  name="panel-breaking-capacity-frame"
+                  x={0.3}
+                  y={0.3}
+                  width={Math.max(0, row.width - 0.6)}
+                  height={Math.max(0, row.height - 0.6)}
+                  stroke={secondaryColor}
+                  strokeWidth={0.6}
+                  listening={false}
+                />
+              )}
+              <Text
+                name="panel-protection-spec"
+                x={row.paddingX}
+                y={row.paddingY}
+                width={row.width - row.paddingX * 2}
+                height={row.fontSize}
+                text={row.text}
+                fontSize={row.fontSize}
+                fontFamily={fontFamily}
+                fill={secondaryColor}
+                wrap="none"
+                align="center"
+                verticalAlign="middle"
+                listening={false}
+              />
+            </Group>
+          ))}
+        </Group>
+      )}
+      {!protectionSpecLayout && visibleSpecLines.length > 0 && !isSpdModule && !isTerminalStripModule && (
         <Text
           ref={specTextRef}
           x={textSidePadding}

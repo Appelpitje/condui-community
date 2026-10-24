@@ -44,7 +44,8 @@ export function wallAffectedLabelIds(
   for (let index = 0; index < placements.length; index++) {
     const placement = placements[index]!
     if (!placement.pos) continue
-    const endpoint = placement.endpointId ? getEndpointById(placement.endpointId) : null
+    const sourceId = placement.endpointId ?? placement.trunkDeviceId
+    const endpoint = sourceId ? getEndpointById(sourceId) : null
     const text = endpoint?.label ?? placement.junctionPanelLabel ?? placement.planLabel
     if (!text) continue
     const { width, height } = getLabelBoxSize(text, fontSize, fontFamily)

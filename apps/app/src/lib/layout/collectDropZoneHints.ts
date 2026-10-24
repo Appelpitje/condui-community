@@ -884,6 +884,10 @@ function shouldIncludeHintNode(
   if (shouldSkipContainerNode(node)) return false
   if (node.hitZone?.type !== hitType) return false
   if (symbol.id === 'panel_distribution') {
+    if (hitType === 'endpoint') {
+      return node.type === 'wire' && node.hitZone.outputGroup === 'endpoint' &&
+        getHintWireDomain(node, ctx, project) === 'AC'
+    }
     if (hitType === 'mainBus' || hitType === 'rcd') return true
     if (hitType !== 'circuit') return false
     if (node.id?.startsWith('secondary-bus-segment-')) return true

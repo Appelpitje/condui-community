@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { useOneWireProjectSelector } from './oneWireRenderProject'
 import { ZOOM_100 } from '@/constants/canvasConstants'
 import { Group, Rect, Text } from 'react-konva'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -8,7 +9,6 @@ import {
   useIsTypeAndIdSelected,
   useSetSelection,
 } from '@/editions/community/communityHooks'
-import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getSupplySourceSummaryLabel } from '@/lib/electrical/supplyConnection'
 import { getInstallationSupplyTransformer } from '@/lib/electrical/supplyTransformer'
@@ -33,8 +33,7 @@ interface SupplySymbolProps {
 export function SupplySymbol({ x, y, panelId }: SupplySymbolProps) {
   const theme = useSettingsStore((state) => state.theme)
   const fontFamily = useCanvasFontFamily()
-  type ProjectStoreState = ReturnType<typeof useProjectStore.getState>
-  const installation = useProjectStore((s: ProjectStoreState) =>
+  const installation = useOneWireProjectSelector((s) =>
     s.currentProject ? getProjectElectricalInstallation(s.currentProject) : undefined
   )
   const setSelection = useSetSelection()

@@ -28,6 +28,7 @@ import { withCustomPlacementFlag } from '@/lib/plan/customPlacement'
 import { syncPanelAndSituationPlanDeviceVisibility } from '@/lib/plan/panelPlanPlacementVisibility'
 import { canSymbolAppearOnSituationPlan } from '@/lib/plan/situationPlanSymbolEligibility'
 import { isConflictingOnSymbolDrop } from './sameSymbolAddMore'
+import { normalizeDomoticaChildDropIntent } from './endpointInsertAfter'
 
 const PROTECTION_IDS = new Set<string>(PROTECTION_SYMBOL_IDS)
 
@@ -88,7 +89,11 @@ function blocksProtectionAfterJunctionPanel(
 }
 
 /** The drop target rules every canvas shares, before the drop engine runs. */
-export function normalizeElectricalDropTarget(symbolId: string, target: DropTarget): DropTarget {
+export function normalizeElectricalDropTarget(
+  symbolId: string,
+  target: DropTarget,
+  project?: ProjectV2,
+): DropTarget {
   const symbol = getSymbolById(symbolId)
   if (!symbol) return target
   // A generic panel-frame drop of a protection behaves like a drop on that panel's main bus.
@@ -96,7 +101,11 @@ export function normalizeElectricalDropTarget(symbolId: string, target: DropTarg
     target.type === null && target.panelId && PROTECTION_IDS.has(symbolId)
       ? { ...target, type: 'mainBus' as const }
       : target
-  return normalizeProtectionPlacementDropTarget(symbol, onMainBus)
+  const normalized = normalizeProtectionPlacementDropTarget(symbol, onMainBus)
+  const circuit = project && normalized.circuitId ? findCircuit(project, normalized.circuitId) : undefined
+  return circuit
+    ? normalizeDomoticaChildDropIntent(circuit, normalized, symbol)
+    : normalized
 }
 
 const MUTATING_CALLBACK = /^(add|update|delete|ensure|move|replace)/
@@ -128,7 +137,7 @@ export function placeElectricalSymbolInProject(
   if (!symbol) return { status: 'blocked', reason: 'unknown_symbol' }
   if (input.planPlacement && !canSymbolAppearOnSituationPlan(input.symbolId))
     return { status: 'rejected', message: 'This symbol cannot be placed on the situation plan' }
-  const target = normalizeElectricalDropTarget(input.symbolId, input.target)
+  const target = normalizeElectricalDropTarget(input.symbolId, input.target, project)
   if (blocksProtectionAfterJunctionPanel(project, input.symbolId, target)) {
     return { status: 'blocked', reason: 'protection_after_junction_panel' }
   }

@@ -29,6 +29,7 @@ export const SYMBOL_ILLUSTRATION_IDS: ReadonlySet<string> = new Set([
   'earthing',
   'switch_1p_changeover',
   'switch_1p_pull',
+  'switch_shutter',
   'modular_socket',
   'rotating_switch',
   'terminal_strip',

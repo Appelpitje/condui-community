@@ -107,18 +107,19 @@ export function orderPlanDropCircuitsForDisplay(
   return { preferred, other }
 }
 
+/** Circuit codes offered for a new circuit; `codeAt` follows the project's label scheme. */
 export function buildPlanDropAutoCircuitCodeOptions(
-  count = PLAN_DROP_AUTO_CIRCUIT_CODE_OPTION_COUNT
+  count = PLAN_DROP_AUTO_CIRCUIT_CODE_OPTION_COUNT,
+  codeAt: (index: number) => string = excelColumnLabelFromZeroBasedIndex
 ): string[] {
-  return Array.from({ length: Math.max(0, count) }, (_, index) =>
-    excelColumnLabelFromZeroBasedIndex(index)
-  )
+  return Array.from({ length: Math.max(0, count) }, (_, index) => codeAt(index))
 }
 
 export function buildPlanDropAvailableCircuitCodeOptions(
   panel: Panel,
   movingCircuitId: string | null | undefined,
-  count = PLAN_DROP_AUTO_CIRCUIT_CODE_OPTION_COUNT
+  count = PLAN_DROP_AUTO_CIRCUIT_CODE_OPTION_COUNT,
+  codeAt: (index: number) => string = excelColumnLabelFromZeroBasedIndex
 ): string[] {
   const used = new Set<string>()
   const movingProtectionIds = new Set<string>()
@@ -136,7 +137,8 @@ export function buildPlanDropAvailableCircuitCodeOptions(
     if (code) used.add(code)
   }
 
-  const options = buildPlanDropAutoCircuitCodeOptions(count).filter((code) => !used.has(code))
+  const generated = buildPlanDropAutoCircuitCodeOptions(count, codeAt)
+  const options = generated.filter((code) => !used.has(code.toUpperCase()))
   const currentProtection = panel.protections.find((p) => movingProtectionIds.has(p.id))
   const currentCode = (
     collectCircuits(panel).find((c) => c.id === movingCircuitId)?.code ||
@@ -145,8 +147,12 @@ export function buildPlanDropAvailableCircuitCodeOptions(
   )
     .trim()
     .toUpperCase()
-  if (currentCode && /^[A-Z]+$/.test(currentCode) && !options.includes(currentCode)) {
-    options.unshift(currentCode)
+  // Keep the circuit's own automatic code on offer, even past the generated range.
+  const ownCode =
+    generated.find((code) => code.toUpperCase() === currentCode) ??
+    (/^[A-Z]+$/.test(currentCode) ? currentCode : undefined)
+  if (ownCode && !options.includes(ownCode)) {
+    options.unshift(ownCode)
   }
   return options
 }

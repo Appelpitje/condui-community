@@ -1,3 +1,4 @@
+import { createCircuitCodeSequence } from '@/utils/project'
 import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import { useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
 /* eslint react-refresh/only-export-components: off -- Panel placement helper is tested and exported with its UI. */
@@ -500,7 +501,12 @@ function PlanDropCircuitPanelInner({
     : t('planDrop.newCircuit', 'New circuit')
   const newCircuitCodeOptions =
     selectedPanel && selectedProvisionalCircuitId
-      ? buildPlanDropAvailableCircuitCodeOptions(selectedPanel, selectedProvisionalCircuitId)
+      ? buildPlanDropAvailableCircuitCodeOptions(
+          selectedPanel,
+          selectedProvisionalCircuitId,
+          undefined,
+          currentProject ? createCircuitCodeSequence(currentProject, selectedPanel.id) : undefined
+        )
       : []
 
   useEffect(() => {

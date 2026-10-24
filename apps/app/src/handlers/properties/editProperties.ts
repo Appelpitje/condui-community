@@ -127,7 +127,18 @@ export function updateAuxiliaryEnclosureProperties(
 export function updateCanonicalWireProperties(
   anchor: string,
   defaultCable: import('@/types/schema').CableSpec,
-  set: import('@/lib/wires/editWireRun').WireRunChanges
+  set: import('@/lib/wires/editWireRun').WireRunChanges,
+  sharedGeometryAnchors?: readonly string[]
 ) {
-  return run({ edits: [{ kind: 'canonicalWire', ids: [anchor], defaultCable, set }] })
+  return run({
+    edits: [
+      {
+        kind: 'canonicalWire',
+        ids: [anchor],
+        defaultCable,
+        set,
+        ...(sharedGeometryAnchors ? { sharedGeometryAnchors: [...sharedGeometryAnchors] } : {}),
+      },
+    ],
+  })
 }

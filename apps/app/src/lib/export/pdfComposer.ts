@@ -47,11 +47,12 @@ import { drawLimitedWatermark, LIMITED_RASTER_JPEG_QUALITY } from './limitedWate
 const REFERENCE_LABEL_GAP_MM = 1.2
 const REFERENCE_URL_FONT_SIZE_PT = 5
 
-function getEendraadSchematicPlacement(
+export function getEendraadSchematicPlacement(
   bounds: { x: number; y: number; width: number; height: number; space?: 'scene' },
   globalScale: number,
   paperSize: ExportPaperSize = 'A4',
   infoBlockNativeWidth?: number,
+  schematicTopMm?: number,
 ): {
   scale: number
   viewBox: string
@@ -63,24 +64,28 @@ function getEendraadSchematicPlacement(
 } {
   const { widthMm: contentWidth } = getEendraadSchematicAreaMm('landscape', paperSize)
   // Never shrink to fit a wide leftover. Clip horizontally instead so symbols
-  // stay large relative to the title and QR. Vertical scale must still clear
-  // the info-box obstacle because the bus occupies the bottom of every page.
-  const scale = limitEendraadScaleToInfoBlockCollision(
-    bounds.height,
-    globalScale,
-    infoBlockNativeWidth,
-    paperSize,
-  )
+  // stay large relative to the title and QR. Ordinary scenes retain the
+  // conservative info-box clearance; compact scenes have regional approval.
+  // Compact packing has already checked the painted regions on every page.
+  // Its left feeder may extend beside the box; rechecking the full bounds here
+  // would discard that approved placement and recreate the empty bus-to-box gap.
+  const scale = schematicTopMm == null
+    ? limitEendraadScaleToInfoBlockCollision(bounds.height, globalScale, infoBlockNativeWidth, paperSize)
+    : Math.min(globalScale,
+        (getPageDimensions('landscape', paperSize).height - PAGE_MARGIN - schematicTopMm) /
+          Math.max(bounds.height, 1))
   const viewWidth = Math.min(bounds.width, contentWidth / Math.max(scale, 0.01))
   const scaledWidth = viewWidth * scale
   const scaledHeight = bounds.height * scale
   // Center a short schematic in the sheet instead of pinning it under the title,
   // but never let it slide down into the info box.
-  const topMm = getEendraadSchematicTopMm(paperSize)
+  const topMm = schematicTopMm ?? getEendraadSchematicTopMm(paperSize)
   const area = getEendraadSchematicAreaMm('landscape', paperSize)
   const obstacleTop = getEendraadInfoBlockObstacleMm('landscape', infoBlockNativeWidth, paperSize).y
   const clearance = Math.max(0, obstacleTop - INFO_BLOCK_GAP_MM - topMm - scaledHeight)
-  const offsetY = Math.min(Math.max(0, (area.heightMm - scaledHeight) / 2), clearance)
+  const offsetY = schematicTopMm == null
+    ? Math.min(Math.max(0, (area.heightMm - scaledHeight) / 2), clearance)
+    : 0
   return {
     scale,
     viewBox: `${bounds.x} ${bounds.y} ${viewWidth} ${bounds.height}`,
@@ -218,6 +223,7 @@ export async function composePdfPage(
           page.scene.eendraadSlice!.globalScale,
           paperSize,
           infoBlock?.nativeWidth,
+          page.scene.eendraadSlice!.schematicTopMm,
         )
       : null
     const scale = eendraadPlacement
@@ -496,6 +502,7 @@ export async function composeLimitedRasterPdfPage(
           page.scene.eendraadSlice!.globalScale,
           paperSize,
           infoBlock?.nativeWidth,
+          page.scene.eendraadSlice!.schematicTopMm,
         )
       : null
     const scale = eendraadPlacement

@@ -15,7 +15,7 @@ import { buildPlanWireObstacleRects, buildWireObstacleIndex } from '@/lib/plan/l
 import { getQuadrantWallScores, type QuadrantScores } from '@/utils/planAutoOrient'
 import { calculateLabelPositions } from '@/utils/plan/labelPositioning'
 import { useCanvasFontFamily } from '@/editions/community/communityHooks'
-import type { Placement, PlanWireRoute, PlanWireRouteStyle, Point2, Wall } from '@/types/schema'
+import type { Endpoint, Placement, PlanWireRoute, PlanWireRouteStyle, Point2, Wall } from '@/types/schema'
 import { PLAN_LABEL_IMAGE_SCORE_MAX_RECOMPUTES_PER_PASS } from '@/constants/canvasConstants'
 
 export type PlanLabelWallCollisionInput = {
@@ -28,6 +28,23 @@ export type PlanLabelWireCollisionInput = {
   routes: PlanWireRoute[]
   routeStyle: PlanWireRouteStyle
   placementPositionOverrides?: Map<string, Point2>
+}
+
+/** Trunk symbols share the endpoint label solver without becoming persisted endpoints. */
+function getPlanLabelSourceById(id: string): Endpoint | null {
+  const state = useProjectStore.getState()
+  const endpoint = state.getEndpointById(id)
+  if (endpoint) return endpoint
+  const device = state.getTrunkDeviceById(id)?.device
+  return device
+    ? {
+        id: device.id,
+        type: device.type === 'switch' ? 'switch' : 'fixed_appliance',
+        label: device.label,
+        symbol: device.symbol,
+        placements: [],
+      }
+    : null
 }
 
 function reuseLabelPositions(
@@ -49,7 +66,7 @@ function reuseLabelPositions(
  * Hook to calculate label positions with collision detection
  */
 export function usePlanLabelPositions(
-  placements: Array<Placement & { endpointId?: string; junctionPanelLabel?: string }>,
+  placements: Array<Placement & { endpointId?: string; trunkDeviceId?: string; junctionPanelLabel?: string }>,
   planImage: HTMLImageElement | null,
   planImagePosition: { x: number; y: number },
   baseSymbolSizePx: number,
@@ -121,7 +138,7 @@ export function usePlanLabelPositions(
       previous.key.getEndpointById === geometryKey.getEndpointById &&
       previous.key.fingerprint === geometryKey.fingerprint) {
       const affected = wallAffectedLabelIds(
-        previous.walls, wallCollision, placements, getEndpointById, baseSymbolSizePx, fontFamily
+        previous.walls, wallCollision, placements, getPlanLabelSourceById, baseSymbolSizePx, fontFamily
       )
       if (affected) resume = {
         startIndex: 0, wallAffectedIds: affected, positions: previousLabelPositionsRef.current,
@@ -231,7 +248,7 @@ export function usePlanLabelPositions(
     }
     const nextLabelPositions = calculateLabelPositions(
       placements,
-      getEndpointById,
+      getPlanLabelSourceById,
       wallScoresByPlacementId,
       baseSymbolSizePx,
       fontFamily,

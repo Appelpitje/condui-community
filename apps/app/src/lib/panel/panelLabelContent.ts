@@ -11,6 +11,7 @@ import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical
 import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { findTrunkDeviceInProject } from '@/utils/project'
 import { getProtectionOneWireLabelLines } from '@/lib/protectionLabels'
+import { getProtectionFeeds } from '@/lib/panel/panelLabelFeeds'
 
 export type PanelLabelCellSide = 'top' | 'bottom'
 
@@ -20,6 +21,10 @@ export interface PanelLabelValues {
   labelNotes: string
   technical: string
   technicalParts?: Array<{ text: string; framed?: boolean }>
+  /** Downstream circuits, one per line; empty when the module feeds a single circuit. */
+  feeds: string
+  /** The same circuits as ranges, used next to the label. */
+  feedsCompact: string
   config?: PanelLabelConfig
 }
 
@@ -80,6 +85,8 @@ export function getPanelLabelValues(
     notes: '',
     labelNotes: '',
     technical: technicalText([ref.kind], display),
+    feeds: '',
+    feedsCompact: '',
   }
   const panels = getProjectElectricalPanels(project)
 
@@ -92,6 +99,7 @@ export function getPanelLabelValues(
       text: line.text,
       framed: line.frame,
     }))
+    const feeds = getProtectionFeeds(protection, project)
     return {
       label: cleanText(protection.label) || cleanText(display.label),
       // Protection properties edit the first circuit's notes when a circuit exists.
@@ -100,6 +108,8 @@ export function getPanelLabelValues(
       labelNotes: cleanText(protection.labelNotes),
       technical: technicalParts.map((part) => part.text).join('\n'),
       technicalParts,
+      feeds: feeds?.list ?? '',
+      feedsCompact: feeds?.compact ?? '',
       config: protection.panelLabel,
     }
   }
@@ -112,6 +122,8 @@ export function getPanelLabelValues(
       notes: cleanText(found.endpoint.notes),
       labelNotes: cleanText(found.endpoint.labelNotes),
       technical: technicalText([found.endpoint.type, found.endpoint.symbol], display),
+      feeds: '',
+      feedsCompact: '',
       config: found.endpoint.panelLabel,
     }
   }
@@ -132,6 +144,8 @@ export function getPanelLabelValues(
       technicalParts?.map((part) => part.text).join('\n') ??
       technicalText([device.type, device.symbol], display),
     technicalParts,
+    feeds: '',
+    feedsCompact: '',
     config: device.panelLabel,
   }
 }
@@ -165,13 +179,24 @@ export function getPanelLabelSource(
   return config?.[side]?.source ?? defaultPanelLabelSource(side, values)
 }
 
+/** Text a source contributes to a cell; downstream circuits shrink to ranges beside the label. */
+export function getPanelLabelSourceText(
+  source: PanelLabelCellSource,
+  sources: readonly PanelLabelCellSource[],
+  values: PanelLabelValues
+): string {
+  if (source === 'feeds' && sources.includes('label')) return values.feedsCompact
+  return values[source]
+}
+
 export function getPanelLabelText(
   config: PanelLabelConfig | undefined,
   side: PanelLabelCellSide,
   values: PanelLabelValues
 ): string {
-  return getPanelLabelSources(config, side)
-    .map((source) => values[source])
+  const sources = getPanelLabelSources(config, side)
+  return sources
+    .map((source) => getPanelLabelSourceText(source, sources, values))
     .filter(Boolean)
     .join('\n')
 }

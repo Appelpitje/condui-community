@@ -10,6 +10,7 @@ import {
   validationWorkerSupported,
 } from '@/lib/validation/validationWorkerClient'
 import { validateElectricalProject } from '@/lib/validation/validateElectricalProject'
+import { isExerciseValidationAllowed } from '@/stores/exerciseValidationAccessStore'
 
 type ValidatableProject = ValidationProject & {
   project: {
@@ -68,6 +69,7 @@ export interface ValidationState {
   getStatus: () => ValidationStatus
   getErrorCount: () => number
   getWarningCount: () => number
+  clearResults: () => void
 }
 
 /**
@@ -130,6 +132,7 @@ export const useValidationStore = create<ValidationState>()(
       signature?: string,
       reason: ValidationRunReason = 'unknown'
     ) => {
+      if (!isExerciseValidationAllowed(project.project.id, useProjectStore.getState().currentProjectStorageMode === 'cloud')) return
       const sig = signature ?? getValidationSignature(project)
 
       // Idempotent: skip if we have already validated this exact signature.
@@ -170,6 +173,7 @@ export const useValidationStore = create<ValidationState>()(
 
       const validationStartedAt = import.meta.env.VITE_E2E ? performance.now() : 0
       const finishValidation = (issues: Issue[]) => {
+        if (!isExerciseValidationAllowed(project.project.id, useProjectStore.getState().currentProjectStorageMode === 'cloud')) return
         if (import.meta.env.VITE_E2E) {
           performance.measure('eendra:validation', {
             start: validationStartedAt,
@@ -236,6 +240,14 @@ export const useValidationStore = create<ValidationState>()(
       } catch (error) {
         failValidation(error)
       }
+    },
+
+    clearResults: () => {
+      set((state) => {
+        state.issues = []; state.status = 'ok'; state.isLoading = false; state.isDirty = true
+        state.lastValidatedSignature = null; state.pendingSignature = null; state.currentSignature = null
+        state.lastValidatedProjectId = null; state.lastProjectSnapshot = null
+      })
     },
 
     markProjectOpened: () => {

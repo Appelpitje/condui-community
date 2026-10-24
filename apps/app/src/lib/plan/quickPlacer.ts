@@ -14,6 +14,7 @@ import {
 import { canSymbolAppearOnSituationPlan } from '@/lib/plan/situationPlanSymbolEligibility'
 import { getSituationPlanPlacementIdsHiddenByPanel } from '@/lib/plan/panelPlanPlacementVisibility'
 import { getPanelSupplyTrunkDevices } from '@/lib/feedTopology'
+import { isNumberedCircuitTrunkSwitch } from '@/lib/eendraad/circuitPointNumbering'
 import type { Circuit, Endpoint, Panel, ProtectionDevice, Placement, TrunkDevice } from '@/types/schema'
 
 export interface QuickPlacerItem {
@@ -270,16 +271,28 @@ export function buildQuickPlacerCircuits(
     const circuitIdentifier = getCircuitIdentifier(circuit.id) || circuit.code
 
     const trunkItems = buildTrunkDeviceQuickPlacerItems(circuit.trunkDevices, floorNameById)
+    const numberedSwitchIds = new Set(
+      (circuit.trunkDevices ?? []).filter(isNumberedCircuitTrunkSwitch).map((device) => device.id)
+    )
+    const otherTrunkItems = trunkItems.filter((item) => !numberedSwitchIds.has(item.endpoint.id))
     const branches = [
-      ...(trunkItems.length > 0
+      ...(otherTrunkItems.length > 0
         ? [
             {
               id: `quick-placer-trunk-${circuit.id}`,
               label: circuitIdentifier,
-              items: trunkItems,
+              items: otherTrunkItems,
             },
           ]
         : []),
+      ...(circuit.trunkDevices ?? [])
+        .filter((device) => numberedSwitchIds.has(device.id))
+        .map((device) => ({
+          id: `quick-placer-trunk-${device.id}`,
+          label: device.label || circuitIdentifier,
+          items: trunkItems.filter((item) => item.trunkDeviceId === device.id),
+        }))
+        .filter((branch) => branch.items.length > 0),
       ...buildQuickPlacerBranches(circuit, itemsByEndpointId, circuitIdentifier),
     ]
 

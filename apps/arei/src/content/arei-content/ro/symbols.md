@@ -105,6 +105,9 @@ Un variator reglează intensitatea unui punct de iluminat.
 ### [switch_1p_changeover]
 Un comutator dublu comandă separat două circuite dintr-un singur loc, de exemplu plafoniera și spoturile din living.
 
+### [switch_shutter]
+Un întrerupător pentru rulouri comandă ridicarea și coborârea unui rulou sau a unei jaluzele. Reprezentați motorul acționat ca aparat separat.
+
 ### [switch_1p_pull]
 Un întrerupător cu șnur se acționează trăgând de un cordon, mai ales în băile vechi.
 

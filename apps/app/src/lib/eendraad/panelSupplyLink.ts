@@ -14,9 +14,18 @@ export interface PanelSupplyLink {
   targetPanelEndpoint?: Endpoint
 }
 
+/** A board fed from one precise module output, rather than the whole protection. */
+export function isDomoticaPanelFeedEndpoint(
+  endpoint: Endpoint | null | undefined,
+): endpoint is Endpoint & { panelId: string; domoticaChildProps: NonNullable<Endpoint['domoticaChildProps']> } {
+  return endpoint?.symbol === 'panel_distribution' && !!endpoint.panelId &&
+    !!endpoint.domoticaChildProps?.parentEndpointId &&
+    endpoint.domoticaChildProps.outputGroup === 'endpoint'
+}
+
 export function isPanelDistributionEndpointForPanel(endpoint: Endpoint, panel: Panel): boolean {
   return (
-    endpoint.symbol === 'panel_distribution' &&
+    endpoint?.symbol === 'panel_distribution' &&
     (endpoint.panelId === panel.id || endpoint.label === panel.name)
   )
 }
@@ -25,17 +34,17 @@ export function findPanelDistributionEndpointInCircuit(
   circuit: Circuit | undefined,
   panel: Panel
 ): Endpoint | undefined {
-  return circuit?.endpoints.find((endpoint) => isPanelDistributionEndpointForPanel(endpoint, panel))
+  return circuit?.endpoints?.find((endpoint) => isPanelDistributionEndpointForPanel(endpoint, panel))
 }
 
 export function findPanelOwnDistributionEndpoint(panel: Panel): Endpoint | undefined {
   const panelCircuit = panel.circuits?.find((circuit) => circuit.code === 'PANEL')
   return (
-    panelCircuit?.endpoints.find((endpoint) =>
+    panelCircuit?.endpoints?.find((endpoint) =>
       isPanelDistributionEndpointForPanel(endpoint, panel)
     ) ??
     panel.circuits
-      ?.flatMap((circuit) => circuit.endpoints)
+      ?.flatMap((circuit) => circuit.endpoints ?? [])
       .find((endpoint) => isPanelDistributionEndpointForPanel(endpoint, panel))
   )
 }
@@ -48,7 +57,7 @@ function findImplicitDirectPanelFeederCircuit(
   return circuits.find(
     (circuit) =>
       nestedIds.has(circuit.id) &&
-      circuit.endpoints.length === 0 &&
+      (circuit.endpoints?.length ?? 0) === 0 &&
       (circuit.branches?.length ?? 0) === 0 &&
       (circuit.subCircuitIds?.length ?? 0) === 0 &&
       (circuit.trunkDevices?.length ?? 0) === 0,
@@ -68,6 +77,51 @@ export function resolvePanelSupplyLinkForProtection(
 }
 
 export function resolvePanelSupplyLinkForProtectionInPanels(
+  panels: Panel[],
+  sourcePanel: Panel,
+  protection: ProtectionDevice,
+): PanelSupplyLink | null {
+  const links = resolvePanelSupplyLinksForProtectionInPanels(panels, sourcePanel, protection)
+  return links.find((link) => link.targetPanel.id === protection.subPanelId) ?? links[0] ?? null
+}
+
+export function resolvePanelSupplyLinksForProtection(
+  project: ProjectWithOptionalV2Electrical,
+  sourcePanel: Panel,
+  protection: ProtectionDevice,
+): PanelSupplyLink[] {
+  return resolvePanelSupplyLinksForProtectionInPanels(getProjectElectricalPanels(project), sourcePanel, protection)
+}
+
+/** Output-specific links take priority over a redundant historical whole-protection link. */
+export function resolvePanelSupplyLinksForProtectionInPanels(
+  panels: Panel[],
+  sourcePanel: Panel,
+  protection: ProtectionDevice,
+): PanelSupplyLink[] {
+  const links: PanelSupplyLink[] = []
+  const seenPanels = new Set<string>()
+  for (const circuit of protection.circuits ?? []) {
+    for (const endpoint of circuit.endpoints ?? []) {
+      if (!isDomoticaPanelFeedEndpoint(endpoint) || seenPanels.has(endpoint.panelId)) continue
+      const parent = circuit.endpoints.find((candidate) => candidate.id === endpoint.domoticaChildProps.parentEndpointId)
+      if (parent?.symbol !== 'domotica' || !parent.domoticaProps) continue
+      const targetPanel = findPanelById(panels, endpoint.panelId)
+      if (!targetPanel || targetPanel.id === sourcePanel.id) continue
+      links.push({
+        sourcePanel, targetPanel, protection, feederCircuit: circuit,
+        sourcePanelEndpoint: endpoint, targetPanelEndpoint: findPanelOwnDistributionEndpoint(targetPanel),
+      })
+      seenPanels.add(targetPanel.id)
+    }
+  }
+  if (!protection.subPanelId || seenPanels.has(protection.subPanelId)) return links
+  const legacy = resolveWholeProtectionPanelSupplyLink(panels, sourcePanel, protection)
+  if (legacy) links.push(legacy)
+  return links
+}
+
+function resolveWholeProtectionPanelSupplyLink(
   panels: Panel[],
   sourcePanel: Panel,
   protection: ProtectionDevice,
@@ -111,8 +165,8 @@ export function resolvePanelSupplyLinkForPanelInPanels(
   const search = (panels: Panel[]): PanelSupplyLink | null => {
     for (const panel of panels) {
       for (const protection of panel.protections ?? []) {
-        if (protection.subPanelId !== targetPanelId) continue
-        const link = resolvePanelSupplyLinkForProtectionInPanels(rootPanels, panel, protection)
+        const link = resolvePanelSupplyLinksForProtectionInPanels(rootPanels, panel, protection)
+          .find((candidate) => candidate.targetPanel.id === targetPanelId)
         if (link) return link
       }
       const nested = search(panel.subPanels ?? [])
@@ -128,9 +182,7 @@ export function resolvePanelSupplyLinksForSourcePanel(
   project: ProjectWithOptionalV2Electrical,
   sourcePanel: Panel
 ): PanelSupplyLink[] {
-  return (sourcePanel.protections ?? [])
-    .map((protection) => resolvePanelSupplyLinkForProtection(project, sourcePanel, protection))
-    .filter((link): link is PanelSupplyLink => !!link)
+  return resolvePanelSupplyLinksForSourcePanelInPanels(getProjectElectricalPanels(project), sourcePanel)
 }
 
 /** Resolve source-panel links when the caller already owns the canonical panel projection. */
@@ -138,11 +190,14 @@ export function resolvePanelSupplyLinksForSourcePanelInPanels(
   rootPanels: Panel[],
   sourcePanel: Panel,
 ): PanelSupplyLink[] {
-  return (sourcePanel.protections ?? [])
-    .map((protection) =>
-      resolvePanelSupplyLinkForProtectionInPanels(rootPanels, sourcePanel, protection),
-    )
-    .filter((link): link is PanelSupplyLink => !!link)
+  const links = (sourcePanel.protections ?? []).flatMap((protection) =>
+    resolvePanelSupplyLinksForProtectionInPanels(rootPanels, sourcePanel, protection))
+  const seenPanels = new Set<string>()
+  return links.filter((link) => {
+    if (seenPanels.has(link.targetPanel.id)) return false
+    seenPanels.add(link.targetPanel.id)
+    return true
+  })
 }
 
 export function panelSupplyLinkHasRenderableSymbol(link: PanelSupplyLink): boolean {

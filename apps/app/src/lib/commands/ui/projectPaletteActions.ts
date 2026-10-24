@@ -128,6 +128,32 @@ export function getProjectPaletteActions(
             ),
           ]
         : []
+  if (endpointIds.length === 1) {
+    const owner = circuits.find(({ circuit }) => circuit.endpoints.some((endpoint) => endpoint.id === endpointIds[0]))
+    const module = owner?.circuit.endpoints.find((endpoint) => endpoint.id === endpointIds[0])
+    if (owner && module?.symbol === 'domotica') {
+      const invocation: ProjectPaletteAction['invocation'] = (values) => ({
+        id: 'electrical.placeSymbol',
+        input: {
+          symbolId: 'panel_distribution',
+          target: {
+            type: 'endpoint', panelId: owner.panel.id, circuitId: owner.circuit.id,
+            endpointId: module.id,
+            domoticaOutput: { group: 'endpoint', index: Number(values.output) },
+          },
+        },
+      })
+      const options = Array.from({ length: module.domoticaProps?.endpointCount ?? 1 }, (_, index) => ({
+        value: String(index), label: String(index + 1),
+      })).filter((option) => valid(project, invocation({ output: option.value })))
+      if (options.length) actions.push({
+        id: 'electrical.addPanelAtDomoticaOutput',
+        labelKey: 'commandPalette.addPanelAtDomoticaOutput',
+        fields: [{ name: 'output', labelKey: 'commandPalette.fields.output', value: options[0]!.value, options }],
+        invocation,
+      })
+    }
+  }
   const addChoices = (
     id: string,
     labelKey: string,

@@ -41,10 +41,17 @@ import {
 import { findPanelById, walkPanels } from '@/lib/panel/panelTree'
 import { DEFAULT_INSTALLATION_PROFILE } from '@/lib/installationProfile'
 import { DEFAULT_CONNECTION_CURRENT_A } from '@/lib/electrical/supplyConnection'
+import { createDefaultSupplyCable } from '@/lib/electrical/supplyCable'
 import { applyNonHouseholdPanelDefaults } from '@/lib/panel/panelEarthingSync'
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import { validatePanelBusSectionTopology } from '@/lib/panel/panelBusSectionValidation'
 import { findCircuitForEndpointInPanel } from '@/lib/eendraad/findCircuitForEndpointInPanel'
+import {
+  buildPanelCodesById,
+  formatCircuitCode,
+  panelPartForCircuitLabels,
+  resolveLabelScheme,
+} from '@/lib/eendraad/labelScheme'
 export { findCircuitForEndpointInPanel } from '@/lib/eendraad/findCircuitForEndpointInPanel'
 
 type ValidatableProject = ProjectWithOptionalV2Building &
@@ -113,7 +120,7 @@ function getDefaultInstallation(): Installation {
     address: { street: '', postalCode: '', city: '', country: 'BE' },
     nominalVoltage: { system: '2~', uLineToNeutral: 230, uLineToLine: 230 },
     mainSupply: {
-      cable: { kind: 'XVB', conductors: 3, sectionMm2: 6, hasPE: true },
+      cable: createDefaultSupplyCable(),
       origin: 'grid',
     },
     hasGround: true,
@@ -549,11 +556,29 @@ export function excelColumnLabelFromZeroBasedIndex(index: number): string {
 }
 
 /**
+ * Circuit codes in the order of the project's label scheme for `panelId` (classic: A, B, … AA).
+ * With a panel part in the scheme (and panel numbering on) codes start with that panel's number.
+ */
+export function createCircuitCodeSequence(
+  project: ProjectWithOptionalV2Electrical,
+  panelId?: string
+): (index: number) => string {
+  const installation = getProjectElectricalInstallation(project)
+  const scheme = resolveLabelScheme(installation?.labelScheme)
+  let panelPart = ''
+  if (panelId && installation?.panelNumberingEnabled && scheme.circuit.panelPart !== 'none') {
+    const codes = buildPanelCodesById(getProjectElectricalPanels(project), scheme)
+    panelPart = panelPartForCircuitLabels(scheme, codes.get(panelId))
+  }
+  return (index) => formatCircuitCode(scheme, index, panelPart)
+}
+
+/**
  * Find the next available circuit code.
  *
  * Behaviour:
- * - Uses Excel-style column sequences: A..Z, AA, AB, ..., AZ, BA, ...
- * - Treats every existing alphabetic circuit code as "used", independent of
+ * - Follows the project's label scheme (classic: A..Z, AA, AB, ..., AZ, BA, ...).
+ * - Treats every existing circuit code as "used", independent of
  *   endpoint/subcircuit content, to guarantee global uniqueness.
  * - Also reserves alphabetic labels used by supply-wire protections
  *   (`installation.mainSupply.supplyTrunkDevices` where `type === 'protection'`)
@@ -568,11 +593,12 @@ export function getNextAvailableCircuitCode(
   const projectPanels = getProjectElectricalPanels(project)
   const installation = getProjectElectricalInstallation(project) ?? getDefaultInstallation()
 
+  // Any existing label blocks the same generated code (compared case-insensitively).
   const addAlphabeticCode = (value: string | undefined | null) => {
     const code = String(value ?? '')
       .trim()
       .toUpperCase()
-    if (code && /^[A-Z]+$/.test(code)) {
+    if (code) {
       usedCodes.add(code)
     }
   }
@@ -637,19 +663,20 @@ export function getNextAvailableCircuitCode(
 
   // Scan forward from A, returning the first label that is not in use.
   // In normal projects this will exit quickly because usedCodes is small.
+  const codeAt = createCircuitCodeSequence(project, panelId || undefined)
   let index = 0
   // Hard upper bound as a safety net; far beyond any realistic number of circuits.
   const maxIterations = usedCodes.size + 1000
   while (index < maxIterations) {
-    const label = excelColumnLabelFromZeroBasedIndex(index)
-    if (!usedCodes.has(label)) {
+    const label = codeAt(index)
+    if (!usedCodes.has(label.toUpperCase())) {
       return label
     }
     index++
   }
 
   // Last resort
-  return 'A'
+  return codeAt(0)
 }
 
 /**

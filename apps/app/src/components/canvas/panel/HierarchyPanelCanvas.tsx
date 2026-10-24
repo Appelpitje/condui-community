@@ -85,6 +85,8 @@ import { PANEL_DETAIL_MIN_ZOOM, PanelSurfaceGroup } from './PanelSurfaceGroup'
 import { tweenCanvasOpacity } from '@/lib/canvas/opacityTransition'
 import ModuleBox, { type ModuleTooltipData } from './ModuleBox'
 import { PanelLabelModeOverlay, type PanelLabelEntityUpdates } from './PanelLabelModeOverlay'
+import { choosePanelLabelSurface } from '@/lib/panel/panelLabelEditingScope'
+import type { PropertiesEditInput } from '@/lib/commands/project/commands/propertiesEdit'
 import RelationWires, { type PanelHierarchyRoute } from './RelationWires'
 import type { PanelWirePathRegion, WirePathSegment } from './panelWireRouter'
 import { RewireTool } from './RewireTool'
@@ -880,36 +882,39 @@ export function HierarchyPanelCanvas({
   const [rewireTargetSurfaceId, setRewireTargetSurfaceId] = useState<string | null>(null)
   const [rewireTargetValid, setRewireTargetValid] = useState(true)
   const [labelMode, setLabelMode] = useState(false)
+  const [labelSurfaceId, setLabelSurfaceId] = useState<string | null>(null)
   const prioritizeOverviewNavigation =
     panelZoom < PANEL_DETAIL_MIN_ZOOM && !labelMode && !rewireMode && !assignToCircuitMode
   const canDragOnCanvas = canDragItems && !prioritizeOverviewNavigation
 
-  const updateModuleLabel = useCallback(
-    (ref: PanelGridModuleRef, updates: PanelLabelEntityUpdates) => {
-      if (!currentProject) return
-      if (ref.kind === 'protection') {
-        const protection = getProtectionById(ref.id)
-        const firstCircuitId = protection?.circuits?.[0]?.id
-        const { notes, ...protectionUpdates } = updates
-        editProperties({
-          edits: [
-            ...(firstCircuitId && notes !== undefined
-              ? [{ kind: 'circuit' as const, ids: [firstCircuitId], set: { notes } }]
-              : []),
-            ...(Object.keys(protectionUpdates).length
-              ? [{ kind: 'protection' as const, ids: [ref.id], set: protectionUpdates }]
-              : []),
-          ],
-        })
-        return
+  const updateModuleLabels = useCallback(
+    (changes: Array<{ ref: PanelGridModuleRef; updates: PanelLabelEntityUpdates }>) => {
+      // A focused editor may flush on unmount; never flush into a newly opened project.
+      if (!currentProject ||
+        useProjectStore.getState().currentProject?.project.id !== currentProject.project.id) return
+      const edits: NonNullable<PropertiesEditInput['edits']> = []
+      for (const { ref, updates } of changes) {
+        if (ref.kind === 'protection') {
+          const firstCircuitId = getProtectionById(ref.id)?.circuits?.[0]?.id
+          const { notes, ...protectionUpdates } = updates
+          if (firstCircuitId && notes !== undefined)
+            edits.push({ kind: 'circuit', ids: [firstCircuitId], set: { notes } })
+          if (Object.keys(protectionUpdates).length)
+            edits.push({ kind: 'protection', ids: [ref.id], set: protectionUpdates })
+        } else if (ref.kind === 'domotica') {
+          edits.push({ kind: 'endpoint', ids: [ref.endpointId], set: updates })
+        } else {
+          edits.push({ kind: 'trunkDevice', ids: [ref.id], set: updates })
+        }
       }
-      if (ref.kind === 'domotica') {
-        updateEndpoint(ref.endpointId, updates)
-        return
-      }
-      editProperties({ edits: [{ kind: 'trunkDevice', ids: [ref.id], set: updates }] })
+      if (edits.length) editProperties({ edits })
     },
     [currentProject, getProtectionById]
+  )
+  const updateModuleLabel = useCallback(
+    (ref: PanelGridModuleRef, updates: PanelLabelEntityUpdates) =>
+      updateModuleLabels([{ ref, updates }]),
+    [updateModuleLabels]
   )
 
   const fullScene = useMemo(() => {
@@ -933,6 +938,27 @@ export function HierarchyPanelCanvas({
     if (!fullScene || !currentProject) return null
     return applyPanelSceneFilter(fullScene, panelSceneFilter, currentProject, hierarchyFeedFromTop)
   }, [fullScene, panelSceneFilter, currentProject, hierarchyFeedFromTop])
+  const getLabelEditingView = useCallback(() => {
+    const camera = canvasRef.current?.getLiveViewTransform() ?? { pan: panelPan, zoom: panelZoom }
+    const stage = canvasRef.current?.getStage()
+    return {
+      ...camera,
+      width: stage?.width() ?? containerRef.current?.clientWidth ?? window.innerWidth,
+      height: stage?.height() ?? containerRef.current?.clientHeight ?? window.innerHeight,
+    }
+  }, [canvasRef, containerRef, panelPan, panelZoom, window])
+  const labelScene = useMemo(() => {
+    if (!scene) return null
+    return { surfaces: scene.surfaces.filter((surface) => surface.id === labelSurfaceId) }
+  }, [scene, labelSurfaceId])
+  const activeLabelSurfaceId = labelMode ? labelScene?.surfaces[0]?.id : undefined
+  useEffect(() => {
+    if (!labelMode || !scene) return
+    // BaseCanvas applies store-driven camera changes in its own effect. Read the
+    // live view after that commit, rather than caching the previous camera during render.
+    const next = choosePanelLabelSurface(scene.surfaces, getLabelEditingView(), labelSurfaceId)
+    if (next?.id !== labelSurfaceId) setLabelSurfaceId(next?.id ?? null)
+  }, [scene, labelMode, labelSurfaceId, getLabelEditingView])
   const directPanelFeederConnectors = useMemo(
     () =>
       scene && currentProject
@@ -3939,8 +3965,15 @@ export function HierarchyPanelCanvas({
               key={surface.id}
               surface={surface}
               forceMounted={materializeAllSurfaces}
+              onActivateLabels={
+                labelMode &&
+                surface.id !== activeLabelSurfaceId &&
+                surface.placements.some((placement) => placement.terminalStripRail == null)
+                  ? () => setLabelSurfaceId(surface.id)
+                  : undefined
+              }
               forceDetails={
-                labelMode ||
+                surface.id === activeLabelSurfaceId ||
                 rewireMode ||
                 assignToCircuitMode ||
                 selectedPanelIds.includes(surface.panel?.id ?? '') ||
@@ -4933,7 +4966,7 @@ export function HierarchyPanelCanvas({
                           draggable={canDragOnCanvas && !labelMode}
                           interactive={!labelMode}
                           resetPositionOnAltDrag
-                          compactLabelMode={labelMode}
+                          compactLabelMode={surface.id === activeLabelSurfaceId}
                           onDragMove={
                             canDragItems
                               ? (_ref, x, y, shiftKey, altKey) =>
@@ -5185,13 +5218,15 @@ export function HierarchyPanelCanvas({
 
       {labelMode && (
         <PanelLabelModeOverlay
-          scene={scene}
+          key={activeLabelSurfaceId}
+          scene={labelScene}
           project={currentProject}
           canvasRef={canvasRef}
           panelZoom={panelZoom}
           panelPan={panelPan}
           canEdit={canEditProject}
           onUpdateModuleLabel={updateModuleLabel}
+          onUpdateModuleLabels={updateModuleLabels}
         />
       )}
 
@@ -5242,7 +5277,13 @@ export function HierarchyPanelCanvas({
               side="left"
               active={labelMode}
               triggerTestId="e2e-panel-label-mode"
-              onClick={() => setLabelMode((previous) => !previous)}
+              onClick={() => {
+                // The live camera can be ahead of the last React camera commit.
+                if (!labelMode) setLabelSurfaceId(scene
+                  ? choosePanelLabelSurface(scene.surfaces, getLabelEditingView())?.id ?? null
+                  : null)
+                setLabelMode((previous) => !previous)
+              }}
             />
             {labelMode && (
               <FloatingControl

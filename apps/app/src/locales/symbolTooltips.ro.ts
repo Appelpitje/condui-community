@@ -25,6 +25,7 @@ export const symbolTooltipsRo: Record<SymbolTooltipId, string> = {
   "switch_cross": "Întrerupător cruce pentru mai mult de două puncte de comandă.",
   "switch_dimmer": "Variator pentru reglarea iluminatului.",
   "switch_1p_changeover": "Comutator care selectează unul dintre două circuite.",
+  switch_shutter: "Comandă de ridicare și coborâre pentru rulouri sau jaluzele.",
   "switch_1p_pull": "Întrerupător cu șnur, adesea montat pe tavan.",
   "contact": "Contact liber, de ex. contact de intrare pentru domotică.",
   "switch_impulse": "Buton sau întrerupător cu impuls pentru releu de impuls sau domotică.",

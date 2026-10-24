@@ -214,7 +214,9 @@ export function relabelDomoticaChildRows(circuit: Circuit): Endpoint[] {
         for (const childId of orderedRowIds) {
           const child = nextById.get(childId)
           if (!child) continue
-          child.label = rowLabel
+          // A board's label is its name; the output reference belongs to the
+          // module row and must not overwrite it, even when it looks like A1.
+          if (child.symbol !== 'panel_distribution') child.label = rowLabel
           if (child.symbol === 'domotica' && child.domoticaProps) nestedChildIds.push(child.id)
         }
       })
@@ -250,16 +252,25 @@ export function domoticaChildRefForBranchInsert(
   if (!branchEndpointIds?.length) return null
 
   const endpointsById = new Map(circuit.endpoints.map((endpoint) => [endpoint.id, endpoint]))
+  const insertIndex =
+    insertAfterEndpointId === null
+      ? 0
+      : typeof insertAfterEndpointId === 'string'
+        ? branchEndpointIds.indexOf(insertAfterEndpointId) + 1
+        : branchEndpointIds.length
   if (typeof insertAfterEndpointId === 'string') {
     const ref = endpointsById.get(insertAfterEndpointId)?.domoticaChildProps
     if (ref) return { ...ref }
   }
 
-  const insertAfterIndex =
-    typeof insertAfterEndpointId === 'string'
-      ? branchEndpointIds.indexOf(insertAfterEndpointId)
-      : -1
-  const searchEnd = insertAfterIndex >= 0 ? insertAfterIndex : branchEndpointIds.length - 1
+  // When an in-between device is clamped before the first child on a Domotica
+  // output, inherit that child's row. Otherwise the new endpoint remains on
+  // the ordinary branch and is laid out on top of the module's output symbol.
+  const nextRef = endpointsById.get(branchEndpointIds[insertIndex] ?? '')?.domoticaChildProps
+  if (nextRef) return { ...nextRef }
+
+  const insertAfterIndex = insertIndex - 1
+  const searchEnd = insertAfterIndex
   for (let index = searchEnd; index >= 0; index -= 1) {
     const ref = endpointsById.get(branchEndpointIds[index]!)?.domoticaChildProps
     if (ref) return { ...ref }

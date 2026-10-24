@@ -8,7 +8,8 @@ import {
   selectProjectWireRuns,
   toWireRunRoute,
 } from '@/lib/projectV2/wireRuns'
-import { getProjectElectricalInstallation } from '@/lib/projectV2/electrical'
+import { getProjectElectricalInstallation, getProjectElectricalPanels } from '@/lib/projectV2/electrical'
+import { circuitWireSpecifications } from '@/lib/wires/circuitWireSpecifications'
 import type { CableSpec } from '@/types/schema'
 import type { WireRunChanges } from '@/lib/wires/editWireRun'
 import {
@@ -29,18 +30,33 @@ export function CanonicalWireProperties({
   domain,
   defaults,
   sharedGeometry,
+  sharedGeometryAnchors,
 }: {
   anchor: string
   cable: CableSpec
   sharedGeometry?: boolean
+  sharedGeometryAnchors?: readonly string[]
   defaults?: Partial<WireRouteFormState>
   domain?: 'AC' | 'DC'
 }) {
   const { t } = useTranslation()
   const project = useProjectStore((s) => s.currentProject)
-  const update = updateCanonicalWireProperties
+  const inherited = useMemo(() => project
+    ? circuitWireSpecifications(getProjectElectricalPanels(project), selectProjectWireRuns(project)).get(anchor)
+    : undefined, [project, anchor])
+  const update = (anchor: string, cable: CableSpec, changes: WireRunChanges) =>
+    updateCanonicalWireProperties(anchor, cable, changes, sharedGeometryAnchors)
   const makeProjectDefault = (anchor: string, cable: CableSpec) =>
-    editProperties({ actions: [{ kind: 'wireCableDefault', anchor, cable }] })
+    editProperties({
+      actions: [
+        {
+          kind: 'wireCableDefault',
+          anchor,
+          cable,
+          ...(sharedGeometryAnchors ? { sharedGeometryAnchors: [...sharedGeometryAnchors] } : {}),
+        },
+      ],
+    })
   // The anchor whose cable type was just changed here; offers "Make project default" once.
   const [changedAnchor, setChangedAnchor] = useState<string>()
   const liveWires = useMemo(
@@ -88,6 +104,10 @@ export function CanonicalWireProperties({
           ...run.labels,
         }
       : defaults),
+  }
+  if (!isRailEdge && inherited) {
+    state.cable = { ...state.cable, fireClass: inherited.fireClass ?? state.cable.fireClass }
+    Object.assign(state, fromWireRunRoute(inherited.route), { inTube: inherited.inTube })
   }
   const onChange = (value: Partial<WireRouteFormState>) => {
     const changes: WireRunChanges =

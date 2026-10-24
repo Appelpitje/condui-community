@@ -58,6 +58,7 @@ import { healSupplyBranchPanelInputFlags } from '@/lib/supplyAssembly/electrical
 import { repairDanglingSupplyAssemblyReferences } from '@/lib/supplyAssembly/repairDanglingReferences'
 import { type Project, type ProjectInput, type ProjectState } from './projectStoreTypes'
 import { findPanelById, findPanelByName } from '@/lib/panel/panelTree'
+import { repairUnambiguousFirstBranchDuplicates } from '@/lib/eendraad/repairCircuitBranchMembership'
 
 export { findPanelById, findPanelByName }
 
@@ -70,6 +71,26 @@ export function hydrateProjectForEditor(project: ProjectInput): {
   const healedSharedPlanScale = healSharedPlanScale(runtimeProject)
   const installation = selectProjectElectricalInstallation(runtimeProject)
   const panels = selectProjectElectricalPanels(runtimeProject)
+  const repairedCircuitBranchMembership = (() => {
+    let changed = false
+    const seenCircuitIds = new Set<string>()
+    const visit = (panelList: typeof panels): void => {
+      for (const panel of panelList) {
+        const circuits = [
+          ...panel.circuits,
+          ...panel.protections.flatMap((protection) => protection.circuits ?? []),
+        ]
+        for (const circuit of circuits) {
+          if (seenCircuitIds.has(circuit.id)) continue
+          seenCircuitIds.add(circuit.id)
+          changed = repairUnambiguousFirstBranchDuplicates(circuit) || changed
+        }
+        visit(panel.subPanels ?? [])
+      }
+    }
+    visit(panels)
+    return changed
+  })()
   const repairedDanglingSupplyHandoffs = repairDanglingSupplyAssemblyReferences(runtimeProject)
   if (installation) {
     ensureInstallationFeedTopology(installation, panels)
@@ -148,6 +169,7 @@ export function hydrateProjectForEditor(project: ProjectInput): {
     project: runtimeProject,
     isDirty:
       sanitizedLegacyV2Bloat ||
+      repairedCircuitBranchMembership ||
       repairedDanglingSupplyHandoffs.repairedHandoffCount > 0 ||
       healedSourceChangeoverFeedScope ||
       healedSupplyBranchPanelInputs ||

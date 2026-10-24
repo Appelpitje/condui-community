@@ -36,14 +36,18 @@ export function defaultVoltagesForSystem(
   }
 }
 
-export function supplyCableConductorsForSystem(system: SupplyVoltageSystem): number {
+/** Active supply conductors, including neutral where present; PE is wired separately. */
+export function supplyCableConductorsForSystem(system: NominalVoltageSystem): number {
   switch (system) {
+    case '1~':
     case '2~':
     case '1N~':
-      return 3
+    case 'DC':
+      return 2
     case '3~':
+      return 3
     case '3N~':
-      return 5
+      return 4
   }
 }
 

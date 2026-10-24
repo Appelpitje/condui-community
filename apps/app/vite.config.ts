@@ -242,6 +242,7 @@ function stripDisabledElectricalVisionScanSource(source: string): string {
 }
 
 const aliases = {
+  '@/hooks/useExerciseValidationAccess': './src/editions/community/communityExerciseValidationAccess.ts',
   '@/components/import/TrikMergeMenuItem': './src/editions/community/communityTrikMergeMenuItem.tsx',
   '@/lib/junction/junctionHostedHooks': './src/editions/community/communityJunctionHooks.ts',
   '@/lib/junction/junctionCommandHooks': './src/editions/community/communityJunctionCommandHooks.ts',

@@ -34,7 +34,10 @@ import {
   buildAddressNote,
   combineEndpointNotes,
   getTraversalChildren,
+  isVerdeelbordPanelRoot,
   isDubbeleAansteking,
+  owningTrikBoard,
+  trikElementId,
   isDubbeleWissel,
   isTrikDomoticaModuleConverter,
   mapCombiNodeToDomoticaNode,
@@ -42,6 +45,7 @@ import {
   parseConversionSymbol,
   resolveDubbeleWisselBranchStarts,
 } from '@/lib/import/trik/parseNodes'
+import { normalizeTrikPanelNameKey, trikNumberedPanelName } from '@/lib/import/trik/shared'
 import { CIRCUIT_CONVERTER_MAX_CONNECTIONS } from '@/lib/layout/circuitConverterGeometry'
 import {
   hasTrikEquipmentFacts,
@@ -372,21 +376,14 @@ export function getNestedTrikBreakerChildren(parent: Element): Element[] {
   const out: Element[] = []
   for (const child of Array.from(childrenContainer.children)) {
     if (isTrikProtectionElement(child)) out.push(child)
-    else if (TRIK_TRANSPARENT_BREAKER_WRAPPERS.has(child.tagName)) {
+    else if (TRIK_TRANSPARENT_BREAKER_WRAPPERS.has(child.tagName) && !(child.tagName === 'Verdeelbord' && isVerdeelbordPanelRoot(child))) {
       out.push(...getNestedTrikBreakerChildren(child))
     }
   }
   return out
 }
 
-export function isVerdeelbordPanelRoot(board: Element): boolean {
-  let ancestor: Element | null = board.parentElement
-  while (ancestor) {
-    if (ancestor.tagName === 'Verdeelbord') return false
-    ancestor = ancestor.parentElement
-  }
-  return true
-}
+export { isVerdeelbordPanelRoot }
 
 function collectNonEmptyNotaTexts(elements: Element[]): string[] {
   const texts: string[] = []
@@ -414,7 +411,8 @@ function boardHasSupplyTellerAncestor(board: Element): boolean {
   let ancestor: Element | null = board.parentElement
   while (ancestor) {
     if (ancestor.tagName === 'Teller') return true
-    if (ancestor.tagName === 'StartNode' || ancestor.tagName === 'RootNodes') break
+    // A board fed from another board's circuit is downstream of that board, not of the meter.
+    if (ancestor.tagName === 'StartNode' || ancestor.tagName === 'RootNodes' || ancestor.tagName === 'Verdeelbord') break
     ancestor = ancestor.parentElement
   }
   return false
@@ -433,7 +431,7 @@ function buildTrikCircuitFromBreaker(
   breaker: Element,
   circuitsOut: TrikCircuit[],
 ): string {
-  const breakerId = breaker.getAttribute('Id') ?? generateId()
+  const breakerId = trikElementId(breaker)
   const firstLeiding = breaker.querySelector(':scope > Children > Leiding')
   const nodes: TrikNode[] = []
   const trunkDevices: TrikCircuitTrunkDevice[] = []
@@ -720,7 +718,7 @@ function buildTrikCircuitRecordOnly(breaker: Element): TrikCircuit {
   const protectionType = classifyProtectionType(breaker)
   const parsedPolesConfig = parsePolesConfig(breaker.getAttribute('AantalPolen'))
   return {
-    id: breaker.getAttribute('Id') ?? generateId(),
+    id: trikElementId(breaker),
     name: breaker.getAttribute('NaamKring') ?? undefined,
     fixedLetter: breaker.getAttribute('VasteLetter') ?? undefined,
     fase: parseTrikFase(breaker.getAttribute('Fase')),
@@ -899,27 +897,56 @@ export function assignTrikAutomaticCircuitLetters(circuits: TrikCircuit[], board
   }
 }
 
+/**
+ * The board number an unnumbered board's circuits share (`2A`, `2B`, `2AA` → `2`): files with
+ * one board per file often letter by hand instead of setting the board's `Nummer`.
+ */
+function inferTrikBoardNumber(circuits: TrikCircuit[]): string | undefined {
+  const numbers = new Set<string>()
+  let lettered = 0
+  for (const circuit of circuits) {
+    const letter = circuit.fixedLetter?.trim()
+    if (!letter) continue
+    const match = /^(\d+)[./]?[A-Z]+$/i.exec(letter)
+    if (!match) return undefined
+    numbers.add(match[1]!)
+    lettered += 1
+  }
+  return lettered >= 2 && numbers.size === 1 ? [...numbers][0] : undefined
+}
+
+/** The circuit of `parentBoard` that `board` is drawn behind. */
+function parentCircuitIdOf(parentBoard: Element, board: Element): string | undefined {
+  const breaker = getBoardRootBreakers(parentBoard).breakers.find((candidate) => candidate.contains(board))
+  return breaker ? trikElementId(breaker) : undefined
+}
+
 export function collectTrikPanelBoards(doc: Document): TrikPanelBoard[] {
   const rootBoards = Array.from(doc.querySelectorAll('Verdeelbord')).filter(isVerdeelbordPanelRoot)
-  return rootBoards.map((board, index) => {
+  const boards = rootBoards.map((board) => {
     const vasteLetter = board.getAttribute('VasteLetter')?.trim() || undefined
     const rawNaamKring = board.getAttribute('NaamKring')?.trim() || undefined
     const naamKring = rawNaamKring && !isTrikPhaseDescriptor(rawNaamKring) ? rawNaamKring : undefined
-    const boardNumber = board.getAttribute('Nummer')?.trim() || undefined
-    const explicitName = vasteLetter || naamKring || (boardNumber ? `Panel ${boardNumber}` : undefined)
-    const name = explicitName ?? `Panel ${index + 1}`
-    const trikBoardId = board.getAttribute('Id')?.trim() || generateId()
+    const ownNumber = board.getAttribute('Nummer')?.trim() || undefined
+    const trikBoardId = trikElementId(board)
+    const parentBoard = owningTrikBoard(board)
     const { breakers, unwrappedSupplyDevices } = getBoardRootBreakers(board)
     const circuits: TrikCircuit[] = []
     for (const breaker of breakers) {
       buildTrikCircuitFromBreaker(breaker, circuits)
     }
-    if (boardNumber) assignTrikAutomaticCircuitLetters(circuits, boardNumber)
+    if (ownNumber) assignTrikAutomaticCircuitLetters(circuits, ownNumber)
+    const inferredNumber = ownNumber ? undefined : inferTrikBoardNumber(circuits)
+    // A lone board lettered `1A`, `1B` stays the project's main panel under its usual name.
+    const boardNumber = ownNumber ?? (inferredNumber && (rootBoards.length > 1 || inferredNumber !== '1') ? inferredNumber : undefined)
+    const explicitName = vasteLetter || naamKring || (boardNumber ? trikNumberedPanelName(boardNumber) : undefined)
     const incomingFeeder = findIncomingFeederAboveBoard(board)
     const incomingFeederElement = findIncomingFeederElementAboveBoard(board)
     const localSupplyDevices: TrikCircuitTrunkDevice[] = [...unwrappedSupplyDevices]
     if (
       incomingFeeder &&
+      // A feeder circuit of another board stays that board's circuit.
+      !parentBoard &&
       !boardHasSupplyTellerAncestor(board) &&
       // A breaker on the supply line is already a supply device; do not repeat it on the panel.
       !(incomingFeederElement && isOnTrikSupplySpine(incomingFeederElement))
@@ -944,9 +971,12 @@ export function collectTrikPanelBoards(doc: Document): TrikPanelBoard[] {
     }
     return {
       trikBoardId,
-      name,
+      name: explicitName ?? '',
       explicitName,
       vasteLetter,
+      boardNumber,
+      parentBoardId: parentBoard ? trikElementId(parentBoard) : undefined,
+      parentCircuitId: parentBoard ? parentCircuitIdOf(parentBoard, board) : undefined,
       onSupplySpine: boardHasSupplyTellerAncestor(board),
       inboundPanelNota: findAncestorPanelNotaText(board),
       circuits,
@@ -954,6 +984,24 @@ export function collectTrikPanelBoards(doc: Document): TrikPanelBoard[] {
       localSupplyDevices: localSupplyDevices.length > 0 ? localSupplyDevices : undefined,
     }
   })
+  // Unnamed boards are named after the circuit feeding them from another board, or take the
+  // next free `Panel N`; never a name another board already uses.
+  const used = new Set(boards.map((board) => normalizeTrikPanelNameKey(board.name)).filter(Boolean))
+  let next = 1
+  for (const board of boards) {
+    if (board.name) continue
+    const feederLetter = board.parentBoardId ? board.incomingFeeder?.fixedLetter?.trim() : undefined
+    const feederName = feederLetter ? trikNumberedPanelName(feederLetter) : undefined
+    if (feederName && !used.has(normalizeTrikPanelNameKey(feederName))) {
+      board.name = feederName
+      used.add(normalizeTrikPanelNameKey(feederName))
+      continue
+    }
+    while (used.has(normalizeTrikPanelNameKey(trikNumberedPanelName(String(next))))) next += 1
+    board.name = trikNumberedPanelName(String(next))
+    used.add(normalizeTrikPanelNameKey(board.name))
+  }
+  return boards
 }
 
 

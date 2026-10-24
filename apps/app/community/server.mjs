@@ -5,6 +5,9 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { createAccessGuard, sendAccessDenied, validateConfiguredPassword } from './access.mjs'
 import { handleStorageRequest, openStorage, resolveDataDirectory } from './storage.mjs'
+import { assertSupportedNodeVersion } from '../../../scripts/verify-node-version.mjs'
+
+assertSupportedNodeVersion()
 
 const require = createRequire(import.meta.url)
 const communityRoot = fileURLToPath(new URL('.', import.meta.url))

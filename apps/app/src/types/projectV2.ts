@@ -193,6 +193,7 @@ export interface FloorV2 {
   sitplanSymbolSizeCm?: number
   hiddenSitplanElementIds?: string[]
   georeferenceOverride?: BuildingGeoreferenceV2
+  trikPlanReference?: Floor['trikPlanReference']
 }
 
 export interface SpaceV2 {

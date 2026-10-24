@@ -7,6 +7,7 @@
 import { Eye, EyeOff } from 'lucide-react'
 import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import { getProtectionCurveOptions } from './protectionCurveOptions'
+import { getProtectionResidualTypeOptions } from './protectionResidualTypeOptions'
 import type { TFunction } from 'i18next'
 import type {
   CurveType,
@@ -78,6 +79,8 @@ export interface ProtectionDeviceElectricalFieldsProps {
   curve?: CurveType
   sensitivityMa?: number
   residualCurrentType?: ResidualCurrentType
+  selective?: boolean
+  superImmunized?: boolean
   breakingCapacityKa?: number
   breakingCapacityOption?: string
   surgeProtectionKind?: SurgeProtectionKind
@@ -90,6 +93,8 @@ export interface ProtectionDeviceElectricalFieldsProps {
     curve?: CurveType | undefined
     sensitivityMa?: number
     residualCurrentType?: ResidualCurrentType | undefined
+    selective?: boolean
+    superImmunized?: boolean
     breakingCapacityKa?: number
     breakingCapacityOption?: string
     surgeProtectionKind?: SurgeProtectionKind
@@ -110,6 +115,8 @@ export function ProtectionDeviceElectricalFields({
   curve,
   sensitivityMa,
   residualCurrentType,
+  selective,
+  superImmunized,
   breakingCapacityKa,
   breakingCapacityOption,
   surgeProtectionKind,
@@ -377,7 +384,10 @@ export function ProtectionDeviceElectricalFields({
                     value: String(kA),
                     label: `${kA} kA`,
                   }))
-                : getBreakerBreakingCapacityOptions(installationProfile).map(({ value, label }) => ({
+                : getBreakerBreakingCapacityOptions(
+                    installationProfile,
+                    resolveBreakingCapacitySelectValue(breakingCapacityOption, breakingCapacityKa),
+                  ).map(({ value, label }) => ({
                     value,
                     label,
                   }))),
@@ -466,13 +476,36 @@ export function ProtectionDeviceElectricalFields({
             }
             options={[
               { value: '', label: '-' },
-              { value: 'AC', label: t('protections.residualType_AC', 'AC (sinusoidal)') },
-              { value: 'A', label: t('protections.residualType_A', 'A (pulsating DC)') },
-              { value: 'F', label: t('protections.residualType_F', 'F (mixed frequency)') },
-              { value: 'B', label: t('protections.residualType_B', 'B (smooth DC)') },
+              ...getProtectionResidualTypeOptions(t),
             ]}
+            wrapLabels
             className={selectClass}
           />
+        </div>
+      )}
+
+      {hasResidual && (
+        <div className="flex flex-wrap gap-2">
+          {([
+            { key: 'selective', label: t('protections.selective', 'Selective (S)'), active: selective },
+            { key: 'superImmunized', label: t('protections.superImmunized', 'Super immunized (SI)'), active: superImmunized },
+          ] as const).map(({ key, label, active }) => (
+            <button
+              key={key}
+              type="button"
+              aria-label={label}
+              title={label}
+              aria-pressed={active === true}
+              onClick={() => onPatch({ [key]: active !== true })}
+              className={`max-w-full rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                active
+                  ? 'border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300'
+                  : 'border-gray-300 text-gray-700 hover:border-sky-300 dark:border-gray-600 dark:text-gray-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       )}
 

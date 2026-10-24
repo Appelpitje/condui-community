@@ -8,6 +8,7 @@ import {
   phaseAssignment,
   endpointPatchSchema,
   domoticaProps,
+  domoticaOutputWire,
   installationDatePatchSchema,
   symbolLabelDisplay,
   circuitWirePatchSchema,
@@ -33,9 +34,11 @@ export const panelPropertiesSchema = patchObject({
   name: z.string().trim().min(1),
   nameByLocale: z.record(z.string(), z.string()),
   location: str,
+  numberOverride: z.string().trim().min(1).max(12).nullable(),
   earthingSystem: z.enum(['TT', 'TN-S', 'TN-C', 'TN-C-S', 'IT']).nullable(),
   backupEarthingSystem: z.enum(['TT', 'TN-S', 'TN-C', 'TN-C-S', 'IT']).nullable(),
   hasGround: bool,
+  expectedShortCircuitKa: num,
   symbolLabelDisplay: symbolLabelDisplay.nullable(),
   ...installationDatePatchSchema.shape,
 })
@@ -133,13 +136,14 @@ export const extraElectricalPropertyEditSchema = z.discriminatedUnion('kind', [
       ids,
       outputGroup: z.enum(['control', 'endpoint']),
       outputIndex: z.number().int().nonnegative(),
-      set: circuitWirePatchSchema,
+      set: domoticaOutputWire,
     })
     .strict(),
   z
     .object({
       kind: z.literal('canonicalWire'),
       ids,
+      sharedGeometryAnchors: z.array(z.string().min(1)).optional(),
       set: patchObject({
         cable: cableSpec,
         medium: z.enum(['cable', 'busbar']).nullable(),
@@ -274,6 +278,7 @@ export const extraElectricalActionSchema = z.discriminatedUnion('kind', [
       kind: z.literal('wireCableDefault'),
       anchor: z.string().min(1),
       cable: cableSpec.required({ kind: true, conductors: true, sectionMm2: true }),
+      sharedGeometryAnchors: z.array(z.string().min(1)).optional(),
     })
     .strict(),
   z

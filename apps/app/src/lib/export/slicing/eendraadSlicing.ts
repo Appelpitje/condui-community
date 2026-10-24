@@ -16,10 +16,17 @@ import type { BottomUpPanelLayout, BottomUpCircuitLayout } from '@/lib/layout/bo
 import type { ExportScene } from '../types'
 import { ExportError } from '../types'
 import { exportLog } from '../exportLogger'
-import { getEendraadSchematicAreaMm, limitEendraadScaleToInfoBlockCollision } from '../pdfPageLayout'
-import type { ExportPaperSize } from '../pageSizes'
+import {
+  getEendraadSchematicAreaMm,
+  getEendraadTopObstaclesMm,
+  getEendraadInfoBlockObstacleMm,
+  limitEendraadScaleToInfoBlockCollision,
+  INFO_BLOCK_GAP_MM,
+} from '../pdfPageLayout'
+import { getPageDimensions, PAGE_MARGIN, type ExportPaperSize } from '../pageSizes'
 import { getCircuitBusSectionId } from '@/lib/panel/panelBusSections'
-import { getPanelPackedPaintBounds } from '@/lib/layout/trunkPaintedEnvelope'
+import { getCircuitTrunkPaintedEnvelope, getPanelPackedPaintBounds } from '@/lib/layout/trunkPaintedEnvelope'
+import { MAIN_BUS_RENDER_STROKE_WIDTH } from '@/lib/layout/bottomUpLayout'
 
 /** Overlap between adjacent slices in scene pixels is derived from this physical margin. */
 const SLICE_OVERLAP_MM = 2
@@ -34,6 +41,9 @@ const SLICE_OVERLAP_MM = 2
  */
 export const EENDRAAD_MAX_SCALE_MM_PER_PX = 0.36
 
+/** Below this scale an 11 px circuit label is smaller than roughly 4 pt. */
+const COMPACT_PACKING_SCALE_THRESHOLD = 0.13
+
 export interface FrameSlice {
   x: number
   y: number
@@ -42,6 +52,8 @@ export interface FrameSlice {
   circuitIds: string[]
   /** Overlap in scene px (each side); used to expand render bounds and clip to content. */
   overlapPx?: number
+  /** Export-only physical top position, shared by all pages of a compact board. */
+  schematicTopMm?: number
 }
 
 export interface EendraadSlicingResult {
@@ -343,13 +355,126 @@ function getSlicingMetrics(
   }
 }
 
+/** Try a tighter sheet only when text is unusually small and every page clears the chrome. */
+function chooseEendraadPacking(
+  panelLayout: BottomUpPanelLayout,
+  packBounds: ExportScene['bounds'],
+  paperSize: ExportPaperSize,
+  panelTitle?: string,
+): { scale: number; schematicTopMm?: number } {
+  const infoWidth = getPanelInfoBlockNativeWidth(panelLayout)
+  const normalScale = chooseEendraadPanelScale(packBounds.height, paperSize, infoWidth)
+  if (normalScale >= COMPACT_PACKING_SCALE_THRESHOLD) return { scale: normalScale }
+  // Without a title reserve, keep the ordinary conservative placement.
+  if (panelTitle == null) return { scale: normalScale }
+
+  // Trunk envelopes include branches, descendants, labels and notes. Other painted
+  // layout blocks cover supply/stub artwork. Deliberately keep these conservative:
+  // a complicated corner simply retains its ordinary layout.
+  const regions = panelLayout.circuits.map((circuit) =>
+    getCircuitTrunkPaintedEnvelope(panelLayout, circuit)
+  )
+  for (const block of panelLayout.layoutBlocks ?? []) {
+    if (block.kind !== 'info-block' && block.debugVisible !== false) regions.push(block)
+  }
+  for (const point of [panelLayout.supply, panelLayout.ground, ...(panelLayout.supplyDevices ?? [])]) {
+    if (point) regions.push({ x: point.x - 30, y: point.y - 30, width: 60, height: 60 })
+  }
+  const bus = panelLayout.mainBus
+  regions.push({
+    x: bus.x - MAIN_BUS_RENDER_STROKE_WIDTH / 2,
+    y: bus.y - MAIN_BUS_RENDER_STROKE_WIDTH / 2,
+    width: bus.width + MAIN_BUS_RENDER_STROKE_WIDTH,
+    height: MAIN_BUS_RENDER_STROKE_WIDTH,
+  })
+  const blocks = getMainBusBlocks(panelLayout)
+  const slicesAt = (scale: number, paper: ExportPaperSize) => blocks.length
+    ? buildCoreSlices(blocks, packBounds, scale, paper)
+    : [{ left: packBounds.x, right: packBounds.x + packBounds.width }]
+
+  // Every page contributes constraints to one shared vertical position. A feeder
+  // below the bus only limits the info-box clearance where their X ranges meet.
+  const topAt = (scale: number, paper: ExportPaperSize, maxPages: number): number | null => {
+    const slices = slicesAt(scale, paper)
+    if (slices.length > maxPages) return null
+    const page = getPageDimensions('landscape', paper)
+    const contentWidth = page.width - PAGE_MARGIN * 2
+    const info = getEendraadInfoBlockObstacleMm('landscape', infoWidth, paper)
+    const headers = getEendraadTopObstaclesMm(paper, panelTitle)
+    let minTop = PAGE_MARGIN
+    let maxTop = page.height - PAGE_MARGIN - packBounds.height * scale
+    const overlap = getSliceOverlapPx(scale)
+    for (const slice of slices) {
+      // Match the rendered viewport, horizontal centering and core seam clip.
+      const renderLeft = slice.left - overlap
+      const renderWidth = Math.min(slice.right - slice.left + 2 * overlap, contentWidth / scale)
+      const pageX = PAGE_MARGIN + (contentWidth - renderWidth * scale) / 2
+      for (const region of regions) {
+        const left = Math.max(region.x, slice.left)
+        const right = Math.min(region.x + region.width, slice.right, renderLeft + renderWidth)
+        if (right <= left) continue
+        const x = pageX + (left - renderLeft) * scale
+        const endX = pageX + (right - renderLeft) * scale
+        const crosses = (obstacle: { x: number; width: number }) =>
+          x < obstacle.x + obstacle.width + INFO_BLOCK_GAP_MM &&
+          endX + INFO_BLOCK_GAP_MM > obstacle.x
+        for (const header of headers) {
+          if (header.width > 0 && crosses(header)) {
+            minTop = Math.max(minTop,
+              header.y + header.height + INFO_BLOCK_GAP_MM - (region.y - packBounds.y) * scale)
+          }
+        }
+        if (crosses(info)) {
+          maxTop = Math.min(maxTop,
+            info.y - INFO_BLOCK_GAP_MM - (region.y + region.height - packBounds.y) * scale)
+        }
+      }
+    }
+    return minTop <= maxTop + 1e-9 ? maxTop : null
+  }
+
+  // Preserve A4's physical scale on A3. Maximise symbol size without creating
+  // another page solely to use the space beside the info box. Page cuts and
+  // corner ownership can change with scale, so first find a feasible interval.
+  const maxPages = Math.max(1, slicesAt(normalScale, 'A4').length)
+  const upper = Math.min(EENDRAAD_MAX_SCALE_MM_PER_PX,
+    (getPageDimensions('landscape', 'A4').height - PAGE_MARGIN * 2) / packBounds.height)
+  let scale = normalScale
+  let top = topAt(scale, 'A4', maxPages)
+  let rejected = upper
+  for (let step = 0; step <= 64; step++) {
+    const candidate = upper - (upper - normalScale) * step / 64
+    const candidateTop = topAt(candidate, 'A4', maxPages)
+    if (candidateTop != null) {
+      scale = candidate
+      top = candidateTop
+      break
+    }
+    rejected = candidate
+  }
+  if (top == null) return { scale: normalScale }
+  for (let step = 0; step < 20 && rejected > scale; step++) {
+    const candidate = (scale + rejected) / 2
+    const candidateTop = topAt(candidate, 'A4', maxPages)
+    if (candidateTop == null) rejected = candidate
+    else { scale = candidate; top = candidateTop }
+  }
+  if (paperSize !== 'A4') {
+    const paperTop = topAt(scale, paperSize, Math.max(1, slicesAt(normalScale, paperSize).length))
+    if (paperTop == null) return { scale: normalScale }
+    top = paperTop
+  }
+  return { scale, schematicTopMm: top }
+}
+
 /**
  * Fast dialog estimate using packed paint bounds. Uses the same per-panel
  * height-fit scale as export slicing so the predicted page count matches the PDF.
  */
 export function estimateEendraadPageCount(
   panelLayouts: BottomUpPanelLayout[],
-  paperSize: ExportPaperSize = 'A4'
+  paperSize: ExportPaperSize = 'A4',
+  getPanelTitle?: (panelLayout: BottomUpPanelLayout) => string,
 ): number {
   return panelLayouts.reduce((count, panelLayout) => {
     if (panelLayout.frameRole === 'supply') return count + 1
@@ -366,11 +491,7 @@ export function estimateEendraadPageCount(
           },
     } as ExportScene
     const packBounds = getPackBounds(panelLayout, scene.bounds)
-    const scale = chooseEendraadPanelScale(
-      packBounds.height,
-      paperSize,
-      getPanelInfoBlockNativeWidth(panelLayout)
-    )
+    const { scale } = chooseEendraadPacking(panelLayout, packBounds, paperSize, getPanelTitle?.(panelLayout))
     return count + getSlicingMetrics(panelLayout, scene, scale, paperSize).pageCount
   }, 0)
 }
@@ -379,7 +500,8 @@ export async function calculateEendraadSlices(
   panelLayout: BottomUpPanelLayout,
   scene: ExportScene,
   scaleOverride?: number,
-  paperSize: ExportPaperSize = 'A4'
+  paperSize: ExportPaperSize = 'A4',
+  panelTitle?: string,
 ): Promise<EendraadSlicingResult> {
   const sceneBounds = scene.bounds
   if (panelLayout.frameRole === 'supply') {
@@ -410,11 +532,9 @@ export async function calculateEendraadSlices(
   }
   const blocks = getMainBusBlocks(panelLayout)
   const packBounds = getPackBounds(panelLayout, sceneBounds)
-  const panelScale = chooseEendraadPanelScale(
-    packBounds.height,
-    paperSize,
-    getPanelInfoBlockNativeWidth(panelLayout)
-  )
+  const packing = chooseEendraadPacking(panelLayout, packBounds, paperSize, panelTitle)
+  const panelScale = packing.scale
+  const schematicTopMm = scaleOverride == null ? packing.schematicTopMm : undefined
   const globalScale = Math.min(scaleOverride ?? panelScale, EENDRAAD_MAX_SCALE_MM_PER_PX)
   const mainBusY = panelLayout.mainBus.y
   const sliceWidthPx = getSliceWidthPxForScale(globalScale, paperSize)
@@ -442,6 +562,7 @@ export async function calculateEendraadSlices(
           width: packBounds.width,
           height: packBounds.height,
           circuitIds: [],
+          schematicTopMm,
         },
       ],
       globalScale,
@@ -465,6 +586,7 @@ export async function calculateEendraadSlices(
       height: packBounds.height,
       circuitIds,
       overlapPx,
+      schematicTopMm,
     })
   }
 

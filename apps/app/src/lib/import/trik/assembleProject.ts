@@ -13,6 +13,7 @@ import { buildFigureAsset } from '@/lib/import/trik/planAssets'
 import { linkTrikControlAddresses } from '@/lib/import/trik/linkControlAddresses'
 import { getEditableProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { buildFloorPlan } from '@/lib/import/trik/planGeometry'
+import { buildTrikPlanReference } from '@/lib/import/trik/planReference'
 import {
   collectGroundInfo,
   collectPlacedPlanPanels,
@@ -233,6 +234,7 @@ export async function importProjectFromTrikLocal(file: File): Promise<ProjectV2>
     if (floorPlan) {
       floor.floorPlan = floorPlan
     }
+    floor.trikPlanReference = await buildTrikPlanReference(page.pageElement)
 
     const figures = parseFigures(page.pageElement)
     const { recognized: recognizedFigures, unrecognized: unrecognizedFigures } =

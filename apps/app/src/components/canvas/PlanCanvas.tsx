@@ -76,6 +76,7 @@ import RoomPlanScanControl from '../plan/RoomPlanScanControl'
 import ScaleIndicator from '../plan/ScaleIndicator'
 import { QuickPlacerToolIcon, useAwaitingPlanPlacementCount } from '../plan/QuickPlacerToolIcon'
 import SitplanVisibilityPanel from '../plan/SitplanVisibilityPanel'
+import { getViewportCenterPlanSpaceIfApplicable } from '@/lib/plan/autoSitplanPlacement'
 import CopyFloorPlanSelectionDialog from '../plan/CopyFloorPlanSelectionDialog'
 import {
   PlanNote,
@@ -122,6 +123,7 @@ import { CanvasOverlayScaleProvider } from '@/contexts/CanvasOverlayScaleContext
 import CanvasFloatingControlRail from './CanvasFloatingControlRail'
 import { usePlanDrawingElectricalSnapshot } from '@/hooks/plan/usePlanDrawingElectricalSnapshot'
 import { suggestRotationForPlacement } from '@/utils/planAutoOrient'
+import { getEndpointPlanWallFacingSide } from '@/lib/plan/planWallOrientation'
 import { hasExplicitSituationPlanRotation } from '@/lib/plan/situationPlanRotation'
 import FloorSelectionDialog from '../plan/FloorSelectionDialog'
 import { useDialogStore } from '@/stores/dialogStore'
@@ -574,6 +576,25 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
         {
           importBackground: () => palettePlanActionsRef.current?.importBackground(),
           calibrateScale: () => palettePlanActionsRef.current?.calibrateScale(),
+          getPlacementTarget: () => {
+            const ui = viewportUI.getState()
+            const stage = canvasRef.current?.getStage()
+            if (ui.isExporting || !ui.activeFloorId || !stage) return null
+            const viewportCenter = getViewportCenterPlanSpaceIfApplicable(
+              ui.viewportLayout,
+              { width: stage.width(), height: stage.height() },
+              ui.activeFloorId,
+              ui.activeFloorId,
+              ui.planView
+            )
+            return viewportCenter
+              ? {
+                  activeFloorId: ui.activeFloorId,
+                  viewportCenter,
+                  ownerDocument: stage.container().ownerDocument,
+                }
+              : null
+          },
         },
         viewportUI
       )
@@ -2095,6 +2116,12 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
     canEditFloorPlan &&
     isFloorPlanMode &&
     (activeTool === 'clipWall' || activeTool === 'insertPoint' || activeTool === 'select')
+  const showCurvedWallOpeningHint =
+    shouldHandleWallHover &&
+    !isExporting &&
+    (activeTool === 'insertDoor' || activeTool === 'insertWindow') &&
+    hoveredWallId !== null &&
+    activeFloor?.floorPlan?.walls.some((wall: Wall) => wall.id === hoveredWallId && isCurvedWall(wall))
   const canSelectDoorsInInsertMode =
     activeTool === 'insertDoor' && openingSelectionArmedTool === 'insertDoor'
   const canSelectWindowsInInsertMode =
@@ -4566,7 +4593,9 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
             junctionPanelLabel?: string
           },
         ],
-        getEndpointById,
+        (id) => id === currentQuickPlacerFastItem.endpoint.id
+          ? currentQuickPlacerFastItem.endpoint
+          : getEndpointById(id),
         null,
         baseSymbolSizePx,
         fontFamily
@@ -4574,7 +4603,7 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
     },
     [
       quickPlacerFastPreviewPlacement,
-      currentQuickPlacerFastItem?.endpoint?.label,
+      currentQuickPlacerFastItem?.endpoint,
       getEndpointById,
       baseSymbolSizePx,
       fontFamily,
@@ -5874,12 +5903,8 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
         pos: snappedPos,
       }
 
-      if (
-        endpoint &&
-        !hasExplicitSituationPlanRotation(placement) &&
-        (endpoint.type === 'socket' || endpoint.symbol === 'panel_distribution')
-      ) {
-        const wallFacingSide = endpoint.symbol === 'panel_distribution' ? 'top' : 'left'
+      const wallFacingSide = endpoint && getEndpointPlanWallFacingSide(endpoint)
+      if (endpoint && wallFacingSide && !hasExplicitSituationPlanRotation(placement)) {
         const suggestedRotation = suggestRotationForPlacement(
           { ...placement, pos: snappedPos },
           {
@@ -7617,6 +7642,7 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
         }}
         onMouseLeave={() => {
           pointerOverPlanRef.current = false
+          applyHoveredWallId(null)
         }}
         onDragOverCapture={canPlaceSymbols ? handleQuickPlacerDragOver : undefined}
         onDropCapture={canPlaceSymbols ? handleQuickPlacerDrop : undefined}
@@ -9482,6 +9508,17 @@ function PlanCanvas({ onMultiFingerSwipe, capabilities }: PlanCanvasProps = {}) 
             }}
           >
             {quickPlacerCursorHint.message}
+          </div>
+        )}
+
+        {showCurvedWallOpeningHint && (
+          <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex justify-center">
+            <div
+              role="status"
+              className="max-w-sm rounded-md border border-gray-200 bg-white px-3 py-2 text-center text-xs text-gray-800 shadow-md dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+            >
+              {t('floorPlanTools.curvedWallOpeningHint')}
+            </div>
           </div>
         )}
 

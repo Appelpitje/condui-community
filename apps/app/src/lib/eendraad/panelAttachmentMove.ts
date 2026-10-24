@@ -2,6 +2,7 @@ import { clamp } from '@/lib/geometry'
 import { findParentCircuitInfo } from '@/lib/eendraad/findParentCircuitInfo'
 import {
   findPanelOwnDistributionEndpoint,
+  isDomoticaPanelFeedEndpoint,
   resolvePanelSupplyLinkForPanelInPanels,
 } from '@/lib/eendraad/panelSupplyLink'
 import {
@@ -166,6 +167,7 @@ export function isPanelAttachmentDropTargetTerminal(
 ): boolean {
   const link = resolvePanelSupplyLinkForPanelInPanels(panels, targetPanelId)
   if (!link) return false
+  if (isDomoticaPanelFeedEndpoint(link.sourcePanelEndpoint)) return false
   const isCircuitTopTarget =
     target.type === 'circuit' && target.insertAfterCircuitContent === true
   if (

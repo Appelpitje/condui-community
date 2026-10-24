@@ -9,11 +9,13 @@ import {
 } from '@/components/canvas/eendraad/canvasSymbols'
 import { DOMOTICA_CHILD_LABEL_GAP } from '@/lib/domoticaLayout'
 import { getDomoticaRowDisplayLabel } from '@/lib/eendraad/domoticaRowLabel'
+import { getDomoticaBusRowLabelMetrics } from '@/lib/eendraad/domoticaBusRowLabel'
 import { getVisibleCertificationLabelParts } from '@/lib/certificationLabels'
 import { getVisibleConversionLabelParts, getVisibleEndpointNoteText } from '@/lib/conversionLabels'
 import { getScopedControlLinkNote } from '@/lib/controlLink/controlLinkNoteContext'
 import { getEndpointNoteMinimumLeftX } from '@/lib/eendraad/endpointNoteLabelCollision'
 import { getDomoticaNoteBounds } from '@/lib/eendraad/domoticaNotes'
+import { getControlButtonAnnotationBounds } from '@/lib/eendraad/controlButtonLabels'
 import { measureSymbolLabelTextWidth } from '@/lib/symbolLabelTextWidth'
 import type { Endpoint } from '@/types/schema'
 
@@ -24,9 +26,19 @@ function isSolarSequenceEndpoint(endpoint: Endpoint | undefined): boolean {
   return endpoint?.symbol === 'inverter' || endpoint?.symbol === 'solar_panel'
 }
 
+function isRightSideBranchLabel(endpoint: Endpoint | undefined, isBranchEnd: boolean): boolean {
+  return Boolean(
+    isBranchEnd &&
+      (endpoint?.symbol === 'solar_panel' || endpoint?.symbol === 'battery' || endpoint?.symbol === 'ev')
+  )
+}
+
 const CONTROL_LINK_NOTE_FONT_SIZE = 8
 const CONTROL_LINK_NOTE_NEXT_GAP = 8
 const CONTROL_LINK_NOTE_NEXT_HALF_SYMBOL = 15
+const ENDPOINT_NOTE_FONT_SIZE = 8
+const ENDPOINT_NOTE_NEXT_GAP = 8
+const ENDPOINT_SYMBOL_HALF_WIDTH = 15
 
 /**
  * Smallest X a following endpoint may take so the control-link note painted under `endpoint`
@@ -68,9 +80,51 @@ export function getEndpointXOffsets(
         ep?.type === 'socket'
           ? Math.max(0, (ep.socketProps?.socketCount ?? 1) - 1) * MULTI_SOCKET_OFFSET
           : 0
+      const endpointNoteText = ep && !isRightSideBranchLabel(ep, i === branchEndpoints.length - 1)
+        ? getVisibleEndpointNoteText(ep)
+        : ''
+      const endpointNoteWidth = endpointNoteText
+        ? measureSymbolLabelTextWidth(endpointNoteText, 'Figtree', ENDPOINT_NOTE_FONT_SIZE)
+        : 0
+      const endpointNoteOffset = socketExtra / 2
+      const endpointNoteLeft = endpointNoteText
+        ? x + endpointNoteOffset +
+          Math.max(-endpointNoteWidth / 2, getEndpointNoteMinimumLeftX(x, 0))
+        : undefined
+      const endpointNoteRight =
+        endpointNoteLeft == null ? undefined : endpointNoteLeft + endpointNoteWidth
+      const buttonAnnotation = ep && getControlButtonAnnotationBounds(ep, x, 0, 0)
+      const nextEndpointNoteText = isRightSideBranchLabel(next!, i + 1 === branchEndpoints.length - 1)
+        ? ''
+        : getVisibleEndpointNoteText(next!)
+      const nextEndpointNoteWidth = nextEndpointNoteText
+        ? measureSymbolLabelTextWidth(nextEndpointNoteText, 'Figtree', ENDPOINT_NOTE_FONT_SIZE)
+        : 0
+      const nextSocketExtra =
+        next?.type === 'socket'
+          ? Math.max(0, (next.socketProps?.socketCount ?? 1) - 1) * MULTI_SOCKET_OFFSET
+          : 0
+      const clearEndpointNote = endpointNoteRight == null
+        ? Number.NEGATIVE_INFINITY
+        : endpointNoteRight + ENDPOINT_NOTE_NEXT_GAP +
+          Math.max(
+            ENDPOINT_SYMBOL_HALF_WIDTH + nextSocketExtra,
+            nextEndpointNoteWidth / 2 - nextSocketExtra / 2
+          )
+      const clearPreviousSymbolForNextNote = nextEndpointNoteWidth > 0
+        ? x + socketExtra + ENDPOINT_SYMBOL_HALF_WIDTH + ENDPOINT_NOTE_NEXT_GAP +
+          nextEndpointNoteWidth / 2 - nextSocketExtra / 2
+        : Number.NEGATIVE_INFINITY
       x = Math.max(
         x + resolvedEndpointSpacing + extra + socketExtra,
-        getControlLinkNoteClearX(ep, x) ?? Number.NEGATIVE_INFINITY
+        getControlLinkNoteClearX(ep, x) ?? Number.NEGATIVE_INFINITY,
+        clearEndpointNote,
+        clearPreviousSymbolForNextNote,
+        buttonAnnotation ? buttonAnnotation.right + ENDPOINT_NOTE_NEXT_GAP + Math.max(ENDPOINT_SYMBOL_HALF_WIDTH, nextEndpointNoteWidth / 2) : -Infinity,
+        (() => {
+          const nextAnnotation = getControlButtonAnnotationBounds(next, 0, 0, -100000)
+          return nextAnnotation ? x + socketExtra + ENDPOINT_SYMBOL_HALF_WIDTH + ENDPOINT_NOTE_NEXT_GAP - nextAnnotation.left : -Infinity
+        })(),
       )
     }
   }
@@ -154,7 +208,7 @@ export function getEndpointLayoutOffsets(
   const result = branchEndpoints.map((_, index) => ({ x: offsets[index] ?? leadIn, y: 0 }))
   const indexById = new Map(branchEndpoints.map((endpoint, index) => [endpoint.id, index]))
   const endpointById = new Map(branchEndpoints.map((endpoint) => [endpoint.id, endpoint]))
-  const paintedRects: Array<{ id: string; left: number; right: number; top: number; bottom: number }> = []
+  const paintedRects: Array<{ id: string; left: number; right: number; top: number; bottom: number; hasButtonAnnotation: boolean }> = []
 
   const addPaintedRect = (endpoint: Endpoint, x: number, y: number, includeLabel: boolean) => {
     const isModule = endpoint.symbol === 'domotica'
@@ -167,9 +221,9 @@ export function getEndpointLayoutOffsets(
         : 0
     let right = x + (isModule ? DOMOTICA_BOX_WIDTH / 2 : symbolSize / 2 + socketExtra)
     if (includeLabel && endpoint.label?.trim()) {
-      const measuredLabelWidth =
-        measureSymbolLabelTextWidth(getDomoticaRowDisplayLabel(endpoint), 'Figtree', DOMOTICA_LABEL_FONT_SIZE) +
-        DOMOTICA_LABEL_SAFETY
+      const measuredLabelWidth = getDomoticaBusRowLabelMetrics(endpoint)?.width ??
+        (measureSymbolLabelTextWidth(getDomoticaRowDisplayLabel(endpoint, { code: '', endpoints: branchEndpoints }), 'Figtree', DOMOTICA_LABEL_FONT_SIZE) +
+        DOMOTICA_LABEL_SAFETY)
       right = Math.max(
         right,
         isModule
@@ -178,12 +232,14 @@ export function getEndpointLayoutOffsets(
       )
     }
     const note = getDomoticaNoteBounds(endpoint, x, y, 0)
+    const buttonAnnotation = getControlButtonAnnotationBounds(endpoint, x, y, 0)
     paintedRects.push({
       id: endpoint.id,
+      hasButtonAnnotation: !!buttonAnnotation,
       left: x - (isModule ? DOMOTICA_BOX_WIDTH / 2 : symbolSize / 2),
-      right: Math.max(right, note?.right ?? right),
+      right: Math.max(right, note?.right ?? right, buttonAnnotation?.right ?? right),
       top: y - variableHeight - (isModule ? DOMOTICA_BASE_HEIGHT / 2 : symbolSize / 2),
-      bottom: Math.max(note?.bottom ?? -Infinity,
+      bottom: Math.max(note?.bottom ?? -Infinity, buttonAnnotation?.bottom ?? -Infinity,
         y +
         (isModule && includeLabel && endpoint.domoticaChildProps
           ? DOMOTICA_BASE_HEIGHT / 2 + 23
@@ -214,13 +270,28 @@ export function getEndpointLayoutOffsets(
     }
 
     for (const [row, rowChildren] of rows) {
+      let rowShiftX = 0
       rowChildren.forEach((child, chainIndex) => {
         const childIndex = indexById.get(child.id)
         if (childIndex == null) return
-        result[childIndex] = {
-          x: moduleX + DOMOTICA_BOX_WIDTH / 2 + DOMOTICA_BRANCH_LEAD + chainIndex * endpointSpacing,
-          y: firstOutputY + row * DOMOTICA_OUTPUT_SPACING,
-        }
+        const previous = rowChildren[chainIndex - 1]
+        const previousOffset = previous && result[indexById.get(previous.id)!]
+        const previousAnnotation = previous && previousOffset && getControlButtonAnnotationBounds(previous, previousOffset.x, previousOffset.y, 0)
+        let childX = moduleX + DOMOTICA_BOX_WIDTH / 2 + DOMOTICA_BRANCH_LEAD + chainIndex * endpointSpacing + rowShiftX
+        const childY = firstOutputY + row * DOMOTICA_OUTPUT_SPACING
+        const ownAnnotation = getControlButtonAnnotationBounds(child, childX, childY, 0)
+        const childTop = childY - symbolSize / 2
+        const childBottom = Math.max(childY + symbolSize / 2, ownAnnotation?.bottom ?? -Infinity)
+        const centeredAnnotation = getControlButtonAnnotationBounds(child, 0, 0, -100000)
+        const halfWidth = Math.max(symbolSize / 2, centeredAnnotation ? -centeredAnnotation.left : 0)
+        const obstacleRight = paintedRects.reduce((right, rect) => (ownAnnotation || rect.hasButtonAnnotation) && rect.bottom > childTop && rect.top < childBottom
+          ? Math.max(right, rect.right) : right, -Infinity)
+        const shiftedX = Math.max(childX,
+          Number.isFinite(obstacleRight) ? obstacleRight + DOMOTICA_NESTED_CLEARANCE + halfWidth : -Infinity,
+          previousAnnotation ? previousAnnotation.right + DOMOTICA_NESTED_CLEARANCE + halfWidth : -Infinity)
+        rowShiftX += shiftedX - childX
+        childX = shiftedX
+        result[childIndex] = { x: childX, y: childY }
       })
       rowChildren.forEach((child, chainIndex) => {
         if (child.symbol === 'domotica') return
@@ -238,10 +309,12 @@ export function getEndpointLayoutOffsets(
         Math.max(0, getDomoticaEndpointCount(nested) - 1) * DOMOTICA_OUTPUT_SPACING
       const top = initial.y - nestedVariableHeight - DOMOTICA_BASE_HEIGHT / 2
       const nestedNote = getDomoticaNoteBounds(nested, initial.x, initial.y, 0)
+      const nestedBusAddress = getControlButtonAnnotationBounds(nested, initial.x, initial.y, 0)
       const bottom = Math.max(initial.y + DOMOTICA_BASE_HEIGHT / 2,
-        nestedNote?.bottom ?? -Infinity)
+        nestedNote?.bottom ?? -Infinity, nestedBusAddress?.bottom ?? -Infinity)
       const leftExtent = Math.max(DOMOTICA_BOX_WIDTH / 2,
-        nestedNote ? (nestedNote.right - nestedNote.left) / 2 : 0)
+        nestedNote ? (nestedNote.right - nestedNote.left) / 2 : 0,
+        nestedBusAddress ? (nestedBusAddress.right - nestedBusAddress.left) / 2 : 0)
       const obstacleRight = paintedRects.reduce(
         (right, rect) =>
           rect.id !== nested.id && rect.bottom >= top && rect.top <= bottom
@@ -310,16 +383,19 @@ export function calculateBranchWidth(
         ? endpoint.symbol === 'domotica'
           ? offset -
             DOMOTICA_BOX_WIDTH / 2 +
-            measureSymbolLabelTextWidth(getDomoticaRowDisplayLabel(endpoint), 'Figtree', DOMOTICA_LABEL_FONT_SIZE) +
-            DOMOTICA_LABEL_SAFETY
+            (getDomoticaBusRowLabelMetrics(endpoint)?.width ??
+              measureSymbolLabelTextWidth(getDomoticaRowDisplayLabel(endpoint, { code: '', endpoints: branchEndpoints }), 'Figtree', DOMOTICA_LABEL_FONT_SIZE) +
+              DOMOTICA_LABEL_SAFETY)
           : offset +
             15 +
             DOMOTICA_CHILD_LABEL_GAP +
-            measureSymbolLabelTextWidth(getDomoticaRowDisplayLabel(endpoint), 'Figtree', DOMOTICA_LABEL_FONT_SIZE) +
-            DOMOTICA_LABEL_SAFETY
+            (getDomoticaBusRowLabelMetrics(endpoint)?.width ??
+              measureSymbolLabelTextWidth(getDomoticaRowDisplayLabel(endpoint, { code: '', endpoints: branchEndpoints }), 'Figtree', DOMOTICA_LABEL_FONT_SIZE) +
+              DOMOTICA_LABEL_SAFETY)
         : symbolRight
       const noteRight = getDomoticaNoteBounds(endpoint, offset, layoutOffsets[index]?.y ?? 0, 0)?.right ?? symbolRight
-      return Math.max(right, symbolRight, labelRight, noteRight)
+      const buttonRight = getControlButtonAnnotationBounds(endpoint, offset, layoutOffsets[index]?.y ?? 0, 0)?.right ?? symbolRight
+      return Math.max(right, symbolRight, labelRight, noteRight, buttonRight)
     }, leadIn)
     const outputStackHeight =
       DOMOTICA_BASE_HEIGHT + Math.max(0, endpointCount - 1) * DOMOTICA_OUTPUT_SPACING
@@ -353,6 +429,18 @@ export function calculateBranchWidth(
         : 0
 
     maxRight = Math.max(maxRight, (offsets[i] ?? leadIn) + socketExtra + wideSymbolExtra)
+    maxRight = Math.max(maxRight, getControlButtonAnnotationBounds(ep, offsets[i] ?? leadIn, 0, 0)?.right ?? -Infinity)
+
+    const noteText = isRightSideBranchLabel(ep, i === count - 1)
+      ? ''
+      : getVisibleEndpointNoteText(ep)
+    if (noteText) {
+      const endpointX = offsets[i] ?? leadIn
+      const noteWidth = measureSymbolLabelTextWidth(noteText, 'Figtree', ENDPOINT_NOTE_FONT_SIZE)
+      const noteLeft = endpointX + socketExtra / 2 +
+        Math.max(-noteWidth / 2, getEndpointNoteMinimumLeftX(endpointX, 0))
+      maxRight = Math.max(maxRight, noteLeft + noteWidth)
+    }
   }
 
   // A single regular endpoint keeps its bottom metadata clear of the branch

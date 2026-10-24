@@ -55,7 +55,9 @@ import {
   normalizeTrikPanelNameKey,
   roundRotationDeg,
   scaledPoint,
+  trikBoardNameAliases,
   trikNotasMentionPanel,
+  trikNumberedPanelName,
   TRIK_ONE_WIRE_NOTA_FONT_SIZE_PX,
   TRIK_SATELLITE_UNITS_TO_PX,
 } from '@/lib/import/trik/shared'
@@ -347,7 +349,11 @@ function flattenProjectPanels(panels: Panel[]): Panel[] {
 function resolvePlacedPanelName(placed: TrikPlanPanel): string | undefined {
   const fromVasteLetter = placed.vasteLetter?.trim()
   if (fromVasteLetter) return fromVasteLetter
-  const derived = [placed.name?.trim(), placed.number?.trim()].filter(Boolean).join(' ').trim()
+  const name = placed.name?.trim()
+  const number = placed.number?.trim()
+  // Same naming as the board itself, so a placed board finds its panel.
+  if (!name && number) return trikNumberedPanelName(number)
+  const derived = [name, number].filter(Boolean).join(' ').trim()
   return derived || undefined
 }
 
@@ -1182,10 +1188,10 @@ export function syncTrikImportedMainPanelSupplyGrid(project: Project): void {
 
 function findImportedProtectionByOutboundHint(
   importsBySourceId: Map<string, TrikCircuitImportResult>,
-  targetPanelName: string,
+  targetPanelNames: string[],
 ): TrikCircuitImportResult | undefined {
   for (const imported of importsBySourceId.values()) {
-    if (trikNotasMentionPanel(imported.source.outboundPanelNotas, targetPanelName)) {
+    if (trikNotasMentionPanel(imported.source.outboundPanelNotas, targetPanelNames)) {
       return imported
     }
   }
@@ -1264,11 +1270,11 @@ export function linkTrikPanelBoards(
   if (boards.length <= 1) return
 
   const panelByName = new Map<string, Panel>()
-  const knownPanelNames = boards.map((board) => board.name)
+  const knownPanelNames = boards.flatMap(trikBoardNameAliases)
   for (const board of boards) {
     const panel = panelByBoardId.get(board.trikBoardId)
     if (!panel) continue
-    panelByName.set(normalizeTrikPanelNameKey(board.name), panel)
+    for (const alias of trikBoardNameAliases(board)) panelByName.set(normalizeTrikPanelNameKey(alias), panel)
     // Optimistic: every board is a main until evidence nests it.
     panel.isMain = true
   }
@@ -1281,9 +1287,16 @@ export function linkTrikPanelBoards(
 
     let parentPanel: Panel | undefined
     let hintedFeeder: TrikCircuitImportResult | undefined
-    for (const [sourceBoardId, imports] of importsByBoardId) {
+    // Drawn behind another board's circuit: that circuit feeds it.
+    if (board.parentBoardId && panelByBoardId.has(board.parentBoardId)) {
+      parentPanel = panelByBoardId.get(board.parentBoardId)
+      hintedFeeder = board.parentCircuitId
+        ? importsByBoardId.get(board.parentBoardId)?.get(board.parentCircuitId)
+        : undefined
+    }
+    for (const [sourceBoardId, imports] of parentPanel ? [] : importsByBoardId) {
       if (sourceBoardId === board.trikBoardId) continue
-      const feeder = findImportedProtectionByOutboundHint(imports, board.name)
+      const feeder = findImportedProtectionByOutboundHint(imports, trikBoardNameAliases(board))
       if (!feeder) continue
       parentPanel = panelByBoardId.get(sourceBoardId)
       hintedFeeder = feeder
@@ -1302,11 +1315,15 @@ export function linkTrikPanelBoards(
     }
 
     childPanel.isMain = false
+    let feeder = hintedFeeder
     if (hintedFeeder) {
       hintedFeeder.protection.subPanelId = childPanel.id
-    } else if (board.incomingFeeder) {
-      synthesizeFeederImport(parentPanel, board.incomingFeeder, childPanel)
+    } else if (board.incomingFeeder && !board.parentBoardId) {
+      feeder = synthesizeFeederImport(parentPanel, board.incomingFeeder, childPanel)
     }
+    // The board is supplied through its feeder circuit's cable.
+    const supplyCircuit = childPanel.circuits.find((circuit) => circuit.code === 'PANEL')
+    if (supplyCircuit && feeder?.circuit.cable) supplyCircuit.cable = { ...feeder.circuit.cable }
 
     const rootIndex = project.panels.findIndex((panel) => panel.id === childPanel.id)
     if (rootIndex >= 0) project.panels.splice(rootIndex, 1)

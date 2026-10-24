@@ -83,6 +83,7 @@ const SWITCH_SYMBOLS = new Set<string>([
   'switch_2p_twoway',
   'switch_dimmer',
   'switch_1p_changeover',
+  'switch_shutter',
   'switch_1p_pull',
   'switch_impulse',
   'switch_cross',

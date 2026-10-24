@@ -23,6 +23,34 @@ const NL_AREI_PATHS: Record<string, string> = {
 }
 
 export const VALIDATION_AREI_LINKS: Record<string, ValidationAreiLink> = {
+  'be.areibook1.2025.rcd-overload-coordination': {
+    path: '/issues/overcurrent-protection', hash: 'overload-short-circuit',
+  },
+  'be.areibook1.2025.rcd-waveform': {
+    path: '/issues/protection', hash: 'main-rcd',
+  },
+  'be.areibook1.2025.breaking-capacity-known': {
+    path: '/issues/overcurrent-protection', hash: 'overload-short-circuit',
+  },
+  'be.areibook1.2025.earthing-separator': {
+    path: '/issues/protection', hash: 'earthing',
+  },
+  'be.areibook1.2025.socket-safety': {
+    path: '/issues/circuit-structure', hash: 'contactdozen',
+    hashByLanguage: { de: 'sockets', pl: 'sockets', ro: 'sockets' },
+  },
+  'be.areibook1.2025.socket-protection': {
+    path: '/issues/breaker-vs-cross-section', hash: 'protection-cable',
+  },
+  'be.areibook1.2025.cable-placement-known': {
+    path: '/issues/wiring-installation', hash: 'wiring-data',
+  },
+  'be.areibook1.2025.cable-fire-class-known': {
+    path: '/issues/wiring-installation', hash: 'installation-context',
+  },
+  'be.areibook1.2025.ev-upstream-dc-coordination': {
+    path: '/issues/special-environments', hash: 'laadpaal_differentieel',
+  },
   'be.areibook1.2025.household-breaking-capacity': {
     path: '/issues/overcurrent-protection', hash: 'overload-short-circuit',
   },
@@ -81,6 +109,34 @@ export const VALIDATION_AREI_LINKS: Record<string, ValidationAreiLink> = {
   'be.areibook1.2025.nonhousehold-circuit-cable-length': {
     path: '/issues/wiring-installation',
     hash: 'wiring-data',
+  },
+  'be.areibook1.2025.earth-resistance': {
+    path: '/issues/protection',
+    hash: 'earthing',
+  },
+  'be.areibook1.2025.nonhousehold-earth-resistance-entered': {
+    path: '/issues/protection',
+    hash: 'earthing',
+  },
+  'be.areibook1.2025.nonhousehold-tt-indirect-contact': {
+    path: '/issues/protection',
+    hash: 'earthing',
+  },
+  'be.areibook1.2025.nonhousehold-board-short-circuit-current': {
+    path: '/issues/overcurrent-protection',
+    hash: 'overload-short-circuit',
+  },
+  'be.areibook1.2025.nonhousehold-breaking-capacity': {
+    path: '/issues/overcurrent-protection',
+    hash: 'overload-short-circuit',
+  },
+  'be.areibook1.2025.nonhousehold-breaking-capacity-shown': {
+    path: '/issues/documentation-inspection-responsibility',
+    hash: 'schema_eigenschappen',
+  },
+  'be.areibook1.2025.nonhousehold-supply-transformer': {
+    path: '/issues/documentation-inspection-responsibility',
+    hash: 'schema_eigenschappen',
   },
   'be.areibook1.2025.main-rcd': {
     path: '/issues/protection',

@@ -30,6 +30,7 @@ import ViewNavigationToolbar from './ViewNavigationToolbar'
 import CanvasFloatingControlRail from './CanvasFloatingControlRail'
 import { FloatingControl } from './FloatingControls'
 import { CanvasOverlayScaleProvider } from '@/contexts/CanvasOverlayScaleContext'
+import { EendraadWireSegmentsContext } from '@/contexts/EendraadWireSegmentsContext'
 import { WireSegments } from './WireSegment'
 import { logger } from '@/lib/logger'
 import { trackSymbolPlace } from '@/lib/analytics/editorEventAnalytics'
@@ -152,6 +153,13 @@ import { buildDiagramOverview } from '@/lib/eendraad/diagramOverview'
 import { DiagramOverview } from './eendraad/DiagramOverview'
 
 import { useEditionFeatureAvailability } from '@/hooks/useEditionFeatureAvailability'
+import {
+  LabelStyleSelect,
+  applyLabelScheme,
+  openLabelSchemeDialog,
+} from '@/components/canvas/eendraad/LabelSchemeSettings'
+import { labelSchemeUsesPanelPart, resolveLabelScheme } from '@/lib/eendraad/labelScheme'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { getExplicitInstallationDate, getExplicitInstallYear, getInstallYearColorKey, installationDateFromYear, installYearColor, normalizeInstallationDate, normalizeInstallYear, pickInstallYearColor } from '@/lib/installDates'
 import { buildCircuitInstallDateTargets, buildInstallDateInheritanceIndex, buildPanelInstallDateTargets, buildProtectionInstallDateTargets, getInstallDateTargetInheritedYear, protectionHasInstallDateChildren, type InstallDatePropagationMode, type InstallDateTarget } from '@/lib/installDatePropagation'
 import { queryOneWireNotes } from '@/lib/projectV2/annotations'
@@ -420,6 +428,8 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
     : undefined
   const currentPanels = currentProject ? getProjectElectricalPanels(currentProject) : EMPTY_PANELS
   const eendraadAutoNaming = !!currentInstallation?.eendraadAutomaticNaming
+  const eendraadLabelScheme = resolveLabelScheme(currentInstallation?.labelScheme)
+  const savedLabelStyles = useSettingsStore((s) => s.labelStyles)
   const hasCustomEendraadLabels = useMemo(
     () => !!currentProject && projectHasManualEendraadLabelOverrides(currentProject),
     [currentProject]
@@ -940,7 +950,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
     }
   )
   const dragPreview = validateEendraadPreview(currentProject, pendingDragPreview,
-    createUiDropBehaviorHooks().getSitplanTarget(),
+    createUiDropBehaviorHooks(window.document).getSitplanTarget(),
     elementDragModeRef.current === 'duplicate' && internalDragPlacement ? {
       id: internalDragPlacement.elementId,
       kind: getEndpointById(internalDragPlacement.elementId) ? 'endpoint'
@@ -2094,6 +2104,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
               preferMainBusOverGroundWire: true,
               preferMainBusOverSupplyWire: Boolean(symbol.busFeedKind) || isProtectionPlacement,
               preferSecondaryBusForNestedProtection: isProtectionPlacement,
+              preferDomoticaEndpointOutput: symbol.id === 'panel_distribution',
               ...(symbol.id === 'dc_bus' ? { preferCircuitTrunkWire: true } : {}),
               ...(symbol.id === 'source_changeover'
                 ? { normalizeDirectConverterChangeoverDrop: true }
@@ -2294,6 +2305,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
       // The command applies the shared target rules (protection normalization, junction-panel
       // boundary) and the drop engine as one undoable step.
       const placed = placeElectricalSymbol({
+        ownerDocument: window.document,
         symbolId: symbol.id,
         target: dropTarget,
         dropCanvasPosition: position,
@@ -2828,7 +2840,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
           return withSingleUndoEntry(
             () =>
               runEendraadEndpointAltDragDuplicate(elementId, position, {
-                dropHooks: createUiDropBehaviorHooks(),
+                dropHooks: createUiDropBehaviorHooks(window.document),
                 project: currentProject,
                 layoutTree,
                 wireSegments,
@@ -2856,7 +2868,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
                     items: [{ kind: 'endpoint', id: endpointId }],
                     purpose: 'altDrag',
                     target: { type: 'sourceSelection' },
-                    sitplan: createUiDropBehaviorHooks().getSitplanTarget(),
+                    sitplan: createUiDropBehaviorHooks(window.document).getSitplanTarget(),
                   }, { label: 'Add endpoint instance' })
                   if (!result?.changed) return false
                   setSelection({ type: 'endpoint', ids: [endpointId] })
@@ -2913,6 +2925,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
               )
             if (!dropTarget) return false
             const newProtId = duplicateProtection({
+              ownerDocument: window.document,
               protectionId: elementId,
               dropTarget,
               label: 'duplicate protection via alt-drag',
@@ -3885,7 +3898,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
               addGroundTrunkDevice,
               insertProtectionAfter,
               updateCircuit,
-              duplicateProtection: (protectionId: string) => duplicateProtection({ protectionId }),
+              duplicateProtection: (protectionId: string) => duplicateProtection({ protectionId, ownerDocument: window.document }),
               setSelection,
             }
             if (canDuplicateEendraadSelection(endpointOnlySelection, multiDuplicateGetters)) {
@@ -4271,7 +4284,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
             addGroundTrunkDevice,
             insertProtectionAfter,
             updateCircuit,
-            duplicateProtection: (protectionId: string) => duplicateProtection({ protectionId }),
+            duplicateProtection: (protectionId: string) => duplicateProtection({ protectionId, ownerDocument: window.document }),
             setSelection,
           }
           items.push(
@@ -4602,7 +4615,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
                           addGroundTrunkDevice,
                           insertProtectionAfter,
                           updateCircuit,
-                          duplicateProtection: (protectionId: string) => duplicateProtection({ protectionId }),
+                          duplicateProtection: (protectionId: string) => duplicateProtection({ protectionId, ownerDocument: window.document }),
                           setSelection,
                         }
                       )
@@ -5002,6 +5015,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
               virtualized={layout.panels.length > 8}
               initialZoom={initialZoom}
               forceMounted={selectedDiagramIds.has(getPanelDiagramId(panelLayout))}
+              materializeForcedDetail={false}
               overview={overviewModel ? (forward) => (
                 <DiagramOverview model={overviewModel} panelLayout={panelLayout}
                   forward={forward} renderAuxiliaryNode={renderDiagramNode} />
@@ -5973,6 +5987,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
   )
 
   return (
+    <EendraadWireSegmentsContext.Provider value={wireSegments}>
     <CanvasOverlayScaleProvider containerRef={containerRef}>
       <div
         ref={containerRef}
@@ -6370,6 +6385,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
                 </span>
               }
               label={t('canvas.eendraadNaming.menuTitle')}
+              triggerTestId="eendraad-naming-menu"
               variant="menu"
               side="right"
               open={openEendraadMenu === 'naming'}
@@ -6378,18 +6394,18 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
               <div className="rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg p-3 min-w-[260px] space-y-3 text-xs">
                 <div
                   data-testid="eendraad-auto-label-setting"
-                  className={`rounded-md p-1 text-gray-700 transition-all duration-1000 dark:text-gray-200 ${
+                  className={`flex items-center gap-2 rounded-md p-1 text-gray-700 transition-all duration-1000 dark:text-gray-200 ${
                     namingGuidanceHighlighted
                       ? 'bg-sky-100 ring-2 ring-sky-500 dark:bg-sky-950/60'
                       : 'ring-2 ring-transparent'
                   }`}
                 >
-                  <label className="flex items-start gap-2">
+                  <label className="flex min-w-0 flex-1 items-start gap-2">
                     <input
                       type="checkbox"
                       checked={eendraadAutoNaming}
                       onChange={(e) => handleEendraadAutomaticNamingChange(e.target.checked)}
-                      className="rounded border-gray-400 mt-0.5"
+                      className="mt-0.5 shrink-0 rounded border-gray-400"
                     />
                     <span>
                       <span className="font-medium block">
@@ -6401,7 +6417,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
                     </span>
                   </label>
                   <span
-                    className="mt-2 block"
+                    className="shrink-0"
                     title={t(
                       'canvas.eendraadNaming.resetAllTooltip',
                       'Remove every custom label and return all circuits to automatic naming.'
@@ -6409,14 +6425,42 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
                   >
                     <button
                       type="button"
+                      aria-label={t('canvas.eendraadNaming.resetAllLabels', 'Reset all labels')}
                       disabled={!eendraadAutoNaming || !hasCustomEendraadLabels}
                       onClick={handleResetAllEendraadLabels}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                      className="flex h-9 w-9 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
                     >
                       <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-                      {t('canvas.eendraadNaming.resetAllLabels', 'Reset all labels')}
                     </button>
                   </span>
+                </div>
+                <div className="space-y-1.5 text-gray-700 dark:text-gray-200">
+                  <label htmlFor="eendraad-label-style" className="block font-medium">
+                    {t('canvas.eendraadNaming.scheme.style', 'Style')}
+                  </label>
+                  <LabelStyleSelect
+                    id="eendraad-label-style"
+                    scheme={eendraadLabelScheme}
+                    savedStyles={savedLabelStyles}
+                    panelPartAvailable={advancedPanelLabels}
+                    onChange={(scheme) =>
+                      applyLabelScheme(
+                        scheme,
+                        advancedPanelLabels && labelSchemeUsesPanelPart(scheme) ? true : undefined
+                      )
+                    }
+                  />
+                  <button
+                    type="button"
+                    data-testid="eendraad-label-scheme-customize"
+                    onClick={() => {
+                      setOpenEendraadMenu(null)
+                      openLabelSchemeDialog(t)
+                    }}
+                    className="text-[11px] font-medium text-sky-600 hover:underline dark:text-sky-400"
+                  >
+                    {t('canvas.eendraadNaming.scheme.customize', 'Customize…')}
+                  </button>
                 </div>
                 <label
                   className={`flex items-start gap-2 ${
@@ -6498,6 +6542,7 @@ function EendraadCanvasInner({ onMultiFingerSwipe, capabilities }: EendraadCanva
         </CanvasFloatingControlRail>
       </div>
     </CanvasOverlayScaleProvider>
+    </EendraadWireSegmentsContext.Provider>
   )
 }
 

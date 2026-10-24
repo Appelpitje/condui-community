@@ -108,7 +108,8 @@ export function calculateLabelPositions(
   >()
 
   placements.forEach((placement) => {
-    const endpoint = placement.endpointId ? getEndpointById(placement.endpointId) : null
+    const sourceId = placement.endpointId ?? placement.trunkDeviceId
+    const endpoint = sourceId ? getEndpointById(sourceId) : null
     if (!placement.pos) {
       placementInfoById.set(placement.id, { endpoint, bounds: null })
       return
@@ -128,8 +129,7 @@ export function calculateLabelPositions(
 
   placements.forEach((placement, placementIndex) => {
     const info = placementInfoById.get(placement.id)
-    const endpoint =
-      info?.endpoint ?? (placement.endpointId ? getEndpointById(placement.endpointId) : null)
+    const endpoint = info?.endpoint
     const labelText: string | undefined =
       endpoint?.label ?? placement.junctionPanelLabel ?? placement.planLabel
     if (!labelText || !placement.pos) return

@@ -25,7 +25,7 @@ import type {
   ProtectionDevice,
 } from '@/types/schema'
 import { generateId } from '@/utils'
-import { excelColumnLabelFromZeroBasedIndex, getNextAvailableCircuitCode } from '@/utils/project'
+import { createCircuitCodeSequence, getNextAvailableCircuitCode } from '@/utils/project'
 import {
   getProjectElectricalInstallation,
   getProjectElectricalPanels,
@@ -324,18 +324,16 @@ export function runDuplicateProtectionLeft(
     const clonedCircuits = new Map<string, Circuit>()
     const reservedAlphabetic = new Set<string>()
     let scanIndex = 0
+    const codeAt = createCircuitCodeSequence(project, panel.id)
     const firstFreeCode = getNextAvailableCircuitCode(project, panel.id)
-    while (
-      excelColumnLabelFromZeroBasedIndex(scanIndex) !== firstFreeCode &&
-      scanIndex < 2000
-    ) {
+    while (codeAt(scanIndex) !== firstFreeCode && scanIndex < 2000) {
       scanIndex++
     }
     const takeNextAlphabeticCode = (): string => {
-      while (scanIndex < 2000 && reservedAlphabetic.has(excelColumnLabelFromZeroBasedIndex(scanIndex))) {
+      while (scanIndex < 2000 && reservedAlphabetic.has(codeAt(scanIndex))) {
         scanIndex++
       }
-      const code = excelColumnLabelFromZeroBasedIndex(scanIndex++)
+      const code = codeAt(scanIndex++)
       reservedAlphabetic.add(code)
       return code
     }

@@ -1,4 +1,5 @@
 import { buildWireBusIndex } from '@/lib/wires/wireBusIndex'
+import { circuitWireSpecifications } from '@/lib/wires/circuitWireSpecifications'
 import { asRailCable, isSecondaryBusFeederAnchor, railRunByGroup } from '@/lib/wires/railWireRuns'
 import {
   isProjectDefaultCableAnchor,
@@ -40,6 +41,7 @@ export function stampTransitionWires(
   const panels = getProjectElectricalPanels(project)
   const buses = buildWireBusIndex(panels)
   const rails = railRunByGroup(buses, authoredRuns)
+  const specifications = circuitWireSpecifications(panels, authoredRuns)
   const domains = circuitWireDomains(panels)
   const circuitCableById = buildCircuitCableIndex(project)
   const installation = getProjectElectricalInstallation(project)
@@ -290,10 +292,11 @@ export function stampTransitionWires(
     if (run) {
       const railMedium = run.medium === 'busbar' && (isBusTap || isSecondaryBusFeederAnchor(anchorKey))
       const followsDefaultCable = defaultCableEdge && run.followsDefaultCable === true
+      const effectiveCable = { ...run.cable, fireClass: specifications.get(anchorKey)?.fireClass ?? run.cable.fireClass }
       stampWire(relationship, {
         cable: followsDefaultCable
-          ? withProjectDefaultCableKind(run.cable, defaultCableKind)
-          : run.cable,
+          ? withProjectDefaultCableKind(effectiveCable, defaultCableKind)
+          : effectiveCable,
         followsDefaultCable,
         conductorCount: run.conductors.length,
         anchor: anchorKey,
@@ -345,6 +348,8 @@ export function stampTransitionWires(
       cable = mainSupplyCable // supply-assembly connection / handoff
     }
     if (!cable) continue
+    const inherited = isCircuitWire ? specifications.get(anchorKey) : undefined
+    if (inherited) cable = { ...cable, fireClass: inherited.fireClass }
     const followsDefaultCable = defaultCableEdge && isSeededCircuitCable(cable)
 
     stampWire(relationship, {

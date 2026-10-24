@@ -1,5 +1,7 @@
 import { getVisibleCertificationLabelParts } from '@/lib/certificationLabels'
 import { getEndpointBranchLabelPrefix } from '@/lib/eendraad/automaticEndpointBranchNaming'
+import { formatBranchLabel } from '@/lib/eendraad/labelScheme'
+import { getActiveLabelScheme } from '@/lib/eendraad/labelSchemeContext'
 import { getVisibleConversionLabelParts, getVisibleEndpointNoteText } from '@/lib/conversionLabels'
 import { measureSymbolLabelTextWidth } from '@/lib/symbolLabelTextWidth'
 import { isSymbolLabelVisible } from '@/lib/symbolLabels'
@@ -447,7 +449,7 @@ export function getCircuitConverterMetadataCallouts({
       // Output row labels (A1, A2, ...) sit left of the anchor; cards must not cover them.
       const labelRight = anchor.x - OUTPUT_LABEL_OFFSET + 2
       const labelWidth = measureSymbolLabelTextWidth(
-        `${getEndpointBranchLabelPrefix(circuit)}${outputIndex + 1}`,
+        formatBranchLabel(getActiveLabelScheme(), getEndpointBranchLabelPrefix(circuit), outputIndex + 1),
         'Figtree',
         OUTPUT_LABEL_FONT_SIZE
       )

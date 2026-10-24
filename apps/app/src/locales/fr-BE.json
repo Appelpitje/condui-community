@@ -279,6 +279,7 @@
     "zoom": "Zoomer"
   },
   "commandPalette": {
+    "addPanelAtDomoticaOutput": "Ajouter un tableau à la sortie",
     "addSupplyTransformer": "Ajouter un transformateur d’alimentation",
     "placeholder": "Rechercher une commande",
     "empty": "Aucune commande trouvée",
@@ -298,6 +299,7 @@
     "apply": "Appliquer",
     "unavailable": "Impossible d’appliquer cette modification. Vérifiez les valeurs ou rouvrez l’action.",
     "fields": {
+      "output": "Sortie",
       "circuit": "Circuit",
       "position": "Position",
       "row": "Rangée",
@@ -954,7 +956,8 @@
     "voltage_1x230": "1×230V",
     "lineToNeutral": "Phase-Neutre (V)",
     "lineToLine": "Phase-Phase (V)",
-    "notes": "Notes"
+    "notes": "Notes",
+    "earthResistance": "Résistance de dispersion"
   },
   "panels": {
     "title": "Tableaux",
@@ -971,9 +974,8 @@
     "secondaryPanel": "Tableau {{number}}",
     "diagramLabels": "Libellés du schéma",
     "panelNumbering": "Numérotation des tableaux",
-    "panelNumberingHint": "Ajoute B01, B02, … dans l'ordre depuis le tableau principal vers les sous-tableaux sur le schéma unifilaire.",
+    "panelNumber": "Numéro du tableau",
     "panelNetTypeLabels": "Type de réseau sur le schéma",
-    "panelNetTypeLabelsHint": "Ajoute l'alimentation, la tension et la liaison à la terre dans l'en-tête du schéma lorsqu'un système de liaison à la terre est défini.",
     "earthingSystemLabel": "Schéma de liaison à la terre",
     "earthingSystemGridLabel": "Schéma de liaison à la terre (réseau)",
     "earthingSystemBackupLabel": "Schéma de liaison à la terre (secours)",
@@ -993,7 +995,9 @@
     "diagramNetWithEarthing": "Réseau : {{net}} – {{earthing}}",
     "diagramEarthingSystem": "Schéma de liaison à la terre : {{earthing}}",
     "diagramEarthingSystemGrid": "Schéma de liaison à la terre (réseau) : {{earthing}}",
-    "diagramEarthingSystemBackup": "Schéma de liaison à la terre (secours) : {{earthing}}"
+    "diagramEarthingSystemBackup": "Schéma de liaison à la terre (secours) : {{earthing}}",
+    "expectedShortCircuit": "Courant de court-circuit max. présumé",
+    "diagramShortCircuit": "Ik max : {{ka}} kA"
   },
   "panel": {
     "deleteConfirmTitle": "Supprimer le(s) tableau(x) ?",
@@ -1015,6 +1019,8 @@
     "poles": "Pôles",
     "polesConfig": "Configuration des pôles",
     "residualCurrentType": "Type de courant résiduel",
+    "selective": "Sélectif (S)",
+    "superImmunized": "Super immunisé (SI)",
     "breakingCapacity": "Pouvoir de coupure",
     "spdKind": "Type de SPD",
     "spdStandard": "Protection contre la foudre",
@@ -1025,10 +1031,14 @@
     "poles_3P": "3P",
     "poles_3P_N": "3P+N",
     "poles_4P": "4P (3L+N)",
-    "residualType_AC": "AC (sinusoïdal)",
-    "residualType_A": "A (continu pulsé)",
-    "residualType_F": "F (fréquence mixte)",
-    "residualType_B": "B (continu lisse)",
+    "residualType_AC": "AC (sans électronique)",
+    "residualTypeHelp_AC": "Courant alternatif sinusoïdal uniquement. Vérifiez si le type AC est autorisé pour cette installation.",
+    "residualType_A": "A (circuits domestiques)",
+    "residualTypeHelp_A": "Courant alternatif et continu pulsé. Couramment utilisé pour les circuits domestiques.",
+    "residualType_F": "F (appareils à vitesse variable)",
+    "residualTypeHelp_F": "Aussi les fréquences mixtes, par exemple les variateurs monophasés. Suivez les prescriptions du fabricant.",
+    "residualType_B": "B (certaines bornes / installations PV)",
+    "residualTypeHelp_B": "Aussi le courant continu lisse. Le type B n’est pas toujours nécessaire pour une borne ou un onduleur PV ; vérifiez les prescriptions et la protection interne contre les fuites DC.",
     "description": "Description",
     "type_MCB": "Disjoncteur",
     "type_RCD": "Interrupteur différentiel",
@@ -1222,6 +1232,21 @@
       "field": "Sur site"
     },
     "controlLink": {
+      "busDevices": "Appareils du bus",
+      "connection": "Connexion",
+      "standard": "Standard",
+      "bus": "Bus",
+      "busName": "Nom du bus",
+      "busSystem": "Système du bus",
+      "moduleSystem": "Système du module",
+      "showBusLabel": "Afficher le libellé du bus",
+      "serialNumber": "Numéro de série",
+      "duplicateDeviceAddress": "Adresse déjà utilisée sur ce bus",
+      "functions": "Fonctions",
+      "buttonAddresses": "Adresses des boutons",
+      "buttonNumber": "Bouton {{number}}",
+      "previousButtons": "Précédent",
+      "nextButtons": "Suivant",
       "section": "Domotique",
       "controlSection": "Commande",
       "operates": "Commande",
@@ -1264,6 +1289,7 @@
         "niko_hc": "Niko Home Control",
         "dali": "DALI",
         "loxone": "Loxone",
+        "qbus": "Qbus",
         "other": "Autre"
       },
       "controlArea": "Commande",
@@ -1289,7 +1315,9 @@
       "count": "Nombre de panneaux",
       "groupTitle": "Marque et modèle",
       "wattage": "Puissance (Wp)",
-      "voltage": "Tension (V)"
+      "voltage": "Tension (V)",
+      "wattageProperty": "Puissance (Pmax) (Wp)",
+      "voltageProperty": "Tension (Umax) (V)"
     },
     "battery": {
       "voltage": "Tension (V)",
@@ -1456,6 +1484,8 @@
     "labelSourceNotes": "Notes",
     "labelSourceExtra": "Extra",
     "labelSourceTechnical": "Technique",
+    "labelSourceFeeds": "Alimente",
+    "labelSourceMain": "Général",
     "labelCellPlaceholder": "Étiquette",
     "notesCellPlaceholder": "Notes",
     "extraCellPlaceholder": "Ajouter des notes d’étiquette",
@@ -1516,9 +1546,9 @@
       "customStatus": "Personnalisé",
       "setCustomLabel": "Définir un label personnalisé",
       "useAutomaticLabel": "Utiliser le label automatique",
-      "customLabelNonStandardWarning": "Ce label personnalisé ne suit pas la séquence A, B, C…",
+      "customLabelNonStandardWarning": "Ce label personnalisé ne suit pas la séquence automatique.",
       "customLabelDuplicateWarning": "Ce label est également utilisé par un autre circuit de ce tableau.",
-      "customLabelBothWarnings": "Ce label personnalisé ne suit pas la séquence A, B, C… et est également utilisé par un autre circuit de ce tableau.",
+      "customLabelBothWarnings": "Ce label personnalisé ne suit pas la séquence automatique et est également utilisé par un autre circuit de ce tableau.",
       "resetAllLabels": "Réinitialiser tous les labels",
       "resetAllTooltip": "Supprimer tous les labels personnalisés et rétablir la dénomination automatique de tous les circuits.",
       "resetAllConfirmTitle": "Réinitialiser tous les labels personnalisés ?",
@@ -1526,7 +1556,59 @@
       "resetAllConfirm": "Réinitialiser les labels",
       "confirmOverwriteTitle": "Remplacer les lettres ?",
       "confirmOverwriteMessage": "La dénomination automatique remplace les lettres actuelles par A, B, C… selon l’ordre des rangées sur chaque tableau. Continuer ?",
-      "confirmOverwriteConfirm": "Continuer"
+      "confirmOverwriteConfirm": "Continuer",
+      "scheme": {
+        "searchAliases": "style de label numérotation lettres de circuit numéros de tableau dénomination",
+        "dialogTitle": "Labels automatiques",
+        "style": "Style",
+        "conduiStyles": "Styles Condui",
+        "myStyles": "Mes styles",
+        "customStyle": "Personnalisé (non enregistré)",
+        "styleClassic": "Classique",
+        "stylePanelLetterLetter": "Lettre du tableau + lettre",
+        "styleNumbers": "Numéros",
+        "stylePanelLetterNumber": "Lettre du tableau + numéro",
+        "stylePanelDotCircuit": "Tableau.circuit",
+        "saveStyle": "Enregistrer comme mon style",
+        "updateStyle": "Mettre à jour « {{name}} »",
+        "deleteStyle": "Supprimer le style",
+        "styleName": "Nom du style",
+        "separator": "Séparateur",
+        "prefix": "Préfixe",
+        "subPanels": "Sous-tableaux",
+        "ownNumber": "Numéro propre",
+        "underParent": "Sous le tableau parent",
+        "circuits": "Circuits",
+        "sequence": "Séquence",
+        "panelInLabel": "Tableau dans le label",
+        "panelPartNone": "Aucun",
+        "panelPartNumber": "Numéro",
+        "panelPartFull": "Complet",
+        "joined": "Accolés",
+        "separated": "Séparés",
+        "numbersSeparated": "Deux numéros sont toujours séparés.",
+        "lettersRunTogether": "Au-delà de 26 circuits, les lettres du tableau et du circuit ne se distinguent plus.",
+        "branches": "Dérivations",
+        "changeCount_one": "{{count}} label change",
+        "changeCount_few": "{{count}} labels changent",
+        "changeCount_many": "{{count}} labels changent",
+        "changeCount_other": "{{count}} labels changent",
+        "apply": "Appliquer",
+        "customize": "Personnaliser…",
+        "startsAt": "Commence à",
+        "betweenPanelAndCircuit": "Entre tableau et circuit",
+        "betweenCircuitAndBranch": "Entre circuit et dérivation",
+        "separatorHelp": "Placé entre les parties d’un label lorsqu’elles sont séparées, comme dans A1.1.",
+        "subPanelsHelp": "Numéro propre poursuit la séquence ; sous le tableau parent numérote un sous-tableau après le tableau qui l’alimente.",
+        "panelInLabelHelp": "Partie du numéro de tableau en tête de chaque label de circuit : rien, le numéro seul ou le numéro complet avec préfixe.",
+        "numberingHelp": "Numérote les tableaux des installations domestiques et non domestiques.",
+        "prefixHelp": "Lettres avant chaque numéro de tableau, comme B dans B1.",
+        "panelSequenceHelp": "Utilise des chiffres, des chiffres avec un zéro initial ou des lettres pour les tableaux.",
+        "startHelp": "Le premier numéro de tableau. Les séries de lettres commencent à A.",
+        "circuitSequenceHelp": "Utilise des majuscules, des minuscules ou des chiffres pour les circuits.",
+        "betweenPanelAndCircuitHelp": "Joint les codes du tableau et du circuit ou place le séparateur entre eux.",
+        "betweenCircuitAndBranchHelp": "Joint le code du circuit et le numéro de dérivation ou place le séparateur entre eux."
+      }
     }
   },
   "planImport": {
@@ -1665,6 +1747,7 @@
     "movePoint": "Déplacer un point de mur",
     "insertDoor": "Insérer une porte",
     "insertWindow": "Insérer une fenêtre",
+    "curvedWallOpeningHint": "Impossible de placer des portes ou des fenêtres sur des murs courbes.",
     "drawStair": "Tracer un escalier",
     "placeNote": "Note",
     "graphicElements": "Éléments graphiques",
@@ -1812,6 +1895,11 @@
     "library": "Bibliothèque de symboles",
     "recent": "Récent",
     "favorites": "Favoris",
+    "jump": {
+      "filterOnly": "Ctrl/Cmd+clic : afficher uniquement celle-ci",
+      "filterAdd": "Ctrl/Cmd+Maj+clic : ajouter au filtre",
+      "clearFilter": "Afficher toutes les catégories"
+    },
     "armed": {
       "placing": "Placement : {{name}}",
       "stop": "Arrêter le placement"
@@ -1827,6 +1915,7 @@
     "switch_2p_twoway": "Va-et-vient (2 pôles)",
     "switch_dimmer": "Variateur",
     "switch_1p_changeover": "Interrupteur à bascule",
+    "switch_shutter": "Interrupteur de volet roulant",
     "switch_1p_pull": "Interrupteur à tirette",
     "contact": "Contact",
     "switch_impulse": "Bouton-poussoir",
@@ -1912,6 +2001,7 @@
       "switch_cross": "Interrupteur de croisement",
       "switch_dimmer": "Variateur",
       "switch_1p_changeover": "Interrupteur à bascule",
+      "switch_shutter": "Interrupteur de volet roulant",
       "switch_1p_pull": "Interrupteur à tirette",
       "switch_impulse": "Bouton-poussoir",
       "motion_detector": "Détecteur de mouvement",
@@ -2026,6 +2116,75 @@
     "endpoint": "Point"
   },
   "validation": {
+    "incompleteChecks": {
+      "message": "Certains contrôles n’ont pas pu être effectués",
+      "details": "Certains contrôles manquent de données ou ne prennent pas cette installation en charge.",
+      "showChecks": "Contrôles incomplets ({{total}})",
+      "affected": "Concernés : {{total}}",
+      "missing": "Manque : {{information}}",
+      "unavailable": "Indisponible : {{information}}",
+      "unknown": "Informations de contrôle indisponibles",
+      "checks": {
+        "supplyRcdCircuitCount": "Circuits par différentiel",
+        "cableHasCrossSection": "Section des câbles",
+        "breakerSizeMatchesCrossSection": "Calibre du disjoncteur et section",
+        "minimumCrossSection": "Section minimale",
+        "dcCrossSectionHeuristic": "Dimensionnement DC",
+        "protectionPhaseCompatibility": "Pôles et phases d’alimentation",
+        "earthResistanceWithinLimits": "Résistance de terre",
+        "nonHouseholdEarthResistanceEntered": "Données de terre",
+        "circuitHasRcdProtection": "Protection différentielle",
+        "nonHouseholdTtIndirectContact": "Protection TT contre les contacts indirects",
+        "rcdHasTooManyCircuits": "Circuits par différentiel",
+        "circuitHasTooManyEndpoints": "Points par circuit",
+        "circuitWithinMaximumProtectedLength": "Longueur maximale protégée",
+        "circuitShortCircuitProtectionVerifiable": "Protection contre les courts-circuits",
+        "nonHouseholdBreakingCapacity": "Pouvoir de coupure",
+        "nonHouseholdBoardShortCircuitStated": "Courant de court-circuit du tableau",
+        "householdSocketProtection": "Protection des prises"
+      },
+      "facts": {
+        "cable-path-conductor-segments": "Tracé des câbles / segments conducteurs",
+        "cable-installation-method": "Mode de pose du câble",
+        "cable-cross-section": "Section du câble",
+        "design-current-and-admissible-current-iz-for-the-installation-method": "Courant d’emploi et courant admissible Iz",
+        "upstream-protection-rating": "Calibre de la protection en amont",
+        "validated-ampacity-for-this-cross-section-and-installation-method": "Intensité admissible prise en charge pour cette section et ce mode de pose",
+        "design-current": "Courant d’emploi",
+        "dc-cable-cross-section": "Section du câble DC",
+        "validated-dc-ampacity-for-this-cross-section": "Intensité DC admissible prise en charge pour cette section",
+        "dc-design-power-current": "Puissance ou courant DC de calcul",
+        "dc-operating-voltage": "Tension de fonctionnement DC",
+        "dc-cable-installation-method": "Mode de pose du câble DC",
+        "earth-electrode-resistance": "Résistance de la prise de terre",
+        "upstream-rcd-rcbo-residual-current-sensitivity-ma": "Sensibilité du différentiel en amont (mA)",
+        "rcd-sensitivity-ma": "Sensibilité différentielle (mA)",
+        "rcd-sensitivity": "Sensibilité différentielle",
+        "upstream-main-rcd-and-its-sensitivity": "Différentiel principal en amont et sa sensibilité",
+        "panel-record": "Données du tableau",
+        "circuit-record": "Données du circuit",
+        "nominal-voltage-system": "Régime de tension nominale",
+        "supported-explicit-phase-system": "Configuration de phases prise en charge",
+        "protection-pole-configuration-or-incoming-phase-assignment": "Pôles de protection ou phases entrantes",
+        "upstream-protective-device": "Protection en amont",
+        "supported-protective-device-curve-model": "Modèle de courbe de déclenchement pris en charge",
+        "protective-device-current-rating": "Calibre de la protection",
+        "modeled-cable-path": "Tracé du câble",
+        "complete-route-length-connected-cable-anchors": "Longueur complète / points de raccordement reliés",
+        "cable-edge-length": "Longueur du segment de câble",
+        "protective-device-trip-curve": "Courbe de déclenchement",
+        "conductor-material": "Matériau du conducteur",
+        "expected-maximum-short-circuit-current-at-the-board": "Courant de court-circuit présumé du tableau",
+        "socket-circuit-overcurrent-protection-rating": "Calibre de protection du circuit de prises"
+      },
+      "reasons": {
+        "unknown-primitive": "Contrôle indisponible",
+        "unknown-skip-condition-primitive": "Contrôle préalable indisponible",
+        "no-rule-pack-loaded": "Aucune règle de validation chargée",
+        "no-rule-pack-for-jurisdiction": "Aucune règle pour cette juridiction",
+        "prerequisite-could-not-be-evaluated": "Condition préalable non vérifiable"
+      }
+    },
     "title": "Validation RGIE",
     "disabledOutsideBelgium": "Validation désactivée en dehors de la Belgique.",
     "belgianRulesOnly": "L’application vérifie actuellement uniquement les règles RGIE pour la Belgique.",
@@ -2124,8 +2283,8 @@
         "rcd-grouping": {
           "shortTitle": "Trop de circuits par différentiel",
           "message": "Trop de circuits sous un différentiel 30 mA",
-          "details": "Un différentiel 30 mA ne doit protéger au maximum que 8 circuits (les circuits protégés par un disjoncteur différentiel combiné ne comptent pas) pour limiter les déclenchements intempestifs et l'accumulation de courants de fuite.",
-          "remediation": "Réduisez le nombre de circuits sous ce différentiel ou divisez en plusieurs différentiels. Les circuits protégés par un disjoncteur différentiel combiné ne comptent pas dans cette limite."
+          "details": "Un différentiel domestique de 30 mA maximum en aval du différentiel principal peut protéger au plus 8 circuits terminaux, y compris avec un disjoncteur différentiel ou dans un tableau secondaire. Le différentiel principal lui-même est hors de cette limite.",
+          "remediation": "Répartissez les circuits terminaux entre plusieurs différentiels en aval, avec au plus huit par différentiel. Comptez aussi les circuits protégés par un disjoncteur différentiel."
         },
         "rcd-selectivity": {
           "shortTitle": "Sélectivité différentiels incorrecte",
@@ -2285,6 +2444,48 @@
           "message": "Une protection ou un récepteur de l’alimentation de secours n’a pas d’étiquette",
           "details": "Les éléments de l’alimentation de secours sont hors du bus principal et ne sont pas nommés automatiquement.",
           "remediation": "Ajoutez une étiquette manuelle claire à chaque protection et récepteur de la branche de secours de l’onduleur."
+        },
+        "earth-resistance": {
+          "shortTitle": "Résistance de terre trop élevée",
+          "message": "La résistance de dispersion dépasse la limite du RGIE",
+          "details": "Les installations domestiques exigent moins de 100 Ω et, au-delà de 30 Ω, deux dispositifs différentiels de 30 mA comptant chacun au maximum 16 prises. Les installations non domestiques TT admettent au maximum 250 Ω, ou 500 Ω dans les locaux secs à sols et parois non conducteurs.",
+          "remediation": "Améliorez la prise de terre ou ajoutez des dispositifs différentiels comme décrit."
+        },
+        "nonhousehold-earth-resistance-entered": {
+          "shortTitle": "Résistance de terre manquante",
+          "message": "La résistance de dispersion n’est pas saisie",
+          "details": "La résistance de dispersion est nécessaire pour vérifier la protection contre les contacts indirects dans une installation non domestique TT.",
+          "remediation": "Sélectionnez le symbole de terre et saisissez la résistance de dispersion."
+        },
+        "nonhousehold-tt-indirect-contact": {
+          "shortTitle": "Circuit TT non protégé",
+          "message": "Circuit non protégé contre les contacts indirects",
+          "details": "En réseau TT, la coupure automatique nécessite un dispositif différentiel dont la sensibilité respecte IΔn × RE ≤ UL (50 V en conditions sèches).",
+          "remediation": "Ajoutez un dispositif différentiel ou un disjoncteur différentiel de sensibilité adaptée, ou utilisez du matériel de classe II, la TBTS ou la séparation de sécurité."
+        },
+        "nonhousehold-board-short-circuit-current": {
+          "shortTitle": "Courant de court-circuit manquant",
+          "message": "Tableau sans courant de court-circuit présumé",
+          "details": "Les schémas et marquages des tableaux non domestiques indiquent le courant de court-circuit maximal présumé lorsqu’il dépasse 3000 A.",
+          "remediation": "Ouvrez les propriétés du tableau et saisissez le courant de court-circuit maximal présumé."
+        },
+        "nonhousehold-breaking-capacity": {
+          "shortTitle": "Pouvoir de coupure insuffisant",
+          "message": "Pouvoir de coupure inférieur au courant de court-circuit présumé",
+          "details": "Chaque dispositif de protection contre les surintensités doit avoir un pouvoir de coupure au moins égal au courant de court-circuit présumé à son emplacement.",
+          "remediation": "Choisissez des appareils au pouvoir de coupure plus élevé, ou confirmez la filiation avec les tableaux du fabricant."
+        },
+        "nonhousehold-breaking-capacity-shown": {
+          "shortTitle": "Pouvoir de coupure manquant",
+          "message": "Pouvoir de coupure non saisi",
+          "details": "Les schémas de circuits non domestiques indiquent le pouvoir de coupure de chaque dispositif de protection.",
+          "remediation": "Sélectionnez chaque appareil mentionné et choisissez son pouvoir de coupure."
+        },
+        "nonhousehold-supply-transformer": {
+          "shortTitle": "Données du transformateur manquantes",
+          "message": "Données du transformateur d’alimentation incomplètes",
+          "details": "Les schémas non domestiques indiquent les caractéristiques des sources, dont la puissance apparente et la tension de court-circuit d’un transformateur d’alimentation.",
+          "remediation": "Sélectionnez le transformateur d’alimentation et saisissez sa puissance assignée et sa tension de court-circuit."
         }
       }
     },
@@ -2311,6 +2512,48 @@
       "branchMultiplierEndpointsSplit": "Circuit {{circuitCode}} : la dérivation « {{branchLabel}} » contient {{absorbCount}} symbole(s) multiplicateur(s) en trop comme points séparés ; fusionnez en un seul point avec plusieurs placements. Utilisez Réparer dans l’inspecteur d’orphelins."
     },
     "primitives": {
+      "feedbackSafety": {
+        "rcdOverload": {
+          "message": "Courant nominal du différentiel trop faible",
+          "details": "Les sources raccordées peuvent faire circuler dans l’interrupteur différentiel indiqué un courant supérieur à son courant nominal. Vérifiez son calibre et les protections contre les surintensités sur ce trajet. Un simple interrupteur différentiel ne protège pas contre les surcharges."
+        },
+        "rcdType": {
+          "message": "Le différentiel domestique doit être de type A, F ou B",
+          "details": "Remplacez le dispositif de type AC par un différentiel adapté de type A, F ou B."
+        },
+        "breakingCapacity": {
+          "message": "Pouvoir de coupure non renseigné",
+          "details": "Indiquez le pouvoir de coupure confirmé de chaque protection contre les surintensités, y compris sur l’alimentation. Une valeur inconnue ne peut pas être vérifiée."
+        },
+        "earthingSeparator": {
+          "message": "Sectionneur de terre manquant",
+          "details": "Ajoutez un sectionneur de terre à chaque raccordement d’électrode de terre pour permettre la mesure de sa résistance."
+        },
+        "socketSafety": {
+          "message": "Prise sans contact de terre ou protection enfant",
+          "details": "Les prises domestiques ordinaires nécessitent un contact de terre et une protection enfant. Vérifiez toute dérogation documentée pour les installations existantes."
+        },
+        "socketProtection": {
+          "message": "Protection trop élevée pour une prise ordinaire",
+          "details": "Utilisez un disjoncteur de 20 A maximum ou un fusible de 16 A maximum pour les prises domestiques ordinaires. Un câble plus gros ne permet pas à lui seul une protection plus élevée."
+        },
+        "placement": {
+          "message": "Mode de pose du câble non renseigné",
+          "details": "Indiquez le parcours ou le mode de pose du câble pour compléter le schéma et vérifier sa section."
+        },
+        "fireClass": {
+          "message": "Classe de réaction au feu du câble non renseignée",
+          "details": "Indiquez la classe de réaction au feu vérifiée du câble. Son adéquation dépend du bâtiment et de la pose ; une classe inconnue est une information manquante."
+        },
+        "evCoordination": {
+          "message": "Vérifiez la coordination DC du différentiel en amont des bornes",
+          "details": "Plusieurs bornes avec détection DC de 6 mA, ou un différentiel de type B en aval, peuvent exposer un différentiel de type A en amont à trop de courant continu. Utilisez un type B en amont ou vérifiez la combinaison et le nombre de bornes admis par le fabricant."
+        },
+        "rcdCircuitCount": {
+          "message": "Le différentiel d’alimentation protège plus de huit circuits terminaux",
+          "details": "Un différentiel domestique de 30 mA maximum en aval du différentiel principal peut protéger au plus 8 circuits terminaux, y compris avec un disjoncteur différentiel ou dans un tableau secondaire. Le différentiel principal lui-même est hors de cette limite."
+        }
+      },
       "postMainBusRequiresPeConductor": {
         "supplyRole": {
           "crossing": "franchissement de la limite du tableau",
@@ -2344,6 +2587,10 @@
         "details": "Des noms de protection en double sur le même tableau (bus principal, bus secondaire ou alimentation) rendent les circuits difficiles à identifier. Renommez une protection ou activez le nommage automatique."
       },
       "controlLinkIntegrity": {
+        "duplicateBusDeviceAddress": {
+          "message": "L’adresse {{address}} est déjà utilisée sur ce bus",
+          "details": "Attribuez une adresse unique à chaque appareil de ce bus."
+        },
         "dangling": {
           "message": "{{endpoint}} est commandé par un appareil qui n’existe plus",
           "details": "Choisissez un autre appareil dans Commandé par, ou supprimez le lien."
@@ -2502,7 +2749,7 @@
       },
       "rcdHasTooManyCircuits": {
         "message": "Le différentiel a trop de circuits ({{circuitCount}} > {{threshold}})",
-        "details": "Les circuits sous un différentiel 30 mA doivent respecter un maximum ({{threshold}}) pour limiter les déclenchements intempestifs. Les circuits protégés par un disjoncteur différentiel combiné sont exclus."
+        "details": "Un différentiel domestique de 30 mA maximum en aval du différentiel principal peut protéger au plus {{threshold}} circuits terminaux, y compris avec un disjoncteur différentiel ou dans un tableau secondaire. Le différentiel principal lui-même est hors de cette limite."
       },
       "rcdSelectivity": {
         "message": "Sélectivité des différentiels : le différentiel amont doit être moins sensible que l'aval (ex. 300 mA principal, 30 mA secondaire)",
@@ -2590,6 +2837,58 @@
           "message": "Le circuit VE {{circuitCode}} dispose d'une protection différentielle de 30 mA, mais aucune protection contre les défauts continus n'a été identifiée",
           "details": "Le RGIE 7.22.4.1 et 5.3.5.3(f) exigent que le point de recharge reste protégé contre les composantes continues perturbatrices. Utilisez un différentiel de type B ou indiquez que la borne intègre une protection/détection continue coordonnée, par exemple une détection DC de 6 mA."
         }
+      },
+      "earthResistanceWithinLimits": {
+        "nonHouseholdDryOnly": {
+          "message": "Une résistance de dispersion de {{ohm}} Ω n’est admise que dans des locaux secs et non conducteurs"
+        },
+        "nonHouseholdTooHigh": {
+          "message": "La résistance de dispersion de {{ohm}} Ω dépasse 500 Ω"
+        },
+        "nonHousehold": {
+          "details": "Avec une protection différentielle dans une installation non domestique, la résistance de dispersion ne peut dépasser 500 Ω dans les locaux secs à sols et parois non conducteurs (AD1, BB1, BC1) et 250 Ω dans les autres locaux."
+        },
+        "householdTooHigh": {
+          "message": "La résistance de dispersion de {{ohm}} Ω n’est pas inférieure à 100 Ω",
+          "details": "La prise de terre d’une installation domestique doit avoir une résistance de dispersion inférieure à 100 Ω."
+        },
+        "householdSplitRcd": {
+          "message": "Une résistance de dispersion de {{ohm}} Ω exige au moins deux dispositifs différentiels de 30 mA",
+          "details": "Au-delà de 30 Ω, une installation domestique nécessite au moins deux dispositifs différentiels à haute sensibilité (30 mA), comptant chacun au maximum 16 prises de courant ou appareils fixes assimilés."
+        },
+        "householdOutlets": {
+          "message": "Plus de 16 prises derrière : {{labels}}"
+        }
+      },
+      "nonHouseholdEarthResistanceEntered": {
+        "message": "La résistance de dispersion n’est pas saisie",
+        "details": "Dans une installation non domestique TT, la résistance de dispersion détermine la sensibilité différentielle qui protège contre les contacts indirects (IΔn × RE ≤ UL)."
+      },
+      "nonHouseholdTtIndirectContact": {
+        "missing": {
+          "message": "Le circuit {{circuitCode}} n’a pas de protection différentielle en réseau TT",
+          "details": "En réseau TT, les seules protections contre les surintensités ne coupent pas un défaut à la terre à temps. Protégez le circuit par un dispositif différentiel ou un disjoncteur différentiel, ou utilisez du matériel de classe II, la TBTS ou la séparation de sécurité."
+        },
+        "insensitive": {
+          "message": "Circuit {{circuitCode}} : le différentiel de {{sensitivityMa}} mA n’est pas assez sensible pour la résistance de dispersion",
+          "details": "IΔn × RE ne peut dépasser 50 V. Avec {{ohm}} Ω, utilisez un différentiel de {{maxSensitivityMa}} mA au maximum. En conditions humides (BB2), la limite est de 25 V."
+        }
+      },
+      "nonHouseholdBoardShortCircuitStated": {
+        "message": "Le tableau {{panelName}} n’a pas de courant de court-circuit présumé",
+        "details": "Les schémas et marquages des tableaux non domestiques indiquent le courant de court-circuit maximal présumé lorsqu’il dépasse 3000 A. Il est aussi nécessaire pour vérifier les pouvoirs de coupure."
+      },
+      "nonHouseholdBreakingCapacity": {
+        "message": "Pouvoir de coupure inférieur à {{ka}} kA : {{labels}}",
+        "details": "Le courant de court-circuit présumé à ce tableau est de {{ka}} kA. Chaque dispositif de protection contre les surintensités doit avoir au moins ce pouvoir de coupure, sauf si un appareil en amont le couvre par filiation selon les tableaux du fabricant."
+      },
+      "nonHouseholdBreakingCapacityShown": {
+        "message": "Pouvoir de coupure non saisi : {{labels}}",
+        "details": "Les schémas de circuits non domestiques indiquent le pouvoir de coupure de chaque dispositif de protection."
+      },
+      "nonHouseholdSupplyTransformerDocumented": {
+        "message": "La puissance ou la tension de court-circuit du transformateur d’alimentation manque",
+        "details": "Les schémas non domestiques indiquent les caractéristiques des sources, dont la puissance apparente et l’impédance d’un transformateur d’alimentation."
       }
     },
     "citations": {
@@ -2712,7 +3011,13 @@
     "export": "Exporter",
     "errorTitle": "Échec de l’export des étiquettes",
     "errorMessage": "L’export des étiquettes n’a pas pu être créé. Réessayez.",
-    "generatedDescription": "{{type}} alimente {{items}}"
+    "generatedDescription": "{{type}} alimente {{items}}",
+    "mainRoleSwitch": "Interrupteur général",
+    "mainRoleRcd": "Différentiel général",
+    "mainRoleProtection": "Protection générale",
+    "boardLabels": "Étiquettes de tableau",
+    "boardLabel": "Étiquette de tableau",
+    "boardFedFromCircuit": "Alimenté depuis {{source}}, circuit {{circuit}}"
   },
   "properties": {
     "title": "Propriétés",
@@ -2874,6 +3179,7 @@
     "csvDetails": "Détails"
   },
   "wires": {
+    "wireTypeLabel": "Type de conducteur",
     "cableDefault": "Par défaut",
     "makeCableDefault": "Définir par défaut",
     "useCableDefault": "Utiliser le défaut",
@@ -3557,6 +3863,31 @@
     },
     "bridgeThroughRail": "La terre est déjà reliée par le rail",
     "shapeOf": "Forme"
+  },
+  "materialListExport": {
+    "cableMargin": "Marge de câble (%)",
+    "invalidCableMargin": "Saisissez un pourcentage valide supérieur ou égal à 0.",
+    "skipSupplyPanel": "Exclure le matériel du tableau réseau",
+    "title": "Exporter la liste de matériel",
+    "menu": "Métré / liste de matériel",
+    "export": "Exporter",
+    "searchAliases": "Excel CSV Robaws métré quantités matériel",
+    "preset": "Préréglage",
+    "standard": "Standard",
+    "format": "Format du fichier",
+    "categories": "Catégories",
+    "description": "Description",
+    "quantity": "Quantité",
+    "unit": "Unité",
+    "piece": "pièce",
+    "estimated": "Longueur estimée",
+    "partialLength": "Longueur partielle",
+    "includePlanEstimates": "Inclure les longueurs de câble estimées sur le plan",
+    "roundCableLengths": "Arrondir les longueurs de câble au mètre supérieur",
+    "missingLengths": "Les parcours de câble sans longueur sont omis. Les totaux incomplets sont signalés comme partiels.",
+    "robawsImport": "Dans un devis Robaws, choisissez l’import et associez Omschrijving, Aantal et Eenheid. Ajoutez les prix dans Robaws.",
+    "empty": "Aucun matériel sélectionné.",
+    "error": "Impossible de créer le fichier d’export. Réessayez."
   },
   "oneWireReference": {
     "title": "Page scannée",

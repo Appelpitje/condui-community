@@ -38,3 +38,21 @@ export function rowAddressKey(endpointId: string): string {
 export function getScopedRowAddress(endpointId: string): string | undefined {
   return activeNotes?.get(rowAddressKey(endpointId))
 }
+
+/** Entered device identity, resolved only for endpoints on an explicitly marked bus row. */
+export function busDeviceAddressKey(endpointId: string): string {
+  return `bus-device-address:${endpointId}`
+}
+
+export function getScopedBusDeviceAddress(endpointId: string): string | undefined {
+  return activeNotes?.get(busDeviceAddressKey(endpointId))
+}
+
+/** Visible marker of an explicitly modeled bus row; ordinary channel labels have no key. */
+export function busRowLabelKey(endpointId: string): string {
+  return `bus-row-label:${endpointId}`
+}
+
+export function getScopedBusRowLabel(endpointId: string): string | undefined {
+  return activeNotes?.get(busRowLabelKey(endpointId))
+}

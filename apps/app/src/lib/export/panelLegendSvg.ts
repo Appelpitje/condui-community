@@ -7,6 +7,7 @@ import {
 } from '@/lib/projectV2/electrical'
 import type { ExportTheme } from './types'
 import { getThemeColors } from '@/lib/theme/colors'
+import { formatProtectionCurveRating } from '@/lib/protectionLabels'
 
 interface CircuitLegendRow {
   panelName: string
@@ -109,11 +110,11 @@ export function buildPanelCircuitLegendRows(
 function formatProtection(protection: ProtectionDevice | null): string {
   if (!protection) return ''
   const parts: string[] = []
-  if (protection.ratingA != null) {
+  if (protection.type === 'MCB' || protection.type === 'RCBO') {
+    const rating = formatProtectionCurveRating(protection.curve, protection.ratingA)
+    if (rating) parts.push(rating)
+  } else if (protection.ratingA != null) {
     parts.push(`${protection.ratingA}A`)
-  }
-  if (protection.curve) {
-    parts.push(`curve ${protection.curve}`)
   }
   if (protection.polesConfig) {
     parts.push(protection.polesConfig)
@@ -123,6 +124,10 @@ function formatProtection(protection: ProtectionDevice | null): string {
   }
   if (protection.residualCurrentType) {
     parts.push(protection.residualCurrentType)
+  }
+  if (protection.type === 'RCD' || protection.type === 'RCBO') {
+    if (protection.selective) parts.push('S')
+    if (protection.superImmunized) parts.push('SI')
   }
   return parts.join(' ')
 }

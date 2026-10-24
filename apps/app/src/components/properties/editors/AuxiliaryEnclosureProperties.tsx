@@ -84,6 +84,7 @@ export function AuxiliaryEnclosureProperties({
           value={enclosure.gridView.rows}
           min={1}
           max={32}
+          resetKey={enclosure.id}
           onChange={(rows) => updateGrid({ rows })}
         />
         <PanelGridDimensionInput
@@ -91,6 +92,7 @@ export function AuxiliaryEnclosureProperties({
           value={Math.max(MIN_AUXILIARY_COLUMNS, enclosure.gridView.columns)}
           min={MIN_AUXILIARY_COLUMNS}
           max={48}
+          resetKey={enclosure.id}
           onChange={(columns) => updateGrid({ columns })}
         />
         <button

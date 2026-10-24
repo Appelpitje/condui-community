@@ -22,6 +22,31 @@ export function isEnergyConversionEndpointSymbol(symbol: string | undefined): bo
   )
 }
 
+/** In-between devices dropped on a Domotica child belong before it, never in its replace slot. */
+export function normalizeDomoticaChildDropIntent(
+  circuit: Circuit,
+  target: DropTarget,
+  symbol: SymbolMetadata,
+): DropTarget {
+  if (target.domoticaChildDropIntent !== 'replace' || !target.endpointId || !isInBetweenDevice(symbol)) {
+    return target
+  }
+  const endpoint = circuit.endpoints.find((candidate) => candidate.id === target.endpointId)
+  if (!endpoint?.domoticaChildProps) return target
+
+  const branchEndpointIds = target.branchEndpoints ?? circuit.branches?.find((branch) =>
+    branch.endpointIds.includes(endpoint.id)
+  )?.endpointIds
+  const index = branchEndpointIds?.indexOf(endpoint.id) ?? -1
+  if (index < 0) return target
+
+  return {
+    ...target,
+    domoticaChildDropIntent: 'insertBefore',
+    insertAfterEndpointId: index > 0 ? branchEndpointIds![index - 1] ?? null : null,
+  }
+}
+
 /** Lights may be chained after other lights on a branch, including after its switches. */
 export function canChainLightOnLightBranch(
   branchIds: string[],

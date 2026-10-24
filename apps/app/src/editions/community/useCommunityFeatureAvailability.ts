@@ -1,3 +1,7 @@
+export function useCloudTemplateDescriptionViewer() {
+  return { viewerId: null, isLoading: false }
+}
+
 export function useEditionFeatureAvailability() {
   return {
     advancedPanelLabels: false,

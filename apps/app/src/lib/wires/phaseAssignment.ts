@@ -4,6 +4,7 @@ import type {
   AcPhase,
   Circuit,
   CircuitPhaseAssignment,
+  Endpoint,
   Installation,
   Panel,
   ProtectionDevice,
@@ -26,6 +27,7 @@ import {
   hasExplicitPanelBusSections,
 } from '@/lib/panel/panelBusSections'
 import { deriveHandoffPhaseSupplyPaths } from '@/lib/supplyAssembly/phasePaths'
+import { resolvePanelSupplyLinkForPanelInPanels } from '@/lib/eendraad/panelSupplyLink'
 
 export type PhaseAssignmentOption = {
   value: string
@@ -678,10 +680,11 @@ export function getPanelIncomingPhaseState(
       system,
       installation
     )
+    const output = getPanelFeedOutputPhaseState(panelFeed)
     return {
-      assignment: inherited.assignment,
-      showPhaseLabel: inherited.showPhaseLabel,
-      constraint: getInheritedPhaseConstraint(inherited.assignment),
+      assignment: output.assignment ?? inherited.assignment,
+      showPhaseLabel: output.showPhaseLabel ?? inherited.showPhaseLabel,
+      constraint: getInheritedPhaseConstraint(output.assignment ?? inherited.assignment),
     }
   }
 
@@ -778,6 +781,24 @@ function isConcretePhaseAssignment(
 
 type PanelFeedInfo = {
   feederCircuit: Circuit
+  sourcePanelEndpoint?: Endpoint
+}
+
+/** The nearest concrete module output narrows the board's actual incoming feed. */
+function getPanelFeedOutputPhaseState(feed: PanelFeedInfo): InheritedCircuitPhaseState {
+  let endpoint = feed.sourcePanelEndpoint
+  const visited = new Set<string>()
+  let showPhaseLabel: boolean | undefined
+  while (endpoint?.domoticaChildProps && !visited.has(endpoint.id)) {
+    visited.add(endpoint.id)
+    const ref = endpoint.domoticaChildProps
+    const parent = feed.feederCircuit.endpoints.find((candidate) => candidate.id === ref.parentEndpointId)
+    const output = parent?.domoticaProps?.endpointOutputWires?.[ref.outputIndex]
+    showPhaseLabel ??= output?.showPhaseLabel
+    if (isConcretePhaseAssignment(output?.phaseAssignment)) return { assignment: output.phaseAssignment, showPhaseLabel }
+    endpoint = parent
+  }
+  return { showPhaseLabel }
 }
 
 function findPanelForCircuit(circuitId: string, panels: Panel[]): Panel | undefined {
@@ -788,20 +809,8 @@ function findPanelForCircuit(circuitId: string, panels: Panel[]): Panel | undefi
 function findPanelFeed(panelId: string, panels: Panel[]): PanelFeedInfo | undefined {
   const index = getElectricalSnapshotIndex(panels)
   if (index) return index.panelFeedersByPanelId.get(panelId)
-  for (const parentPanel of walkPanels(panels)) {
-    const feederProtection = parentPanel.protections.find(
-      (protection) => protection.subPanelId === panelId
-    )
-    if (!feederProtection?.circuits?.length) continue
-    const feederCircuit =
-      feederProtection.circuits.find((candidate) =>
-        candidate.endpoints.some(
-          (endpoint) => endpoint.symbol === 'panel_distribution' && endpoint.panelId === panelId
-        )
-      ) ?? feederProtection.circuits[0]
-    if (feederCircuit) return { feederCircuit }
-  }
-  return undefined
+  const link = resolvePanelSupplyLinkForPanelInPanels(panels, panelId)
+  return link?.feederCircuit ? { feederCircuit: link.feederCircuit, sourcePanelEndpoint: link.sourcePanelEndpoint } : undefined
 }
 
 function getInheritedCircuitPhaseStateInternal(
@@ -820,7 +829,7 @@ function getInheritedCircuitPhaseStateInternal(
   // the same incoming phase set.
   const panel = findPanelForCircuit(circuit.id, panels)
   const panelFeed = panel ? findPanelFeed(panel.id, panels) : undefined
-  const panelState =
+  const upstreamPanelState =
     panel && panelFeed && !visitedPanels.has(panel.id)
       ? getEffectiveCircuitPhaseStateInternal(
           panelFeed.feederCircuit,
@@ -833,6 +842,11 @@ function getInheritedCircuitPhaseStateInternal(
       : panel?.isMain
         ? { assignment: getPanelIncomingPhaseState(installation, panels, panel).assignment }
         : {}
+  const outputState = panelFeed ? getPanelFeedOutputPhaseState(panelFeed) : {}
+  const panelState = {
+    assignment: outputState.assignment ?? upstreamPanelState.assignment,
+    showPhaseLabel: outputState.showPhaseLabel ?? upstreamPanelState.showPhaseLabel,
+  }
 
   const parent = findParentCircuitInfo(circuit.id, panels)
   const parentState = parent

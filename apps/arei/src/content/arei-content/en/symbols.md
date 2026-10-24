@@ -105,6 +105,9 @@ A dimmer adjusts the brightness of a light point.
 ### [switch_1p_changeover]
 A double switch controls two circuits separately from one place, for example the ceiling light and spots in the living room.
 
+### [switch_shutter]
+A roller shutter switch controls the upward and downward movement of a shutter or blind. Draw the driven motor as a separate appliance.
+
 ### [switch_1p_pull]
 A pull switch is operated with a cord, mostly seen in older bathrooms.
 

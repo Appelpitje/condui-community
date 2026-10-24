@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import { validateProject } from '../lib/validation/core/engine'
+import { validateProjectWithCoverage } from '../lib/validation/core/engine'
 import type { Issue, ValidationProject } from '../lib/validation/core/types'
 import { beAreiBook1_2025 } from '../lib/validation/rules/be/be.areibook1.2025'
 import { loadRulePack } from '../lib/validation/core/rulepack-loader'
@@ -25,8 +25,10 @@ self.onmessage = (event: MessageEvent<ValidationRequest>) => {
   try {
     setValidationLanguage(request.language)
     const pack = loadRulePack(beAreiBook1_2025)
+    const run = validateProjectWithCoverage(request.project, { packs: [pack] })
+    // Missing execution evidence stays diagnostic; do not aggregate it into a user notice.
     const issues = [
-      ...validateProject(request.project, { packs: [pack] }),
+      ...run.issues,
       ...collectJunctionValidationIssuesForEdition(request.project, validationI18n.t.bind(validationI18n)),
     ]
     workerScope.postMessage({ type: 'result', id: request.id, issues } satisfies ValidationResponse)

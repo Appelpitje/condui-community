@@ -44,7 +44,11 @@ export function isWireLabelVisibleForSegment(wireSegment: WireSegment): boolean 
   if (isSupplyWireSegmentForLabel(wireSegment)) {
     if (wireSegment.hideWireLabel === true) return false
     if (wireSegment.hideWireLabel === false) return true
-    return false
+    // A secondary board's incoming cable is the ordinary feeder circuit,
+    // not an optional installation-supply caption. Keep its specifications
+    // visible on the physical cable, before any local incoming device.
+    return wireSegment.isSubPanelSupply === true &&
+      wireSegment.fromElementId === wireSegment.feederProtectionId
   }
 
   if (wireSegment.type !== 'vertical') return false

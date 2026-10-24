@@ -51,7 +51,7 @@ export function getWireSectionOptions(
 export function getAcWireTypeOptions(otherLabel: string): WireTypeOption[] {
   return [
     { value: 'XVB', label: 'XVB' },
-    { value: 'VOB', label: 'VOB' },
+    { value: 'VOB', label: 'VOB (H07V-U / H07V-R)' },
     { value: 'VOBst', label: 'VOBst' },
     { value: 'XGB', label: 'XGB' },
     { value: 'EXVB', label: 'EXVB' },
@@ -84,7 +84,7 @@ export function getDcWireTypeOptions(
 /** Earthing / ground wire type list (AC types, no Solar). */
 export function getGroundWireTypeOptions(otherLabel: string): WireTypeOption[] {
   return [
-    { value: 'VOB', label: 'VOB' },
+    { value: 'VOB', label: 'VOB (H07V-U / H07V-R)' },
     { value: 'VOBst', label: 'VOBst' },
     { value: 'XVB', label: 'XVB' },
     { value: 'XGB', label: 'XGB' },

@@ -5,28 +5,40 @@ import { getViewportCenterPlanSpaceIfApplicable } from '@/lib/plan/autoSitplanPl
 import { ensureEarthingSitplanPlacement } from '@/lib/plan/ensureEarthingSitplanPlacement'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useCanvasRegistryStore } from '@/stores/canvasRegistryStore'
+import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
+import { findPanelById } from '@/lib/panel/panelTree'
 
 /**
  * The editor-side parts of the drop engine: the active floor and visible plan centre, live
  * store follow-ups and analytics. Spread into every editor `DropBehaviorCallbacks`; project
  * commands supply their own explicit inputs instead.
  */
-export function createUiDropBehaviorHooks(): DropBehaviorEditorHooks {
+export function createUiDropBehaviorHooks(
+  ownerDocument = typeof document === 'undefined' ? undefined : document
+): DropBehaviorEditorHooks {
   return {
     getSitplanTarget: () => {
       const ui = useUIStore.getState()
+      const project = useProjectStore.getState().currentProject
+      // The active one-wire slot has its own (usually stale) plan camera. Read
+      // the mounted plan slot instead, including when it is in another window.
+      const visiblePlan = useCanvasRegistryStore.getState().getSitplanPlacementTarget(ownerDocument)
       return {
-        activeFloorId: ui.activeFloorId,
-        viewportCenter: ui.activeFloorId
-          ? getViewportCenterPlanSpaceIfApplicable(
-              ui.viewportLayout,
-              ui.planCanvasViewportPx,
-              ui.activeFloorId,
-              ui.activeFloorId,
-              ui.planView
-            )
-          : null,
-        activePanelId: ui.activePanelId,
+        activeFloorId: visiblePlan?.activeFloorId ?? ui.activeFloorId,
+        viewportCenter:
+          visiblePlan?.viewportCenter ??
+          (ui.activeFloorId
+            ? getViewportCenterPlanSpaceIfApplicable(
+                ui.viewportLayout,
+                ui.planCanvasViewportPx,
+                ui.activeFloorId,
+                ui.activeFloorId,
+                ui.planView
+              )
+            : null),
+        activePanelId: project && ui.activePanelId &&
+          findPanelById(getProjectElectricalPanels(project), ui.activePanelId) ? ui.activePanelId : null,
       }
     },
     ensureEarthingSitplanPlacement: (floorId, pos) => {

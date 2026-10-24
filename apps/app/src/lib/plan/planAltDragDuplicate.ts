@@ -23,6 +23,7 @@ import { generateId } from '@/utils'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
+import { getEndpointPlanWallFacingSide } from './planWallOrientation'
 
 /** Initial nudge so the copy is visible while dragging; pointer updates position live. */
 export const PLAN_ALT_DRAG_COPY_OFFSET = { x: 24, y: 24 } as const
@@ -91,7 +92,7 @@ export function createPlanMultiplierAltDuplicatePlacement(
       x: refPlacement.pos.x + PLAN_ALT_DRAG_COPY_OFFSET.x,
       y: refPlacement.pos.y + PLAN_ALT_DRAG_COPY_OFFSET.y,
     },
-    ...(endpoint.type === 'socket' && refPlacement.rotationMode !== 'explicit'
+    ...(getEndpointPlanWallFacingSide(endpoint) && refPlacement.rotationMode !== 'explicit'
       ? { rotationDeg: 0 }
       : {}),
     locked: false,
@@ -148,7 +149,7 @@ export function createPlanPropertyAltDuplicatePlacement(
       y: refPlacement.pos.y + PLAN_ALT_DRAG_COPY_OFFSET.y,
     },
     rotationDeg:
-      source.type === 'socket' && refPlacement.rotationMode !== 'explicit'
+      getEndpointPlanWallFacingSide(source) && refPlacement.rotationMode !== 'explicit'
         ? 0
         : refPlacement.rotationDeg ?? 0,
     rotationMode: refPlacement.rotationMode,
@@ -227,7 +228,7 @@ export function runPlanEndpointAltDragDuplicate(
     layer: refPlacement?.layer ?? 'electrical',
     pos: { x: dropPos.x, y: dropPos.y },
     rotationDeg:
-      source.type === 'socket' && refPlacement?.rotationMode !== 'explicit'
+      getEndpointPlanWallFacingSide(source) && refPlacement?.rotationMode !== 'explicit'
         ? 0
         : refPlacement?.rotationDeg ?? 0,
     rotationMode: refPlacement?.rotationMode,

@@ -10,7 +10,7 @@ import {
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { PanelGridModuleRef, PanelLabelCellSource, PanelLabelConfig } from '@/types/schema'
-import type { ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'
+import type { ProjectV2 } from '@/types/projectV2'
 import type { BaseCanvasHandle } from '../BaseCanvas'
 import {
   getPanelLabelSource,
@@ -24,8 +24,22 @@ import {
   type PanelLabelCellSide,
   type PanelLabelValues,
 } from '@/lib/panel/panelLabelContent'
-import { CELL_W, panelGridModuleRefKey, ROW_GAP, type ModulePlacement } from '@/lib/panel/panelGridLayout'
-import { getModuleDisplayInfo, type ModuleDisplayInfo } from '@/lib/panel/getModuleDisplayInfo'
+import {
+  CELL_W,
+  panelGridModuleRefKey,
+  ROW_GAP,
+  type ModulePlacement,
+} from '@/lib/panel/panelGridLayout'
+import type { ModuleDisplayInfo } from '@/lib/panel/getModuleDisplayInfo'
+import { getCachedModuleDisplayInfo } from '@/lib/panel/moduleDisplayInfoCache'
+import {
+  canMarkPanelMainProtection,
+  getPanelMainProtectionRole,
+  panelMainProtectionRoleText,
+  panelMainProtectionSide,
+  toggledPanelMainProtectionOverride,
+  type PanelMainProtectionRole,
+} from '@/lib/panel/panelMainProtection'
 import type { PanelSceneSurface } from '@/lib/panel/panelScene'
 
 export type PanelLabelEntityUpdates = {
@@ -40,6 +54,9 @@ interface PanelLabelItem {
   placement: ModulePlacement & { inSupplyPanel?: boolean }
   info: ModuleDisplayInfo
   values: PanelLabelValues
+  canMarkMain: boolean
+  mainRole: PanelMainProtectionRole | null
+  mainOverrideOnToggle: boolean | null
 }
 
 type LabelAlignment = 'left' | 'center' | 'right' | 'justify'
@@ -65,7 +82,15 @@ interface LabelCellProps {
   bandFontSize: number
 }
 
-const SOURCE_OPTIONS: PanelLabelCellSource[] = ['label', 'notes', 'labelNotes', 'technical']
+const SOURCE_OPTIONS: PanelLabelCellSource[] = [
+  'label',
+  'notes',
+  'labelNotes',
+  'technical',
+  'feeds',
+]
+/** Sources that stack in one cell, in print order; the others replace the cell content. */
+const COMBINABLE_SOURCES: PanelLabelCellSource[] = ['label', 'notes', 'feeds']
 const ALIGNMENT_OPTIONS: LabelAlignment[] = ['left', 'center', 'right', 'justify']
 
 function sameSources(left: PanelLabelCellSource[], right: PanelLabelCellSource[]): boolean {
@@ -97,15 +122,15 @@ function toggledSources(
   selectedSources: PanelLabelCellSource[],
   nextSource: PanelLabelCellSource
 ): PanelLabelCellSource[] {
-  if (nextSource !== 'label' && nextSource !== 'notes') return [nextSource]
-  if (!selectedSources.every((source) => source === 'label' || source === 'notes')) {
+  if (!COMBINABLE_SOURCES.includes(nextSource)) return [nextSource]
+  if (!selectedSources.every((source) => COMBINABLE_SOURCES.includes(source))) {
     return [nextSource]
   }
   const toggled = selectedSources.includes(nextSource)
     ? selectedSources.filter((source) => source !== nextSource)
     : [...selectedSources, nextSource]
   return toggled.length
-    ? (['label', 'notes'] as const).filter((source) => toggled.includes(source))
+    ? COMBINABLE_SOURCES.filter((source) => toggled.includes(source))
     : ['labelNotes']
 }
 
@@ -124,6 +149,7 @@ function sourceLabel(source: PanelLabelCellSource, t: (key: string, fallback: st
   if (source === 'label') return t('panelCanvas.labelSourceLabel', 'Label')
   if (source === 'notes') return t('panelCanvas.labelSourceNotes', 'Notes')
   if (source === 'labelNotes') return t('panelCanvas.labelSourceExtra', 'Extra')
+  if (source === 'feeds') return t('panelCanvas.labelSourceFeeds', 'Feeds')
   return t('panelCanvas.labelSourceTechnical', 'Technical')
 }
 
@@ -176,14 +202,16 @@ function LabelCell({
   onRequestFocus,
   bandFontSize,
 }: LabelCellProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const cellRef = useRef<HTMLDivElement>(null)
   const shelfRef = useRef<HTMLDivElement>(null)
   const shelfActionsRef = useRef<{
     updateSource: (source: PanelLabelCellSource) => void
     updateAlignment: (alignment: 'left' | 'center' | 'right' | 'justify') => void
+    toggleMain: () => void
   } | null>(null)
   const blurTimerRef = useRef<number | null>(null)
+  const pendingCommitRef = useRef<(() => void) | null>(null)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const source = getPanelLabelSource(item.values.config, side, item.values)
@@ -217,6 +245,15 @@ function LabelCell({
     item.placement.height * 0.25 + ROW_GAP / 2
   )
   const fontSize = Math.min(bandFontSize, draftFontSize) * zoom
+  const mainSide = panelMainProtectionSide(
+    getPanelLabelSources(item.values.config, 'top'),
+    getPanelLabelSources(item.values.config, 'bottom')
+  )
+  const mainBandText =
+    item.mainRole && mainSide === side
+      ? panelMainProtectionRoleText(item.mainRole, t, i18n.language)
+      : ''
+  const mainBandHeight = mainBandText ? cellHeight * 0.3 : 0
 
   useEffect(() => {
     if (!focused) {
@@ -237,6 +274,8 @@ function LabelCell({
   useEffect(
     () => () => {
       if (blurTimerRef.current != null) window.clearTimeout(blurTimerRef.current)
+      // Switching boards or leaving label mode must retain an unblurred draft.
+      pendingCommitRef.current?.()
     },
     []
   )
@@ -256,6 +295,8 @@ function LabelCell({
     })
   }, [draft, hasDraftChanges, item.ref, item.values.config, onUpdate, side, source])
 
+  pendingCommitRef.current = hasDraftChanges ? commitDraft : null
+
   const pendingDraftUpdate = hasDraftChanges
     ? source === 'notes'
       ? { notes: draft }
@@ -263,21 +304,7 @@ function LabelCell({
     : {}
 
   const updateSource = (nextSource: PanelLabelCellSource) => {
-    const canCombine = nextSource === 'label' || nextSource === 'notes'
-    let nextSources: PanelLabelCellSource[]
-    if (!canCombine) {
-      nextSources = [nextSource]
-    } else if (selectedSources.every((selected) => selected === 'label' || selected === 'notes')) {
-      const toggled = selectedSources.includes(nextSource)
-        ? selectedSources.filter((selected) => selected !== nextSource)
-        : [...selectedSources, nextSource]
-      const combinableOrder: Array<'label' | 'notes'> = ['label', 'notes']
-      nextSources = toggled.length
-        ? combinableOrder.filter((candidate) => toggled.includes(candidate))
-        : ['labelNotes']
-    } else {
-      nextSources = [nextSource]
-    }
+    const nextSources = toggledSources(selectedSources, nextSource)
     const nextConfig = setPanelLabelSources(item.values.config, side, nextSources)
     onUpdate(item.ref, {
       ...pendingDraftUpdate,
@@ -316,7 +343,14 @@ function LabelCell({
     onRequestFocus(side === 'top' ? 'bottom' : 'top')
   }
 
-  shelfActionsRef.current = { updateSource, updateAlignment }
+  const toggleMain = () => {
+    onUpdate(item.ref, {
+      ...pendingDraftUpdate,
+      panelLabel: { ...item.values.config, main: item.mainOverrideOnToggle ?? undefined },
+    })
+  }
+
+  shelfActionsRef.current = { updateSource, updateAlignment, toggleMain }
 
   useEffect(() => {
     if (!focused) return
@@ -343,13 +377,10 @@ function LabelCell({
       event.stopImmediatePropagation()
       const nextSource = button.dataset.labelSource as PanelLabelCellSource | undefined
       const nextAlignment = button.dataset.labelAlignment as
-        | 'left'
-        | 'center'
-        | 'right'
-        | 'justify'
-        | undefined
+        'left' | 'center' | 'right' | 'justify' | undefined
       if (nextSource) shelfActionsRef.current?.updateSource(nextSource)
       if (nextAlignment) shelfActionsRef.current?.updateAlignment(nextAlignment)
+      if (button.dataset.labelMain) shelfActionsRef.current?.toggleMain()
       cellRef.current?.querySelector('textarea')?.focus()
     }
     window.addEventListener('pointerdown', routeTransformedShelfPointer, true)
@@ -414,13 +445,29 @@ function LabelCell({
           lineHeight: 1.05,
           alignContent: 'center',
           textAlign: alignment === 'justify' ? 'justify' : alignment,
+          ...(mainBandHeight ? { paddingTop: mainBandHeight + 2 } : {}),
         }}
       />
+      {mainBandText && (
+        <div
+          aria-hidden="true"
+          data-testid={`panel-label-main-band-${panelGridModuleRefKey(item.ref)}`}
+          className="pointer-events-none absolute inset-x-px top-px flex items-center justify-center overflow-hidden bg-slate-950 font-bold whitespace-nowrap text-white"
+          style={{
+            height: mainBandHeight,
+            fontSize: Math.min(mainBandHeight * 0.62, (cellWidth - 4) / (mainBandText.length * 0.74)),
+            letterSpacing: '0.04em',
+          }}
+        >
+          {mainBandText}
+        </div>
+      )}
       {showPlaceholder && (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 flex items-center overflow-hidden px-1 py-0.5 whitespace-nowrap text-slate-400 dark:text-slate-500"
           style={{
+            top: mainBandHeight,
             fontSize: PLACEHOLDER_CELL_FONT_SIZE * zoom,
             lineHeight: 1.05,
             justifyContent:
@@ -435,6 +482,7 @@ function LabelCell({
         <div
           className="pointer-events-none absolute inset-0 flex flex-col justify-center overflow-hidden px-1 py-0.5 text-slate-800 dark:text-slate-100"
           style={{
+            top: mainBandHeight,
             fontSize,
             lineHeight: 1.05,
             alignItems:
@@ -477,7 +525,9 @@ function LabelCell({
             side === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'
           }`}
         >
-          {SOURCE_OPTIONS.map((option) => (
+          {SOURCE_OPTIONS.filter(
+            (option) => option !== 'feeds' || item.values.feeds.length > 0
+          ).map((option) => (
             <button
               key={option}
               type="button"
@@ -498,6 +548,26 @@ function LabelCell({
               {sourceLabel(option, t)}
             </button>
           ))}
+          {item.canMarkMain && (
+            <>
+              <span className="mx-0.5 border-l border-slate-300 dark:border-slate-600" />
+              <button
+                type="button"
+                data-label-main="true"
+                aria-pressed={item.mainRole != null}
+                aria-label={t('panelCanvas.labelSourceMain', 'Main')}
+                title={t('panelCanvas.labelSourceMain', 'Main')}
+                onClick={(event) => {
+                  if (event.detail !== 0) return
+                  toggleMain()
+                  cellRef.current?.querySelector('textarea')?.focus()
+                }}
+                className={`rounded-full px-2 py-1 text-[10px] font-medium whitespace-nowrap ${item.mainRole != null ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600'}`}
+              >
+                {t('panelCanvas.labelSourceMain', 'Main')}
+              </button>
+            </>
+          )}
           <span className="mx-0.5 border-l border-slate-300 dark:border-slate-600" />
           {(['left', 'center', 'right', 'justify'] as const).map((option) => (
             <button
@@ -536,16 +606,20 @@ export function PanelLabelModeOverlay({
   panelPan,
   canEdit,
   onUpdateModuleLabel,
+  onUpdateModuleLabels,
 }: {
   scene: { surfaces: PanelSceneSurface[] } | null
-  project: ProjectWithOptionalV2Electrical | null
+  project: ProjectV2 | null
   canvasRef: RefObject<BaseCanvasHandle | null>
   panelZoom: number
   panelPan: { x: number; y: number }
   canEdit: boolean
   onUpdateModuleLabel: (ref: PanelGridModuleRef, updates: PanelLabelEntityUpdates) => void
+  onUpdateModuleLabels: (
+    changes: Array<{ ref: PanelGridModuleRef; updates: PanelLabelEntityUpdates }>
+  ) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [swapping, setSwapping] = useState(false)
   const [liveZoom, setLiveZoom] = useState(panelZoom)
   const [focusRequest, setFocusRequest] = useState<{
@@ -566,21 +640,27 @@ export function PanelLabelModeOverlay({
     if (!scene || !project) return []
     return scene.surfaces.flatMap((surface) =>
       surface.placements
-        .filter(
-          (placement) => placement.inSupplyPanel !== true && placement.terminalStripRail == null
-        )
+        .filter((placement) => placement.terminalStripRail == null)
         .map((placement) => {
-          const info = getModuleDisplayInfo(placement.ref, project)
+          const info = getCachedModuleDisplayInfo(placement.ref, project, i18n.language)
+          const values = getPanelLabelValues(placement.ref, project, info)
           return {
             surfaceId: surface.id,
             ref: placement.ref,
             placement,
             info,
-            values: getPanelLabelValues(placement.ref, project, info),
+            values,
+            canMarkMain: canMarkPanelMainProtection(placement.ref, project),
+            mainRole: getPanelMainProtectionRole(placement.ref, project, values.config),
+            mainOverrideOnToggle: toggledPanelMainProtectionOverride(
+              placement.ref,
+              project,
+              values.config
+            ),
           }
         })
     )
-  }, [project, scene])
+  }, [project, scene, i18n.language])
 
   const getBulkItems = useCallback(
     (target: BulkLabelTarget) =>
@@ -631,34 +711,46 @@ export function PanelLabelModeOverlay({
       if (!bulkTarget || !canEdit) return
       const nextSources = toggledSources(bulkTarget.sources, nextSource)
       const seen = new Set<string>()
+      const changes: Array<{ ref: PanelGridModuleRef; updates: PanelLabelEntityUpdates }> = []
       for (const item of getBulkItems(bulkTarget)) {
         const key = panelGridModuleRefKey(item.ref)
         if (seen.has(key)) continue
         seen.add(key)
-        onUpdateModuleLabel(item.ref, {
-          panelLabel: setPanelLabelSources(item.values.config, bulkTarget.side, nextSources),
+        // Modules that feed a single circuit have no list to show.
+        if (nextSource === 'feeds' && !item.values.feeds) continue
+        changes.push({
+          ref: item.ref,
+          updates: {
+            panelLabel: setPanelLabelSources(item.values.config, bulkTarget.side, nextSources),
+          },
         })
       }
+      onUpdateModuleLabels(changes)
       setBulkTarget((current) => (current ? { ...current, sources: nextSources } : current))
     },
-    [bulkTarget, canEdit, getBulkItems, onUpdateModuleLabel]
+    [bulkTarget, canEdit, getBulkItems, onUpdateModuleLabels]
   )
 
   const updateBulkAlignment = useCallback(
     (nextAlignment: LabelAlignment) => {
       if (!bulkTarget || !canEdit) return
       const seen = new Set<string>()
+      const changes: Array<{ ref: PanelGridModuleRef; updates: PanelLabelEntityUpdates }> = []
       for (const item of getBulkItems(bulkTarget)) {
         const key = panelGridModuleRefKey(item.ref)
         if (seen.has(key)) continue
         seen.add(key)
-        onUpdateModuleLabel(item.ref, {
-          panelLabel: setPanelLabelAlignment(item.values.config, bulkTarget.side, nextAlignment),
+        changes.push({
+          ref: item.ref,
+          updates: {
+            panelLabel: setPanelLabelAlignment(item.values.config, bulkTarget.side, nextAlignment),
+          },
         })
       }
+      onUpdateModuleLabels(changes)
       setBulkTarget((current) => (current ? { ...current, alignment: nextAlignment } : current))
     },
-    [bulkTarget, canEdit, getBulkItems, onUpdateModuleLabel]
+    [bulkTarget, canEdit, getBulkItems, onUpdateModuleLabels]
   )
 
   bulkActionsRef.current = {
@@ -798,14 +890,19 @@ export function PanelLabelModeOverlay({
     if (!canEdit || swapping) return
     setSwapping(true)
     const seen = new Set<string>()
+    const changes: Array<{ ref: PanelGridModuleRef; updates: PanelLabelEntityUpdates }> = []
     for (const item of rowItems) {
       const key = panelGridModuleRefKey(item.ref)
       if (seen.has(key)) continue
       seen.add(key)
-      onUpdateModuleLabel(item.ref, {
-        panelLabel: swapPanelLabelSources(item.values.config),
+      changes.push({
+        ref: item.ref,
+        updates: {
+          panelLabel: swapPanelLabelSources(item.values.config),
+        },
       })
     }
+    onUpdateModuleLabels(changes)
     setSwapping(false)
   }
 
@@ -827,7 +924,8 @@ export function PanelLabelModeOverlay({
         return (
           <div
             key={surface.id}
-            className="pointer-events-none absolute"
+            data-panel-label-surface={surface.id}
+            className="pointer-events-none absolute outline outline-2 outline-sky-400/70"
             style={{
               left: surface.x * liveZoom,
               top: surface.y * liveZoom,
@@ -933,6 +1031,8 @@ export function PanelLabelModeOverlay({
                     )
                   )
                 )
+              const topFontSize = bandFontSize('top')
+              const bottomFontSize = bandFontSize('bottom')
               return (
                 <div key={rowKey}>
                   {(['top', 'bottom'] as const).map((side) => {
@@ -1054,7 +1154,7 @@ export function PanelLabelModeOverlay({
                             id: (current?.id ?? 0) + 1,
                           }))
                         }
-                        bandFontSize={bandFontSize('top')}
+                        bandFontSize={topFontSize}
                       />
                       <LabelCell
                         side="bottom"
@@ -1076,7 +1176,7 @@ export function PanelLabelModeOverlay({
                             id: (current?.id ?? 0) + 1,
                           }))
                         }
-                        bandFontSize={bandFontSize('bottom')}
+                        bandFontSize={bottomFontSize}
                       />
                     </div>
                   ))}
@@ -1123,7 +1223,11 @@ export function PanelLabelModeOverlay({
                     className="pointer-events-auto absolute z-[120] flex gap-1 rounded-md border border-sky-300 bg-white p-1 shadow-lg dark:border-sky-700 dark:bg-slate-800"
                     style={{ left: shelfLeft, top: shelfTop, transform: shelfTransform }}
                   >
-                    {SOURCE_OPTIONS.map((option) => (
+                    {SOURCE_OPTIONS.filter(
+                      (option) =>
+                        option !== 'feeds' ||
+                        getBulkItems(bulkTarget).some((item) => item.values.feeds.length > 0)
+                    ).map((option) => (
                       <button
                         key={option}
                         type="button"

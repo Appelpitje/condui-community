@@ -9,7 +9,6 @@ import type {
   Circuit,
   CableSpec,
   WireSegment,
-  SupplyWireRole,
 } from './common'
 import {
   DEFAULT_ELECTRICAL_DOMAIN,
@@ -18,9 +17,7 @@ import {
   getCircuitMinSectionForCableProtectedByDevice,
   getCircuitSegmentsForValidation,
   cableExplicitlyWithoutPe,
-  cableForSupplyWireRole,
   i18n,
-  projectPanels,
   projectInstallation,
   validationCircuitCode,
   CONSERVATIVE_DC_AMPACITY_BY_SECTION,
@@ -28,6 +25,10 @@ import {
   isPanelPlacementCarrierCircuit,
 } from './common'
 import { isHouseholdInstallation } from '@/lib/installationProfile'
+import { isDomoticaPanelFeedEndpoint } from '@/lib/eendraad/panelSupplyLink'
+import { circuitUpstreamProtections, type UpstreamProtection } from '@/lib/validation/upstreamProtection'
+import { isPanelBusTapToProtectionOrRcd } from '@/lib/validation/circuitCableSection'
+import { getCircuitBranches } from '@/lib/layout/endpointChains'
 import {
   isIntermediateProtectionDevice,
   isOvercurrentProtectionType,
@@ -107,14 +108,28 @@ function cableHasCrossSection(
 /**
  * Check that the circuit's breaker rating does not exceed the admissible
  * current for the circuit cable cross-section (simple AREI table).
+ *
+ * AREI 4.4.1.4 limits table 4.11 to household installations. Non-household
+ * circuits must satisfy IB ≤ In ≤ Iz for the actual installation method, which
+ * this table cannot decide.
  */
 function breakerSizeMatchesCrossSection(
   context: CheckContext,
   _params?: Record<string, unknown>
 ): CheckResult | Issue[] {
-  const { scope, query } = context
+  const { scope, query, project } = context
   if (scope.type !== 'circuit') {
     return { passed: true }
+  }
+  if (!isHouseholdInstallation(projectInstallation(project))) {
+    return {
+      passed: true,
+      coverage: {
+        status: 'skipped',
+        reason: 'table-4-11-is-household-only',
+        missingFacts: ['design current and admissible current Iz for the installation method'],
+      },
+    }
   }
 
   const circuit = query.getCircuitById(scope.id)
@@ -130,8 +145,67 @@ function breakerSizeMatchesCrossSection(
     return { passed: true }
   }
 
-  const protection = query.getProtectionForCircuit(scope.id)
-  if (!protection || protection.ratingA == null) {
+  const path = circuitUpstreamProtections(context, circuit.id).filter((device) =>
+    isOvercurrentProtectionType(device.type)
+  )
+  const inline = [...(circuit.trunkDevices ?? [])].sort((a, b) => a.trunkPosition - b.trunkPosition)
+  const inlineIds = new Set(inline.map(({ id }) => id))
+  // Inline devices do not protect their own incoming cable. The ancestry helper
+  // includes head devices for final-load checks; here each wire needs its own side.
+  const externalPath = path.filter(({ id }) => !inlineIds.has(id))
+  const branches = getCircuitBranches(circuit)
+  const branchByEndpoint = new Map(branches.flatMap((branch, index) => branch.map(({ id }) => [id, index] as const)))
+  const protectionsForSegment = (segment: WireSegment): UpstreamProtection[] => {
+    const from = inline.findIndex(({ id }) => id === segment.fromElementId)
+    const to = inline.findIndex(({ id }) => id === segment.toElementId)
+    const branch = branchByEndpoint.get(segment.fromElementId ?? '') ?? branchByEndpoint.get(segment.toElementId ?? '')
+    const beforeSegment = from >= 0
+      ? inline.slice(0, from + 1)
+      : to >= 0
+        ? inline.slice(0, to)
+        : segment.fromElementType === 'protection' || segment.fromElementType === 'rcd'
+          ? []
+          : branch != null ? inline.filter((device) => device.trunkPosition <= branch) : []
+    return [
+      ...externalPath,
+      ...beforeSegment.flatMap((device): UpstreamProtection[] =>
+        device.type === 'protection' && isOvercurrentProtectionType(device.protectionType)
+          ? [{ ...device, type: device.protectionType!, offenderKind: 'device' }]
+          : []
+      ),
+    ]
+  }
+  const { segments } = getCircuitSegmentsForValidation(query, circuit.id)
+  const acSegments = segments.filter((segment) =>
+    (segment.domain ?? DEFAULT_ELECTRICAL_DOMAIN) === 'AC' && !isPanelBusTapToProtectionOrRcd(segment)
+  )
+  const cableChecks = acSegments.flatMap((segment) => {
+    const section = query.getCrossSection(segment)
+    return section != null && Number.isFinite(section) && section > 0
+      ? [{ section, segmentIds: [segment.id], protections: protectionsForSegment(segment) }]
+      : []
+  })
+  if (cableChecks.length === 0 && circuit.cable?.sectionMm2 > 0) {
+    cableChecks.push({ section: circuit.cable.sectionMm2, segmentIds: [], protections: path })
+  }
+  if (cableChecks.length === 0) {
+    return {
+      passed: true,
+      coverage: { status: 'missing-information', reason: 'cable-section-unavailable', missingFacts: ['cable cross-section'] },
+    }
+  }
+  const assessed = cableChecks.map((check) => {
+    const hasUnknownRating = check.protections.some(({ ratingA }) =>
+      ratingA == null || !Number.isFinite(ratingA) || ratingA <= 0
+    )
+    const candidates = check.protections.flatMap((protection) => {
+      if (protection.ratingA == null || !Number.isFinite(protection.ratingA) || protection.ratingA <= 0) return []
+      const maxRating = getMaxProtectionRatingForSection(check.section, protection.type)
+      return maxRating == null ? [] : [{ protection, maxRating, ratio: protection.ratingA / maxRating }]
+    }).sort((left, right) => left.ratio - right.ratio)
+    return { ...check, effective: candidates[0], hasUnknownRating }
+  })
+  if (assessed.every(({ protections }) => protections.length === 0)) {
     return {
       passed: true,
       coverage: {
@@ -142,27 +216,17 @@ function breakerSizeMatchesCrossSection(
     }
   }
 
-  const { minSection: segmentMinSection, minSegmentIds } =
-    getCircuitMinSectionForCableProtectedByDevice(query, scope.id, protection.id, { domain: 'AC' })
-  const section =
-    segmentMinSection ??
-    (circuit.cable?.sectionMm2 && circuit.cable.sectionMm2 > 0
-      ? circuit.cable.sectionMm2
-      : undefined)
-  if (section == null || section <= 0) {
-    // No cable information; let cableHasCrossSection handle this.
-    return {
-      passed: true,
-      coverage: {
-        status: 'missing-information',
-        reason: 'cable-section-unavailable',
-        missingFacts: ['cable cross-section'],
-      },
-    }
+  // A known safe serial limiter proves the bound even if another rating is
+  // unknown. Otherwise that unknown device might be the effective protection;
+  // a larger known device alone cannot prove this cable is underprotected.
+  const failure = assessed.filter(({ effective, hasUnknownRating }) => effective != null && effective.ratio > 1 && !hasUnknownRating)
+    .sort((left, right) => right.effective!.ratio - left.effective!.ratio)[0]
+  if (!failure && assessed.some(({ protections, effective, hasUnknownRating }) =>
+    protections.length === 0 || (hasUnknownRating && (effective == null || effective.ratio > 1))
+  )) {
+    return { passed: true, coverage: { status: 'missing-information', reason: 'breaker-rating-unavailable', missingFacts: ['upstream protection rating'] } }
   }
-
-  const maxRating = getMaxProtectionRatingForSection(section, protection.type)
-  if (maxRating == null) {
+  if (!failure && assessed.some(({ effective }) => effective == null)) {
     // Section not covered by our simplified table; skip check.
     return {
       passed: true,
@@ -174,9 +238,7 @@ function breakerSizeMatchesCrossSection(
     }
   }
 
-  const breakerRating = protection.ratingA
-
-  if (breakerRating <= maxRating) {
+  if (!failure) {
     const missingInstallationMethod = query.getCableSegments(scope.id).some(
       (segment) => !query.getInstallationMethod(segment)
     )
@@ -192,6 +254,10 @@ function breakerSizeMatchesCrossSection(
     }
   }
 
+  const { section, segmentIds: minSegmentIds } = failure
+  const { protection, maxRating } = failure.effective!
+  const breakerRating = protection.ratingA!
+
   return {
     passed: false,
     offenders: [
@@ -201,7 +267,7 @@ function breakerSizeMatchesCrossSection(
         viewHint: 'eendraad' as const,
       })),
       { kind: 'circuit', id: circuit.id, viewHint: 'eendraad' },
-      { kind: 'protection', id: protection.id, viewHint: 'eendraad' },
+      { kind: protection.offenderKind, id: protection.id, viewHint: 'eendraad' },
     ],
     message: i18n.t('validation.primitives.breakerSizeMatchesCrossSection.message', {
       circuitCode: validationCircuitCode(circuit.code),
@@ -228,7 +294,7 @@ function minimumCrossSection(
   context: CheckContext,
   _params?: Record<string, unknown>
 ): CheckResult | Issue[] {
-  const { scope, query } = context
+  const { scope, query, project } = context
   if (scope.type !== 'circuit') {
     return { passed: true }
   }
@@ -239,7 +305,7 @@ function minimumCrossSection(
   const protection = query.getProtectionForCircuit(scope.id)
   const { minSection: segmentMinSection, minSegmentIds } =
     getCircuitMinSectionForCableProtectedByDevice(query, scope.id, protection?.id, { domain: 'AC' })
-  const section =
+  let section =
     segmentMinSection ??
     (circuit.cable?.sectionMm2 && circuit.cable.sectionMm2 > 0
       ? circuit.cable.sectionMm2
@@ -263,14 +329,8 @@ function minimumCrossSection(
     return { passed: true }
   }
 
-  const getSubpanelRequiredSection = (circuitId: string): number | undefined => {
-    const prot = query.getProtectionForCircuit(circuitId)
-    const subPanelId = prot?.subPanelId
-    if (!subPanelId) return undefined
-
-    const subPanel = query.getPanelById(subPanelId)
-    if (!subPanel) return undefined
-
+  const household = isHouseholdInstallation(projectInstallation(project))
+  const getSubpanelRequiredSection = (subPanel: Panel): number | undefined => {
     const sectionForBreakerRating = (ratingA: number): number | undefined => {
       const entries = Object.entries(MAX_BREAKER_BY_SECTION)
         .map(([s, max]) => ({ section: Number(s), maxRating: max }))
@@ -299,12 +359,14 @@ function minimumCrossSection(
         for (const c of p.circuits ?? []) {
           pushRequired(baselineRequiredForCircuit(c))
           if (
+            household &&
             p.ratingA != null &&
             isOvercurrentProtectionType(p.type) &&
             !isIntermediateProtectionDevice(p)
           ) {
             // If a downstream breaker needs a heavier conductor (e.g. 32A => 6mm²),
-            // feeder must be at least that section as well.
+            // feeder must be at least that section as well. Table 4.11 is
+            // household-only (AREI 4.4.1.4).
             pushRequired(sectionForBreakerRating(p.ratingA))
           }
         }
@@ -323,12 +385,61 @@ function minimumCrossSection(
   // 1.5 mm² for circuits without sockets. Higher load-dependent sizing needs
   // actual design current and installation-method facts, so it is not inferred
   // merely from labels such as "stove" or "EV".
-  const required =
+  const legacySubPanel = protection?.subPanelId ? query.getPanelById(protection.subPanelId) : undefined
+  let required =
     kind === 'subpanel'
-      ? getSubpanelRequiredSection(scope.id) ?? 0
+      ? (legacySubPanel ? getSubpanelRequiredSection(legacySubPanel) : undefined) ?? 0
       : circuit.endpoints.some((endpoint) => endpoint.type === 'socket')
         ? 2.5
         : 1.5
+
+  // A module can feed a real board alongside other output rows. Check that
+  // output's cable, without applying its downstream load minimum to every
+  // unrelated module output or replacing the whole circuit's feeder model.
+  let failedOutputEndpointId: string | undefined
+  const { segments: resolvedCircuitSegments } = getCircuitSegmentsForValidation(query, circuit.id)
+  for (const endpoint of circuit.endpoints.filter(isDomoticaPanelFeedEndpoint)) {
+    const targetPanel = query.getPanelById(endpoint.panelId)
+    if (!targetPanel) continue
+    const outputRequired = getSubpanelRequiredSection(targetPanel)
+    if (outputRequired == null) continue
+    const parent = circuit.endpoints.find((candidate) => candidate.id === endpoint.domoticaChildProps.parentEndpointId)
+    const output = parent?.domoticaProps?.endpointOutputWires?.[endpoint.domoticaChildProps.outputIndex]
+    // Prefer the actual painted feeder, which includes wire-run/section
+    // overrides. Raw output settings are only a fallback when no geometry is
+    // available for this board endpoint.
+    const outputRef = endpoint.domoticaChildProps
+    const outputIds = new Set(circuit.endpoints.filter((candidate) =>
+      candidate.domoticaChildProps?.parentEndpointId === outputRef.parentEndpointId &&
+      candidate.domoticaChildProps.outputIndex === outputRef.outputIndex &&
+      candidate.domoticaChildProps.outputGroup === outputRef.outputGroup).map((candidate) => candidate.id))
+    const feederSections: number[] = []
+    const pending = [endpoint.id]
+    const visited = new Set<string>()
+    while (pending.length) {
+      const targetId = pending.pop()!
+      if (visited.has(targetId)) continue
+      visited.add(targetId)
+      for (const segment of resolvedCircuitSegments) {
+        if (segment.domain === 'DC' || segment.isSubPanelSupply ||
+          segment.toElementType !== 'endpoint' || segment.toElementId !== targetId ||
+          segment.fromElementType !== 'endpoint' || !segment.fromElementId ||
+          (segment.fromElementId !== parent?.id && !outputIds.has(segment.fromElementId))) continue
+        const value = query.getCrossSection(segment)
+        if (value != null && value > 0) feederSections.push(value)
+        if (segment.fromElementId !== parent?.id) pending.push(segment.fromElementId)
+      }
+    }
+    const outputSection = feederSections.length
+      ? Math.min(...feederSections)
+      : output?.cable?.sectionMm2 ?? circuit.cable?.sectionMm2
+    if (outputSection != null && outputSection > 0 && outputSection < outputRequired) {
+      section = outputSection
+      required = outputRequired
+      failedOutputEndpointId = endpoint.id
+      break
+    }
+  }
 
   if (section >= required) {
     const missingInstallationMethod = query.getCableSegments(scope.id).some(
@@ -349,11 +460,11 @@ function minimumCrossSection(
   return {
     passed: false,
     offenders: [
-      ...minSegmentIds.map((id) => ({
+      ...(failedOutputEndpointId ? [{ kind: 'endpoint' as const, id: failedOutputEndpointId, viewHint: 'eendraad' as const }] : minSegmentIds.map((id) => ({
         kind: 'segment' as const,
         id,
         viewHint: 'eendraad' as const,
-      })),
+      }))),
       { kind: 'circuit', id: circuit.id, viewHint: 'eendraad' },
     ],
     message: i18n.t('validation.primitives.minimumCrossSection.message', {
@@ -573,8 +684,6 @@ function dcCrossSectionHeuristic(
   }
 }
 
-const INSTALLATION_SIDE_SUPPLY_ROLES: SupplyWireRole[] = ['crossing', 'downstream']
-
 function formatConductorLabel(cable: CableSpec): string {
   const n = cable.conductors
   return cable.hasPE === true ? `${n}G` : `${n}`
@@ -641,9 +750,9 @@ function isInternalSubPanelProtectionToBusSegment(segment: WireSegment): boolean
 }
 
 /**
- * Warn when AC wiring on the installation side of the main bus uses conductors without PE.
- * Ground/PE is bonded at the main bus; circuits and the supply drop from the dashed separator
- * to the bus should use a G suffix (e.g. 3G, 4G). DC segments are excluded.
+ * Check outgoing AC circuit wiring for a PE path. The utility feed, internal active bus and
+ * protection links do not carry PE: the enclosure's separate PE bar supplies outgoing wiring.
+ * DC segments are excluded. Cable designation alone cannot verify an independent PE conductor.
  */
 function postMainBusRequiresPeConductor(
   context: CheckContext,
@@ -696,39 +805,6 @@ function postMainBusRequiresPeConductor(
       ],
       tags: ['cable', 'PE', 'earthing', 'supply'],
     })
-  }
-
-  const installation = projectInstallation(project)
-
-  if (panel.isMain === true && installation) {
-    for (const role of INSTALLATION_SIDE_SUPPLY_ROLES) {
-      const cable = cableForSupplyWireRole(installation, projectPanels(project), panel, role)
-      if (!cableExplicitlyWithoutPe(cable)) continue
-
-      const roleLabel = i18n.t(
-        `validation.primitives.postMainBusRequiresPeConductor.supplyRole.${role}`,
-        {
-          defaultValue: role === 'crossing' ? 'panel boundary' : 'main panel supply to bus',
-        }
-      )
-      const conductorLabel = formatConductorLabel(cable)
-      pushIssue(
-        `supply:${role}`,
-        [{ kind: 'board', id: panel.id, viewHint: 'eendraad' }],
-        i18n.t('validation.primitives.postMainBusRequiresPeConductor.supplyMessage', {
-          panelName: panel.name,
-          roleLabel,
-          conductorLabel,
-          defaultValue: `Panel ${panel.name}: ${roleLabel} uses ${conductorLabel} without protective earth (G). After the main bus, use a G conductor (e.g. 3G, 4G).`,
-        }),
-        i18n.t('validation.primitives.postMainBusRequiresPeConductor.supplyDetails', {
-          panelName: panel.name,
-          roleLabel,
-          conductorLabel,
-          defaultValue: `Protective earth is connected at the main bus. The ${roleLabel} is on the installation side and should include a PE conductor in the cable designation (…G), not ${conductorLabel}.`,
-        })
-      )
-    }
   }
 
   const snapshot = getDerivedWiresForValidation(query, project)

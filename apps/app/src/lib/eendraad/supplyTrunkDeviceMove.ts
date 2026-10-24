@@ -50,6 +50,7 @@ const SUPPLY_DC_SWITCH_SYMBOL_IDS = new Set([
   'switch_2p_twoway',
   'switch_dimmer',
   'switch_1p_changeover',
+  'switch_shutter',
   'switch_1p_pull',
   'contact',
   'switch_impulse',

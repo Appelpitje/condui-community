@@ -170,16 +170,34 @@ export function matchTrikPanelNameInText(
   return best?.name
 }
 
-/** True when any nota text mentions the given panel name. */
+/** True when any nota text mentions the given panel name (or one of its aliases). */
 export function trikNotasMentionPanel(
   texts: Iterable<string> | undefined | null,
-  panelName: string,
+  panelName: string | string[],
 ): boolean {
   if (!texts) return false
+  const names = Array.isArray(panelName) ? panelName : [panelName]
   for (const text of texts) {
-    if (matchTrikPanelNameInText(text, [panelName])) return true
+    if (matchTrikPanelNameInText(text, names)) return true
   }
   return false
+}
+
+/** Name of a board TRiK only knows by its `Nummer`. */
+export function trikNumberedPanelName(boardNumber: string): string {
+  return `Panel ${boardNumber.trim()}`
+}
+
+const TRIK_BOARD_WORDS = ['verdeelbord', 'bord', 'kast', 'zekeringkast', 'vb', 'tableau', 'board', 'panel']
+
+/**
+ * How installers refer to a board in notes: its name, and for a numbered board the usual
+ * words before the number ("Naar verdeelbord 2", "VB2", "tableau 2").
+ */
+export function trikBoardNameAliases(board: { name: string; boardNumber?: string }): string[] {
+  const number = board.boardNumber?.trim()
+  if (!number) return [board.name]
+  return [board.name, ...TRIK_BOARD_WORDS.flatMap((word) => [`${word} ${number}`, `${word}${number}`])]
 }
 
 /** One root TRiK `Verdeelbord` that should become a Condui panel. */
@@ -190,6 +208,12 @@ export type TrikPanelBoard = {
   /** Present when TRiK set VasteLetter or NaamKring on the board. */
   explicitName?: string
   vasteLetter?: string
+  /** TRiK board `Nummer`, the prefix of its circuit letters. */
+  boardNumber?: string
+  /** The board this one is drawn behind (fed from one of its circuits), when nested. */
+  parentBoardId?: string
+  /** That board's circuit feeding this one. */
+  parentCircuitId?: string
   /** True when this board sits on the metered supply spine (ancestor `Teller`). */
   onSupplySpine: boolean
   /** Soft free-text hint from an ancestor Nota that may mention a parent panel name. */

@@ -1,8 +1,10 @@
 import { Text } from 'react-konva'
 import { usePlanDragLabel, usePlanDragPosition } from '@/stores/planDragVisualStore'
-import { useSettingsStore } from '@/stores/settingsStore'
+import { useThemeColors } from '@/lib/theme/hooks'
+import { useProjectStore } from '@/stores/projectStore'
+import { selectProjectPlanWiringVisibility } from '@/lib/projectV2/planWiring'
+import { planSymbolColor } from '@/lib/plan/planColors'
 import {
-  getSymbolColor,
   LIGHT_POINT_WATERPROOF_H_OFFSET_TOP,
   MULTI_SOCKET_OFFSET,
   SOCKET_WATERPROOF_H_FONT_SIZE,
@@ -12,25 +14,27 @@ import {
 } from '../eendraad/canvasSymbols'
 import { PlacementLabel } from './PlacementLabel'
 import type { Placement } from '@/types/schema'
-import type { Endpoint } from '@/types/schema'
+import type { Endpoint, SymbolKey } from '@/types/schema'
 
 export function PlanPlacementLabelEntry({
   placementId,
   labelText,
   staticLabelPosition,
   labelFontSize,
+  symbol,
 }: {
   placementId: string
   labelText?: string
   staticLabelPosition?: { x: number; y: number }
   labelFontSize: number
+  symbol?: SymbolKey
 }) {
   const dragLabel = usePlanDragLabel(placementId)
   const labelPosition = dragLabel ?? staticLabelPosition
   if (!labelText || !labelPosition) return null
   return (
     <PlacementLabel
-      endpoint={{ label: labelText }}
+      endpoint={{ label: labelText, symbol }}
       labelPosition={labelPosition}
       labelFontSize={labelFontSize}
     />
@@ -48,7 +52,13 @@ export function PlanPlacementSocketWaterproofH({
   baseSymbolSizePx: number
   fontFamily: string
 }) {
-  const theme = useSettingsStore((state) => state.theme)
+  const colors = useThemeColors()
+  const colorOverride = useProjectStore((state) =>
+    planSymbolColor(
+      endpoint.symbol,
+      state.currentProject ? selectProjectPlanWiringVisibility(state.currentProject) : undefined
+    )
+  )
   const dragPos = usePlanDragPosition(placement.id)
   const placementPos = dragPos ?? placement.pos
   if (!endpoint.socketProps?.waterproof || !placementPos) return null
@@ -68,10 +78,10 @@ export function PlanPlacementSocketWaterproofH({
       text="h"
       fontSize={Math.max(
         SOCKET_WATERPROOF_H_FONT_SIZE,
-        Math.round(SOCKET_WATERPROOF_H_FONT_SIZE * scale),
+        Math.round(SOCKET_WATERPROOF_H_FONT_SIZE * scale)
       )}
       fontFamily={fontFamily}
-      fill={getSymbolColor(theme.mode === 'dark')}
+      fill={colorOverride ?? colors.symbolColor}
       align="right"
       listening={false}
     />
@@ -89,7 +99,13 @@ export function PlanPlacementLightWaterproofH({
   baseSymbolSizePx: number
   fontFamily: string
 }) {
-  const theme = useSettingsStore((state) => state.theme)
+  const colors = useThemeColors()
+  const colorOverride = useProjectStore((state) =>
+    planSymbolColor(
+      endpoint.symbol,
+      state.currentProject ? selectProjectPlanWiringVisibility(state.currentProject) : undefined
+    )
+  )
   const dragPos = usePlanDragPosition(placement.id)
   const placementPos = dragPos ?? placement.pos
   if (
@@ -112,10 +128,10 @@ export function PlanPlacementLightWaterproofH({
       text="h"
       fontSize={Math.max(
         SOCKET_WATERPROOF_H_FONT_SIZE,
-        Math.round(SOCKET_WATERPROOF_H_FONT_SIZE * scale),
+        Math.round(SOCKET_WATERPROOF_H_FONT_SIZE * scale)
       )}
       fontFamily={fontFamily}
-      fill={getSymbolColor(theme.mode === 'dark')}
+      fill={colorOverride ?? colors.symbolColor}
       align="center"
       listening={false}
     />

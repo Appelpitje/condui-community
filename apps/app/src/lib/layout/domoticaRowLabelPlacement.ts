@@ -9,6 +9,7 @@ import {
 } from '@/lib/eendraad/domoticaRowLabel'
 import type { Endpoint } from '@/types/schema'
 import { LAYOUT_CONSTANTS, type BottomUpPanelLayout } from './bottomUpLayout'
+import { getDomoticaBusRowLabelMetrics } from '@/lib/eendraad/domoticaBusRowLabel'
 
 /** Left-aligned row label ("T6.1") painted after the last endpoint of a domotica output row. */
 export interface DomoticaRowLabelPlacement {
@@ -18,6 +19,8 @@ export interface DomoticaRowLabelPlacement {
   /** Vertical centre of the text line. */
   y: number
   text: string
+  /** Bus markers retain their full text on one measured line instead of wrapping into device labels. */
+  unwrappedWidth?: number
 }
 
 /**
@@ -55,6 +58,9 @@ export function getDomoticaRowLabelPlacement(
 
   const element = elementFor(endpoint)!
   const isDomoticaParent = endpoint.symbol === 'domotica'
+  const circuit = panelLayout.circuits.find((candidate) => candidate.circuit.endpoints.some((item) => item.id === endpoint.id))?.circuit
+  const text = getDomoticaRowDisplayLabel(endpoint, circuit)
+  const busLabel = getDomoticaBusRowLabelMetrics(endpoint)
   return {
     endpointId: endpoint.id,
     x: isDomoticaParent
@@ -63,7 +69,8 @@ export function getDomoticaRowLabelPlacement(
     y: isDomoticaParent
       ? element.position.y + DOMOTICA_BASE_HEIGHT / 2 + 10
       : element.position.y,
-    text: getDomoticaRowDisplayLabel(endpoint),
+    text,
+    ...(busLabel ? { unwrappedWidth: busLabel.width } : {}),
   }
 }
 

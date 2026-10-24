@@ -564,7 +564,7 @@ export function ProjectProperties({
                 />
               </div>
             )}
-            {supplyTransformer && (
+            {supplyTransformer && resolveInstallationProfile(installation) === 'non_household' && (
               <div data-testid="project-supply-transformer-properties">
                 <TransformerNameplateFields
                   value={supplyTransformer.conversionProps ?? {}}

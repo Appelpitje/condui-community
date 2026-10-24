@@ -2,6 +2,7 @@ import {
   hasSupplyInlineLabels,
   getSupplyInlineLabelLines,
 } from '@/lib/layout/supplyInlineDeviceLabels'
+import { useOneWireProjectSelector } from './oneWireRenderProject'
 import { useState, useEffect, useCallback, useContext, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -56,6 +57,10 @@ import {
   isSharedJunctionSymbol,
 } from '@/lib/junctionIdentity'
 import { getEffectiveTerminalStripOutgoingPin } from '@/lib/terminalStrip/labels'
+import {
+  TERMINAL_STRIP_IDENTITY_LABEL_FONT_SIZE,
+  getTerminalStripIdentityLabelOffset,
+} from '@/lib/terminalStrip/identityLabelLayout'
 import {
   SYMBOL_SIZE,
   ENDPOINT_OUTLINE_SIZE,
@@ -334,12 +339,12 @@ export function TrunkDeviceSymbol({
   const symbol = getSymbolById(device.symbol)
   const isInlineSwitch = symbol?.category === 'switches'
   const isDark = theme?.mode === 'dark'
-  const phaseSystem = useProjectStore((state) =>
+  const phaseSystem = useOneWireProjectSelector((state) =>
     state.currentProject
       ? getProjectElectricalInstallation(state.currentProject)?.nominalVoltage.system
       : undefined
   )
-  const supplyTrunkNotesOrientation = useProjectStore((state) =>
+  const supplyTrunkNotesOrientation = useOneWireProjectSelector((state) =>
     state.currentProject
       ? getProjectElectricalInstallation(state.currentProject)?.supplyTrunkNotesOrientation
       : undefined
@@ -400,7 +405,7 @@ export function TrunkDeviceSymbol({
   const wireSegments = useEendraadWireSegments(
     isDirectionalConverter || isConversionSymbol || needsSupplyMetadataGeometry
   )
-  const terminalStripOutgoingPin = useProjectStore((state) =>
+  const terminalStripOutgoingPin = useOneWireProjectSelector((state) =>
     (device.symbol === 'terminal_strip' || device.type === 'terminal_strip') && state.currentProject
       ? getEffectiveTerminalStripOutgoingPin(state.currentProject, device)
       : undefined
@@ -2287,9 +2292,20 @@ export function TrunkDeviceSymbol({
             }}
             textColor={getTextColor(isDark ?? false)}
             fontFamily={fontFamily}
-            fontSize={10}
+            fontSize={
+              device.symbol === 'terminal_strip' ? TERMINAL_STRIP_IDENTITY_LABEL_FONT_SIZE : 10
+            }
             symbolWidth={renderedSymbolSize.width}
             symbolHeight={renderedSymbolSize.height}
+            offsetFromSymbol={
+              device.symbol === 'terminal_strip'
+                ? getTerminalStripIdentityLabelOffset(
+                    getJunctionIdentityLabelPosition(device.symbol, isHorizontal === true),
+                    renderedSymbolSize.width,
+                    renderedSymbolSize.height,
+                  )
+                : 5
+            }
           />
         )}
       {isRelay && (

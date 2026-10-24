@@ -279,6 +279,7 @@
     "zoom": "Zoom"
   },
   "commandPalette": {
+    "addPanelAtDomoticaOutput": "Verteiler am Ausgang hinzufügen",
     "addSupplyTransformer": "Speisetransformator hinzufügen",
     "placeholder": "Befehle suchen",
     "empty": "Keine Befehle gefunden",
@@ -298,6 +299,7 @@
     "apply": "Anwenden",
     "unavailable": "Diese Änderung kann nicht angewendet werden. Prüfen Sie die Werte oder öffnen Sie die Aktion erneut.",
     "fields": {
+      "output": "Ausgang",
       "circuit": "Stromkreis",
       "position": "Position",
       "row": "Reihe",
@@ -954,7 +956,8 @@
     "voltage_1x230": "1×230V",
     "lineToNeutral": "Phase-Null (V)",
     "lineToLine": "Phase-Phase (V)",
-    "notes": "Hinweise"
+    "notes": "Hinweise",
+    "earthResistance": "Erdungswiderstand"
   },
   "panels": {
     "title": "Schilder",
@@ -971,9 +974,8 @@
     "secondaryPanel": "Verteiler {{number}}",
     "diagramLabels": "Schematische Bezeichnungen",
     "panelNumbering": "Plattennummerierung",
-    "panelNumberingHint": "Fügt B01, B02, … in der Reihenfolge von der Hauptverteiler über die Unterverteilern auf dem Einliniendiagramm hinzu.",
+    "panelNumber": "Verteilernummer",
     "panelNetTypeLabels": "Netztyp im Schaltplan",
-    "panelNetTypeLabelsHint": "Fügt Strom-, Spannungs- und Erdungsanschluss im Einliniendiagramm-Header hinzu, wenn ein Erdungsverbindungssystem eingestellt ist.",
     "earthingSystemLabel": "Erdungsverbindungssystem",
     "earthingSystemGridLabel": "Erdungssystem (Netz)",
     "earthingSystemBackupLabel": "Erdungssystem (Backup)",
@@ -993,7 +995,9 @@
     "diagramNetWithEarthing": "Netz: {{net}} – {{earthing}}",
     "diagramEarthingSystem": "Erdungsverbindungssystem: {{earthing}}",
     "diagramEarthingSystemGrid": "Erdungssystem (Netz): {{earthing}}",
-    "diagramEarthingSystemBackup": "Erdungssystem (Backup): {{earthing}}"
+    "diagramEarthingSystemBackup": "Erdungssystem (Backup): {{earthing}}",
+    "expectedShortCircuit": "Erwarteter max. Kurzschlussstrom",
+    "diagramShortCircuit": "Ik max: {{ka}} kA"
   },
   "panel": {
     "deleteConfirmTitle": "Verteiler(n) entfernen?",
@@ -1015,6 +1019,8 @@
     "poles": "Polen",
     "polesConfig": "Polkonfiguration",
     "residualCurrentType": "Differentialtyp",
+    "selective": "Selektiv (S)",
+    "superImmunized": "Superimmunisiert (SI)",
     "breakingCapacity": "Kurzschlussfähigkeit",
     "spdKind": "Symbol",
     "spdStandard": "Blitzschutz",
@@ -1025,10 +1031,14 @@
     "poles_3P": "3P",
     "poles_3P_N": "3P+N",
     "poles_4P": "4P (3L+N)",
-    "residualType_AC": "AC (sinusförmig)",
-    "residualType_A": "A (pulsierender Gleichstrom)",
-    "residualType_F": "F (Mischfrequenz)",
-    "residualType_B": "B (glatter Gleichstrom)",
+    "residualType_AC": "AC (ohne Elektronik)",
+    "residualTypeHelp_AC": "Nur sinusförmiger Wechselstrom. Prüfen Sie, ob Typ AC für diese Anlage zulässig ist.",
+    "residualType_A": "A (Haushaltsstromkreise)",
+    "residualTypeHelp_A": "Wechselstrom und pulsierender Gleichstrom. Üblich für Haushaltsstromkreise.",
+    "residualType_F": "F (drehzahlgeregelte Geräte)",
+    "residualTypeHelp_F": "Auch Mischfrequenzen, etwa bei einphasigen Motorantrieben. Beachten Sie die Herstellervorgaben.",
+    "residualType_B": "B (bestimmte Ladepunkte / PV-Anlagen)",
+    "residualTypeHelp_B": "Auch glatter Gleichstrom. Nicht jede Ladestation oder jeder PV-Wechselrichter benötigt Typ B; prüfen Sie die Herstellervorgaben und den integrierten DC-Fehlerstromschutz.",
     "description": "Beschreibung",
     "type_MCB": "Automatik",
     "type_RCD": "Fehlerstromschutzschalter",
@@ -1222,6 +1232,21 @@
       "field": "Vor Ort"
     },
     "controlLink": {
+      "busDevices": "Busgeräte",
+      "connection": "Verbindung",
+      "standard": "Standard",
+      "bus": "Bus",
+      "busName": "Busname",
+      "busSystem": "Bussystem",
+      "moduleSystem": "Modulsystem",
+      "showBusLabel": "Busbeschriftung anzeigen",
+      "serialNumber": "Seriennummer",
+      "duplicateDeviceAddress": "Geräteadresse auf diesem Bus bereits vergeben",
+      "functions": "Funktionen",
+      "buttonAddresses": "Tasteradressen",
+      "buttonNumber": "Taster {{number}}",
+      "previousButtons": "Zurück",
+      "nextButtons": "Weiter",
       "section": "Hausautomation",
       "controlSection": "Steuerung",
       "operates": "Steuert",
@@ -1264,6 +1289,7 @@
         "niko_hc": "Niko Home Control",
         "dali": "DALI",
         "loxone": "Loxone",
+        "qbus": "Qbus",
         "other": "Andere"
       },
       "controlArea": "Steuerung",
@@ -1289,7 +1315,9 @@
       "count": "Anzahl der Module",
       "groupTitle": "Marke und Modell",
       "wattage": "Leistung (Wp)",
-      "voltage": "Spannung (V)"
+      "voltage": "Spannung (V)",
+      "wattageProperty": "Leistung (Pmax) (Wp)",
+      "voltageProperty": "Spannung (Umax) (V)"
     },
     "battery": {
       "voltage": "Spannung (V)",
@@ -1456,6 +1484,8 @@
     "labelSourceNotes": "Hinweise",
     "labelSourceExtra": "Zusätzlich",
     "labelSourceTechnical": "Technik",
+    "labelSourceFeeds": "Speist",
+    "labelSourceMain": "Haupt",
     "labelCellPlaceholder": "Etikett",
     "notesCellPlaceholder": "Hinweise",
     "extraCellPlaceholder": "Etikettennotizen hinzufügen",
@@ -1515,9 +1545,9 @@
       "customStatus": "Geändert",
       "setCustomLabel": "Benutzerdefiniertes Etikett festlegen",
       "useAutomaticLabel": "Automatisches Etikett verwenden",
-      "customLabelNonStandardWarning": "Dieses benutzerdefinierte Etikett liegt außerhalb des Bereichs A, B, C…",
+      "customLabelNonStandardWarning": "Dieses benutzerdefinierte Etikett liegt außerhalb der automatischen Folge.",
       "customLabelDuplicateWarning": "Diese Bezeichnung wird auch von einer anderen Schaltung auf dieser Verteiler verwendet.",
-      "customLabelBothWarnings": "Dieses benutzerdefinierte Etikett liegt außerhalb des Bereichs A, B, C… und wird auch von einer anderen Schaltung auf dieser Verteiler verwendet.",
+      "customLabelBothWarnings": "Dieses benutzerdefinierte Etikett liegt außerhalb der automatischen Folge und wird auch von einer anderen Schaltung auf dieser Verteiler verwendet.",
       "resetAllLabels": "Alle Etiketten zurücksetzen",
       "resetAllTooltip": "Entfernen Sie alle benutzerdefinierten Beschriftungen und verwenden Sie automatische Beschriftungen für alle Kreise wieder.",
       "resetAllConfirmTitle": "Alle benutzerdefinierten Etiketten zurücksetzen?",
@@ -1525,7 +1555,59 @@
       "resetAllConfirm": "Etiketten zurücksetzen",
       "confirmOverwriteTitle": "Buchstaben ersetzen?",
       "confirmOverwriteMessage": "Autonaming ersetzt die aktuellen Buchstaben durch A, B, C… entsprechend den Zeilen auf jeder Verteiler. Weitermachen?",
-      "confirmOverwriteConfirm": "Weiter"
+      "confirmOverwriteConfirm": "Weiter",
+      "scheme": {
+        "searchAliases": "Beschriftungsstil Nummerierung Stromkreisbuchstaben Verteilernummern Benennung",
+        "dialogTitle": "Automatische Beschriftung",
+        "style": "Stil",
+        "conduiStyles": "Condui-Stile",
+        "myStyles": "Meine Stile",
+        "customStyle": "Angepasst (nicht gespeichert)",
+        "styleClassic": "Klassisch",
+        "stylePanelLetterLetter": "Verteilerbuchstabe + Buchstabe",
+        "styleNumbers": "Nummern",
+        "stylePanelLetterNumber": "Verteilerbuchstabe + Nummer",
+        "stylePanelDotCircuit": "Verteiler.Stromkreis",
+        "saveStyle": "Als meinen Stil speichern",
+        "updateStyle": "„{{name}}“ aktualisieren",
+        "deleteStyle": "Stil löschen",
+        "styleName": "Name des Stils",
+        "separator": "Trennzeichen",
+        "prefix": "Präfix",
+        "subPanels": "Unterverteiler",
+        "ownNumber": "Eigene Nummer",
+        "underParent": "Unter dem Hauptverteiler",
+        "circuits": "Stromkreise",
+        "sequence": "Folge",
+        "panelInLabel": "Verteiler in Beschriftung",
+        "panelPartNone": "Keiner",
+        "panelPartNumber": "Nummer",
+        "panelPartFull": "Vollständig",
+        "joined": "Zusammen",
+        "separated": "Getrennt",
+        "numbersSeparated": "Zwei Zahlen werden immer getrennt.",
+        "lettersRunTogether": "Ab 26 Stromkreisen lassen sich Verteiler- und Stromkreisbuchstaben nicht mehr unterscheiden.",
+        "branches": "Abzweige",
+        "changeCount_one": "{{count}} Beschriftung ändert sich",
+        "changeCount_few": "{{count}} Beschriftungen ändern sich",
+        "changeCount_many": "{{count}} Beschriftungen ändern sich",
+        "changeCount_other": "{{count}} Beschriftungen ändern sich",
+        "apply": "Anwenden",
+        "customize": "Anpassen…",
+        "startsAt": "Beginnt bei",
+        "betweenPanelAndCircuit": "Zwischen Verteiler und Stromkreis",
+        "betweenCircuitAndBranch": "Zwischen Stromkreis und Abzweig",
+        "separatorHelp": "Steht zwischen den Teilen einer Beschriftung, wo sie getrennt sind, wie in A1.1.",
+        "subPanelsHelp": "Eigene Nummer setzt die Folge fort; unter dem Hauptverteiler nummeriert einen Unterverteiler nach dem speisenden Verteiler.",
+        "panelInLabelHelp": "Welcher Teil der Verteilernummer jede Stromkreisbeschriftung beginnt: nichts, nur die Nummer oder die vollständige Nummer mit Präfix.",
+        "numberingHelp": "Nummeriert Verteiler in Wohngebäuden und anderen Anlagen.",
+        "prefixHelp": "Buchstaben vor jeder Verteilernummer, etwa B in B1.",
+        "panelSequenceHelp": "Zahlen, Zahlen mit führender Null oder Buchstaben für Verteiler verwenden.",
+        "startHelp": "Die erste Verteilernummer. Buchstabenfolgen beginnen bei A.",
+        "circuitSequenceHelp": "Großbuchstaben, Kleinbuchstaben oder Zahlen für Stromkreise verwenden.",
+        "betweenPanelAndCircuitHelp": "Verteiler- und Stromkreiscode verbinden oder das Trennzeichen dazwischen setzen.",
+        "betweenCircuitAndBranchHelp": "Stromkreiscode und Abzweignummer verbinden oder das Trennzeichen dazwischen setzen."
+      }
     }
   },
   "planImport": {
@@ -1664,6 +1746,7 @@
     "movePoint": "Wandpunkt verschieben",
     "insertDoor": "Tür einsetzen",
     "insertWindow": "Fenster einfügen",
+    "curvedWallOpeningHint": "Türen und Fenster können nicht in gebogene Wände eingesetzt werden.",
     "drawStair": "Treppen zeichnen",
     "placeNote": "Notiz",
     "graphicElements": "Grafische Elemente",
@@ -1811,6 +1894,11 @@
     "library": "Symbolbibliothek",
     "recent": "Neu",
     "favorites": "Favoriten",
+    "jump": {
+      "filterOnly": "Strg/Cmd+Klick: nur diese anzeigen",
+      "filterAdd": "Strg/Cmd+Umschalt+Klick: zum Filter hinzufügen",
+      "clearFilter": "Alle Kategorien anzeigen"
+    },
     "armed": {
       "placing": "Orte: {{name}}",
       "stop": "Stoppen Sie die Veröffentlichung"
@@ -1826,6 +1914,7 @@
     "switch_2p_twoway": "Umschalter (2-polig)",
     "switch_dimmer": "Dimmer",
     "switch_1p_changeover": "Umschalter",
+    "switch_shutter": "Rollladenschalter",
     "switch_1p_pull": "Zugschalter",
     "contact": "Kontakt",
     "switch_impulse": "Impulsschalter",
@@ -1911,6 +2000,7 @@
       "switch_cross": "Kreuzschalter",
       "switch_dimmer": "Dimmer",
       "switch_1p_changeover": "Umschalter",
+      "switch_shutter": "Rollladenschalter",
       "switch_1p_pull": "Zugschalter",
       "switch_impulse": "Impulsschalter",
       "motion_detector": "Bewegungsmelder",
@@ -2025,6 +2115,75 @@
     "endpoint": "Endpunkt"
   },
   "validation": {
+    "incompleteChecks": {
+      "message": "Einige Prüfungen konnten nicht abgeschlossen werden",
+      "details": "Für einige Prüfungen fehlen Angaben oder diese Installation wird nicht unterstützt.",
+      "showChecks": "Unvollständige Prüfungen ({{total}})",
+      "affected": "Betroffen: {{total}}",
+      "missing": "Fehlt: {{information}}",
+      "unavailable": "Nicht verfügbar: {{information}}",
+      "unknown": "Prüfinformationen nicht verfügbar",
+      "checks": {
+        "supplyRcdCircuitCount": "Stromkreise je RCD",
+        "cableHasCrossSection": "Leiterquerschnitt",
+        "breakerSizeMatchesCrossSection": "Leitungsschutz und Querschnitt",
+        "minimumCrossSection": "Mindestquerschnitt",
+        "dcCrossSectionHeuristic": "DC-Leitungsdimensionierung",
+        "protectionPhaseCompatibility": "Pole und Versorgungsphasen",
+        "earthResistanceWithinLimits": "Erdungswiderstand",
+        "nonHouseholdEarthResistanceEntered": "Erdungsdaten",
+        "circuitHasRcdProtection": "Fehlerstromschutz",
+        "nonHouseholdTtIndirectContact": "TT-Schutz bei indirektem Berühren",
+        "rcdHasTooManyCircuits": "Stromkreise je RCD",
+        "circuitHasTooManyEndpoints": "Anschlusspunkte je Stromkreis",
+        "circuitWithinMaximumProtectedLength": "Maximale geschützte Leitungslänge",
+        "circuitShortCircuitProtectionVerifiable": "Kurzschlussschutz",
+        "nonHouseholdBreakingCapacity": "Ausschaltvermögen",
+        "nonHouseholdBoardShortCircuitStated": "Kurzschlussstrom der Verteilung",
+        "householdSocketProtection": "Steckdosenstromkreisschutz"
+      },
+      "facts": {
+        "cable-path-conductor-segments": "Leitungsverlauf / Leiterabschnitte",
+        "cable-installation-method": "Verlegeart der Leitung",
+        "cable-cross-section": "Leiterquerschnitt",
+        "design-current-and-admissible-current-iz-for-the-installation-method": "Betriebsstrom und zulässiger Strom Iz",
+        "upstream-protection-rating": "Bemessungsstrom des vorgeschalteten Schutzes",
+        "validated-ampacity-for-this-cross-section-and-installation-method": "Unterstützte Strombelastbarkeit für Querschnitt und Verlegeart",
+        "design-current": "Betriebsstrom",
+        "dc-cable-cross-section": "DC-Leiterquerschnitt",
+        "validated-dc-ampacity-for-this-cross-section": "Unterstützte DC-Strombelastbarkeit für diesen Querschnitt",
+        "dc-design-power-current": "DC-Auslegungsleistung oder -strom",
+        "dc-operating-voltage": "DC-Betriebsspannung",
+        "dc-cable-installation-method": "Verlegeart der DC-Leitung",
+        "earth-electrode-resistance": "Erdungswiderstand",
+        "upstream-rcd-rcbo-residual-current-sensitivity-ma": "Empfindlichkeit des vorgeschalteten RCD/RCBO (mA)",
+        "rcd-sensitivity-ma": "RCD-Empfindlichkeit (mA)",
+        "rcd-sensitivity": "RCD-Empfindlichkeit",
+        "upstream-main-rcd-and-its-sensitivity": "Vorgeschalteter Haupt-RCD und Empfindlichkeit",
+        "panel-record": "Verteilungsdaten",
+        "circuit-record": "Stromkreisdaten",
+        "nominal-voltage-system": "Nennspannungssystem",
+        "supported-explicit-phase-system": "Unterstütztes Phasensystem",
+        "protection-pole-configuration-or-incoming-phase-assignment": "Schutzgerätepolzahl oder ankommende Phasen",
+        "upstream-protective-device": "Vorgeschaltetes Schutzgerät",
+        "supported-protective-device-curve-model": "Unterstütztes Auslösekennlinienmodell",
+        "protective-device-current-rating": "Bemessungsstrom des Schutzgeräts",
+        "modeled-cable-path": "Leitungsverlauf",
+        "complete-route-length-connected-cable-anchors": "Vollständige Trassenlänge / verbundene Anschlusspunkte",
+        "cable-edge-length": "Leitungsabschnittslänge",
+        "protective-device-trip-curve": "Auslösekennlinie des Schutzgeräts",
+        "conductor-material": "Leiterwerkstoff",
+        "expected-maximum-short-circuit-current-at-the-board": "Erwarteter Kurzschlussstrom der Verteilung",
+        "socket-circuit-overcurrent-protection-rating": "Bemessungsstrom des Steckdosenstromkreisschutzes"
+      },
+      "reasons": {
+        "unknown-primitive": "Prüfung nicht verfügbar",
+        "unknown-skip-condition-primitive": "Voraussetzungsprüfung nicht verfügbar",
+        "no-rule-pack-loaded": "Keine Prüfregeln geladen",
+        "no-rule-pack-for-jurisdiction": "Keine Regeln für diese Rechtsordnung",
+        "prerequisite-could-not-be-evaluated": "Voraussetzung nicht prüfbar"
+      }
+    },
     "title": "AREI Validierung",
     "disabledOutsideBelgium": "Validierung außerhalb Belgiens deaktiviert.",
     "belgianRulesOnly": "Die App prüft derzeit nur die AREI-Regeln für Belgien.",
@@ -2123,8 +2282,8 @@
         "rcd-grouping": {
           "shortTitle": "Zu viele Stromkreise je Fehlerstrom-Schutzschalter",
           "message": "Zu viele Stromkreise an einem 30-mA-Fehlerstrom-Schutzschalter",
-          "details": "Ein 30-mA-Fehlerstrom-Schutzschalter darf höchstens 8 Stromkreise schützen (Stromkreise mit eigenem FI/LS-Schalter zählen nicht mit). So werden unerwünschte Auslösungen und eine Häufung von Fehlerströmen begrenzt.",
-          "remediation": "Verringern Sie die Zahl der an diesen Fehlerstrom-Schutzschalter angeschlossenen Stromkreise oder teilen Sie sie auf mehrere Geräte auf. Stromkreise mit eigenem FI/LS-Schalter zählen nicht mit."
+          "details": "Ein nachgeschalteter Haushalts-FI bis 30 mA darf höchstens 8 Endstromkreise schützen, einschließlich Stromkreisen mit FI/LS und in Unterverteilern. Der FI am Ursprung selbst fällt nicht unter diese Grenze.",
+          "remediation": "Verteilen Sie die Endstromkreise auf mehrere nachgeschaltete FI mit höchstens acht pro FI. Zählen Sie auch Stromkreise mit eigenem FI/LS mit."
         },
         "rcd-selectivity": {
           "shortTitle": "Fehler bei der Selektivität der Fehlerstrom-Schutzschalter",
@@ -2284,6 +2443,48 @@
           "message": "Ein Hinweis auf die Back-up-Funktion mit einem Etikett",
           "details": "Komponenten der Notstromversorgung befinden sich außerhalb der Hauptsammelschiene und werden nicht automatisch benannt.",
           "remediation": "Beschriften Sie jeden Schutz und Verbraucher im Backup-Zweig des Wechselrichters manuell eindeutig."
+        },
+        "earth-resistance": {
+          "shortTitle": "Erdungswiderstand zu hoch",
+          "message": "Der Erdungswiderstand überschreitet die AREI-Grenze",
+          "details": "Hausinstallationen benötigen weniger als 100 Ω und über 30 Ω zwei 30-mA-FI-Schutzschalter mit je höchstens 16 Steckdosen. Nicht-häusliche TT-Installationen erlauben höchstens 250 Ω, oder 500 Ω in trockenen Räumen mit nichtleitenden Böden und Wänden.",
+          "remediation": "Verbessern Sie den Erder oder ergänzen Sie FI-Schutzschalter wie beschrieben."
+        },
+        "nonhousehold-earth-resistance-entered": {
+          "shortTitle": "Erdungswiderstand fehlt",
+          "message": "Der Erdungswiderstand ist nicht eingetragen",
+          "details": "Der Erdungswiderstand wird benötigt, um den Schutz bei indirektem Berühren in einer nicht-häuslichen TT-Installation zu prüfen.",
+          "remediation": "Wählen Sie das Erdungssymbol und tragen Sie den Erdungswiderstand ein."
+        },
+        "nonhousehold-tt-indirect-contact": {
+          "shortTitle": "TT-Stromkreis ungeschützt",
+          "message": "Stromkreis ohne Schutz bei indirektem Berühren",
+          "details": "Im TT-Netz erfordert die automatische Abschaltung einen FI-Schutzschalter, dessen Empfindlichkeit IΔn × RE ≤ UL erfüllt (50 V bei trockenen Bedingungen).",
+          "remediation": "Ergänzen Sie einen FI-Schutzschalter oder FI/LS-Schalter mit geeigneter Empfindlichkeit, oder verwenden Sie Betriebsmittel der Schutzklasse II, SELV oder Schutztrennung."
+        },
+        "nonhousehold-board-short-circuit-current": {
+          "shortTitle": "Kurzschlussstrom fehlt",
+          "message": "Verteiler ohne erwarteten Kurzschlussstrom",
+          "details": "Nicht-häusliche Schaltpläne und Verteilerkennzeichnungen geben den erwarteten maximalen Kurzschlussstrom an, wenn er 3000 A übersteigt.",
+          "remediation": "Öffnen Sie die Verteilereigenschaften und tragen Sie den erwarteten maximalen Kurzschlussstrom ein."
+        },
+        "nonhousehold-breaking-capacity": {
+          "shortTitle": "Schaltvermögen zu niedrig",
+          "message": "Schaltvermögen unter dem erwarteten Kurzschlussstrom",
+          "details": "Jede Überstromschutzeinrichtung benötigt ein Schaltvermögen von mindestens dem erwarteten Kurzschlussstrom an ihrem Einbauort.",
+          "remediation": "Wählen Sie Geräte mit höherem Schaltvermögen oder bestätigen Sie die Kaskadierung mit den Herstellertabellen."
+        },
+        "nonhousehold-breaking-capacity-shown": {
+          "shortTitle": "Schaltvermögen fehlt",
+          "message": "Schaltvermögen nicht eingetragen",
+          "details": "Nicht-häusliche Stromlaufpläne geben das Schaltvermögen jeder Schutzeinrichtung an.",
+          "remediation": "Wählen Sie jedes genannte Gerät und legen Sie sein Schaltvermögen fest."
+        },
+        "nonhousehold-supply-transformer": {
+          "shortTitle": "Transformatordaten fehlen",
+          "message": "Daten des Einspeisetransformators unvollständig",
+          "details": "Nicht-häusliche Schaltpläne geben die Kenndaten der Quellen an, darunter Scheinleistung und Kurzschlussspannung eines Einspeisetransformators.",
+          "remediation": "Wählen Sie den Einspeisetransformator und tragen Sie Bemessungsleistung und Kurzschlussspannung ein."
         }
       }
     },
@@ -2310,6 +2511,48 @@
       "branchMultiplierEndpointsSplit": "Stromkreis {{circuitCode}}: Abzweig „{{branchLabel}}“ hat {{absorbCount}} zusätzliche Multiplikationssymbole als separate Endpunkte; sie sollten einen Endpunkt mit mehreren Platzierungen bilden. Verwenden Sie die Reparaturfunktion in der Prüfung verwaister Elemente."
     },
     "primitives": {
+      "feedbackSafety": {
+        "rcdOverload": {
+          "message": "Bemessungsstrom des FI-Schalters zu niedrig",
+          "details": "Durch die angeschlossenen Stromquellen kann der markierte FI-Schalter einen höheren Strom als seinen Bemessungsstrom führen. Prüfen Sie seinen Bemessungsstrom und den Überstromschutz auf diesem Strompfad. Ein reiner FI-Schalter schützt nicht vor Überlast."
+        },
+        "rcdType": {
+          "message": "Haushalts-FI muss Typ A, F oder B sein",
+          "details": "Ersetzen Sie das Gerät vom Typ AC durch einen geeigneten FI vom Typ A, F oder B."
+        },
+        "breakingCapacity": {
+          "message": "Ausschaltvermögen fehlt",
+          "details": "Tragen Sie das bestätigte Ausschaltvermögen aller Überstromschutzgeräte einschließlich der Einspeisung ein. Ein unbekannter Wert kann nicht geprüft werden."
+        },
+        "earthingSeparator": {
+          "message": "Erdungstrennstelle fehlt",
+          "details": "Ergänzen Sie an jedem Erderanschluss eine Erdungstrennstelle, damit der Erdungswiderstand gemessen werden kann."
+        },
+        "socketSafety": {
+          "message": "Steckdose ohne Schutzkontakt oder Kinderschutz",
+          "details": "Normale Haushaltssteckdosen benötigen Schutzkontakt und Kinderschutz. Prüfen Sie gegebenenfalls dokumentierte Ausnahmen für bestehende Anlagen."
+        },
+        "socketProtection": {
+          "message": "Absicherung der normalen Steckdose ist zu hoch",
+          "details": "Verwenden Sie für normale Haushaltssteckdosen einen Leitungsschutzschalter bis 20 A oder eine Schmelzsicherung bis 16 A. Ein größerer Kabelquerschnitt allein erlaubt keine höhere Absicherung."
+        },
+        "placement": {
+          "message": "Verlegeart der Leitung fehlt",
+          "details": "Tragen Sie den Leitungsverlauf oder die Verlegeart ein, um den Plan zu vervollständigen und den Querschnitt zu prüfen."
+        },
+        "fireClass": {
+          "message": "Brandklasse des Kabels fehlt",
+          "details": "Tragen Sie die bestätigte Brandklasse des Kabels ein. Die Eignung hängt von Gebäude und Verlegung ab; eine unbekannte Klasse bedeutet fehlende Angaben."
+        },
+        "evCoordination": {
+          "message": "DC-Koordination des vorgeschalteten FI für Ladepunkte prüfen",
+          "details": "Mehrere Ladepunkte mit 6-mA-DC-Erkennung oder ein nachgeschalteter FI Typ B können einen vorgeschalteten FI Typ A übermäßigem Gleichstrom aussetzen. Verwenden Sie vorgeschaltet Typ B oder prüfen Sie die vom Hersteller zugelassene Kombination und Anzahl der Ladepunkte."
+        },
+        "rcdCircuitCount": {
+          "message": "Einspeise-FI schützt mehr als acht Endstromkreise",
+          "details": "Ein nachgeschalteter Haushalts-FI bis 30 mA darf höchstens 8 Endstromkreise schützen, einschließlich Stromkreisen mit FI/LS und in Unterverteilern. Der FI am Ursprung selbst fällt nicht unter diese Grenze."
+        }
+      },
       "supplyModePaths": {
         "message": "Kein gültiger Netz-/Sicherungspfad für {{phases}}",
         "details": "Die gezeichnete Topologie enthält kein vollständiges und koordiniertes Netz und keinen Backup-Pfad für {{phases}}.",
@@ -2325,6 +2568,10 @@
         "details": "Doppelte Schutzgerätebezeichnungen im selben Verteiler (Hauptsammelschiene, Unterverteilungsschiene oder Einspeisung) erschweren die Zuordnung der Stromkreise. Ändern Sie eine Bezeichnung oder aktivieren Sie die automatische Benennung."
       },
       "controlLinkIntegrity": {
+        "duplicateBusDeviceAddress": {
+          "message": "Die Geräteadresse {{address}} wird auf diesem Bus bereits verwendet",
+          "details": "Weisen Sie jedem Gerät auf diesem Bus eine eindeutige Adresse zu."
+        },
         "dangling": {
           "message": "{{endpoint}} wird von einem nicht mehr vorhandenen Gerät gesteuert",
           "details": "Wählen Sie unter Gesteuert von ein anderes Gerät oder löschen Sie die Verknüpfung."
@@ -2501,7 +2748,7 @@
       },
       "rcdHasTooManyCircuits": {
         "message": "An den Fehlerstrom-Schutzschalter sind zu viele Stromkreise angeschlossen ({{circuitCount}} > {{threshold}})",
-        "details": "Die Zahl der an einen 30-mA-Fehlerstrom-Schutzschalter angeschlossenen Stromkreise darf {{threshold}} nicht überschreiten, damit unerwünschte Auslösungen begrenzt werden. Stromkreise mit eigenem FI/LS-Schalter zählen nicht mit."
+        "details": "Ein nachgeschalteter Haushalts-FI bis 30 mA darf höchstens {{threshold}} Endstromkreise schützen, einschließlich Stromkreisen mit FI/LS und in Unterverteilern. Der FI am Ursprung selbst fällt nicht unter diese Grenze."
       },
       "rcdSelectivity": {
         "message": "Selektivität der Fehlerstrom-Schutzschalter: Der vorgeschaltete Schutz muss weniger empfindlich sein als der nachgeschaltete (z. B. 300 mA Hauptschutz, 30 mA nachgeschalteter Schutz).",
@@ -2589,6 +2836,58 @@
       "fixedApplianceDedicatedCircuitHint": {
         "message": "Feste Geräte {{applianceLabels}} auf Stromkreis {{circuitCode}} teilen den Stromkreis mit anderen Verbrauchern",
         "details": "Geräte werden häufig auf einem eigenen Stromkreis platziert, sodass Kabelquerschnitt und Schutz auf das Gerät und zukünftige Ersetzungen abgestimmt sind. Erwägen Sie die Platzierung dieser Geräte auf Ihrem eigenen Stromkreis ohne zusätzliche Steckdosen, Beleuchtung oder andere Verbraucher."
+      },
+      "earthResistanceWithinLimits": {
+        "nonHouseholdDryOnly": {
+          "message": "Ein Erdungswiderstand von {{ohm}} Ω ist nur in trockenen, nichtleitenden Räumen zulässig"
+        },
+        "nonHouseholdTooHigh": {
+          "message": "Der Erdungswiderstand von {{ohm}} Ω liegt über 500 Ω"
+        },
+        "nonHousehold": {
+          "details": "Mit Fehlerstromschutz darf der Erdungswiderstand in einer nicht-häuslichen Installation in trockenen Räumen mit nichtleitenden Böden und Wänden (AD1, BB1, BC1) 500 Ω und in anderen Räumen 250 Ω nicht überschreiten."
+        },
+        "householdTooHigh": {
+          "message": "Der Erdungswiderstand von {{ohm}} Ω liegt nicht unter 100 Ω",
+          "details": "Der Erder einer Hausinstallation muss einen Widerstand unter 100 Ω haben."
+        },
+        "householdSplitRcd": {
+          "message": "Ein Erdungswiderstand von {{ohm}} Ω erfordert mindestens zwei 30-mA-FI-Schutzschalter",
+          "details": "Über 30 Ω benötigt eine Hausinstallation mindestens zwei hochempfindliche FI-Schutzschalter (30 mA) mit je höchstens 16 Steckdosen oder gleichgestellten fest angeschlossenen Geräten."
+        },
+        "householdOutlets": {
+          "message": "Mehr als 16 Steckdosen hinter: {{labels}}"
+        }
+      },
+      "nonHouseholdEarthResistanceEntered": {
+        "message": "Der Erdungswiderstand ist nicht eingetragen",
+        "details": "In einer nicht-häuslichen TT-Installation bestimmt der Erdungswiderstand, welche FI-Empfindlichkeit bei indirektem Berühren schützt (IΔn × RE ≤ UL)."
+      },
+      "nonHouseholdTtIndirectContact": {
+        "missing": {
+          "message": "Stromkreis {{circuitCode}} hat im TT-Netz keinen Fehlerstromschutz",
+          "details": "Im TT-Netz schalten Überstromschutzeinrichtungen allein einen Erdschluss nicht rechtzeitig ab. Schützen Sie den Stromkreis mit einem FI-Schutzschalter oder FI/LS-Schalter, oder verwenden Sie Betriebsmittel der Schutzklasse II, SELV oder Schutztrennung."
+        },
+        "insensitive": {
+          "message": "Stromkreis {{circuitCode}}: FI-Schutzschalter mit {{sensitivityMa}} mA ist für den Erdungswiderstand nicht empfindlich genug",
+          "details": "IΔn × RE darf 50 V nicht überschreiten. Verwenden Sie bei {{ohm}} Ω einen FI-Schutzschalter mit höchstens {{maxSensitivityMa}} mA. Bei nassen Bedingungen (BB2) gilt 25 V."
+        }
+      },
+      "nonHouseholdBoardShortCircuitStated": {
+        "message": "Verteiler {{panelName}} hat keinen erwarteten Kurzschlussstrom",
+        "details": "Nicht-häusliche Schaltpläne und Verteilerkennzeichnungen geben den erwarteten maximalen Kurzschlussstrom an, wenn er 3000 A übersteigt. Er wird auch zur Prüfung der Schaltvermögen benötigt."
+      },
+      "nonHouseholdBreakingCapacity": {
+        "message": "Schaltvermögen unter {{ka}} kA: {{labels}}",
+        "details": "Der erwartete Kurzschlussstrom an diesem Verteiler beträgt {{ka}} kA. Jede Überstromschutzeinrichtung benötigt mindestens dieses Schaltvermögen, sofern kein vorgeschaltetes Gerät sie laut Herstellertabellen durch Kaskadierung abdeckt."
+      },
+      "nonHouseholdBreakingCapacityShown": {
+        "message": "Schaltvermögen nicht eingetragen: {{labels}}",
+        "details": "Nicht-häusliche Stromlaufpläne geben das Schaltvermögen jeder Schutzeinrichtung an."
+      },
+      "nonHouseholdSupplyTransformerDocumented": {
+        "message": "Leistung oder Kurzschlussspannung des Einspeisetransformators fehlt",
+        "details": "Nicht-häusliche Schaltpläne geben die Kenndaten der Quellen an, darunter Scheinleistung und Impedanz eines Einspeisetransformators."
       }
     },
     "citations": {
@@ -2711,7 +3010,13 @@
     "export": "Export",
     "errorTitle": "Etikettenexport fehlgeschlagen",
     "errorMessage": "Der Etikettenexport konnte nicht erstellt werden. Bitte versuchen Sie es erneut.",
-    "generatedDescription": "{{type}} für {{items}}"
+    "generatedDescription": "{{type}} für {{items}}",
+    "mainRoleSwitch": "Hauptschalter",
+    "mainRoleRcd": "Haupt-FI",
+    "mainRoleProtection": "Hauptsicherung",
+    "boardLabels": "Verteilerschilder",
+    "boardLabel": "Verteilerschild",
+    "boardFedFromCircuit": "Einspeisung von {{source}}, Stromkreis {{circuit}}"
   },
   "panelRelationOverview": "Übersicht über Panel-Beziehungen",
   "properties": {
@@ -2844,7 +3149,7 @@
     "categoryDomotica": "Hausautomation / Smart Home",
     "categoryStove": "Ofenverteiler",
     "categoryPanels": "Schilder",
-    "categoryWires": "Drähte",
+    "categoryWires": "Kabel",
     "wireLengthTotal": "{{length}} insgesamt",
     "wireLengthEstimate": "Grobe Schätzung basierend auf dem Grundriss: {{length}}",
     "wireLengthEstimateShort": "Schätzung {{length}}",
@@ -2874,6 +3179,7 @@
     "csvDetails": "Details"
   },
   "wires": {
+    "wireTypeLabel": "Leitungstyp",
     "cableDefault": "Standard",
     "makeCableDefault": "Machen Sie den Standard",
     "useCableDefault": "Standard verwenden",
@@ -3557,6 +3863,31 @@
     },
     "bridgeThroughRail": "Erde ist bereits über die Schiene verbunden",
     "shapeOf": "Form"
+  },
+  "materialListExport": {
+    "cableMargin": "Kabelreserve (%)",
+    "invalidCableMargin": "Geben Sie einen gültigen Prozentsatz ab 0 ein.",
+    "skipSupplyPanel": "Material im Netboard überspringen",
+    "title": "Materialliste exportieren",
+    "menu": "Aufmaß / Materialliste",
+    "export": "Exportieren",
+    "searchAliases": "Excel CSV Robaws Aufmaß Mengen Material",
+    "preset": "Vorlage",
+    "standard": "Standard",
+    "format": "Dateiformat",
+    "categories": "Kategorien",
+    "description": "Beschreibung",
+    "quantity": "Menge",
+    "unit": "Einheit",
+    "piece": "Stück",
+    "estimated": "Geschätzte Länge",
+    "partialLength": "Teillänge",
+    "includePlanEstimates": "Im Plan geschätzte Kabellängen einschließen",
+    "roundCableLengths": "Kabellängen auf volle Meter aufrunden",
+    "missingLengths": "Kabelstrecken ohne Länge werden ausgelassen. Unvollständige Summen werden als Teillängen gekennzeichnet.",
+    "robawsImport": "Wählen Sie in einem Robaws-Angebot den Import und ordnen Sie Omschrijving, Aantal und Eenheid zu. Ergänzen Sie die Preise in Robaws.",
+    "empty": "Kein Material ausgewählt.",
+    "error": "Die Exportdatei konnte nicht erstellt werden. Versuchen Sie es erneut."
   },
   "oneWireReference": {
     "title": "Gescannte Seite",

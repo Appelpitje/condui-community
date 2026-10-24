@@ -12,7 +12,10 @@ import {
   type LabelStripExportOptions,
   type LabelStripModuleProvider,
   type LabelStripSegment,
+  selectedBoardLabels,
 } from './labelStripExport'
+import type { BoardLabel } from './boardLabels'
+import { rasterizeInvertedBand } from './monochromeBmp'
 
 const PT_PER_MM = 72 / 25.4
 const PAPER_FORMAT = '260'
@@ -30,6 +33,8 @@ const CUT_SPACER_MM = 5
 const PACK_HEADER_WIDTH_MM = 36
 const PT_MAX_PACKED_LENGTH_MM = 950
 const QL_MAX_PACKED_LENGTH_MM = 900
+const BAND_IMAGE_DPI = 360
+const MIN_BAND_HEIGHT_PT = 7
 
 const PT_NS = 'http://schemas.brother.info/ptouch/2007/lbx/main'
 const STYLE_NS = 'http://schemas.brother.info/ptouch/2007/lbx/style'
@@ -117,6 +122,7 @@ interface TextObjectOptions {
   fontSizePt?: number
   weight?: number
   clipFrame?: boolean
+  align?: 'LEFT' | 'CENTER'
 }
 
 function textObject(
@@ -131,8 +137,46 @@ function textObject(
   const fontSizePt = options.fontSizePt ?? 8
   const weight = options.weight ?? 400
   const clipFrame = options.clipFrame ?? false
+  const align = options.align ?? 'CENTER'
   const charLength = Array.from(value).length
-  return `<text:text>${objectStyle(x, y, width, height, `Text${index}`)}<text:ptFontInfo><text:logFont name="Helsinki" width="0" italic="false" weight="${weight}" charSet="0" pitchAndFamily="2"></text:logFont><text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="${fontSizePt}pt" orgSize="${(fontSizePt * 3.6).toFixed(1)}pt" textColor="#000000" textPrintColorNumber="1"></text:fontExt></text:ptFontInfo><text:textControl control="FIXEDFRAME" clipFrame="${clipFrame}" aspectNormal="true" shrink="true" autoLF="false" avoidImage="false"></text:textControl><text:textAlign horizontalAlignment="CENTER" verticalAlignment="CENTER" inLineAlignment="BASELINE"></text:textAlign><text:textStyle vertical="false" nullBlock="false" charSpace="0" lineSpace="0" orgPoint="${fontSizePt}pt" combinedChars="false"></text:textStyle><pt:data>${escapeXml(value)}</pt:data><text:stringItem charLen="${charLength}"><text:ptFontInfo><text:logFont name="Helsinki" width="0" italic="false" weight="${weight}" charSet="0" pitchAndFamily="2"></text:logFont><text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="${fontSizePt}pt" orgSize="${(fontSizePt * 3.6).toFixed(1)}pt" textColor="#000000" textPrintColorNumber="1"></text:fontExt></text:ptFontInfo></text:stringItem></text:text>`
+  return `<text:text>${objectStyle(x, y, width, height, `Text${index}`)}<text:ptFontInfo><text:logFont name="Helsinki" width="0" italic="false" weight="${weight}" charSet="0" pitchAndFamily="2"></text:logFont><text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="${fontSizePt}pt" orgSize="${(fontSizePt * 3.6).toFixed(1)}pt" textColor="#000000" textPrintColorNumber="1"></text:fontExt></text:ptFontInfo><text:textControl control="FIXEDFRAME" clipFrame="${clipFrame}" aspectNormal="true" shrink="true" autoLF="false" avoidImage="false"></text:textControl><text:textAlign horizontalAlignment="${align}" verticalAlignment="CENTER" inLineAlignment="BASELINE"></text:textAlign><text:textStyle vertical="false" nullBlock="false" charSpace="0" lineSpace="0" orgPoint="${fontSizePt}pt" combinedChars="false"></text:textStyle><pt:data>${escapeXml(value)}</pt:data><text:stringItem charLen="${charLength}"><text:ptFontInfo><text:logFont name="Helsinki" width="0" italic="false" weight="${weight}" charSet="0" pitchAndFamily="2"></text:logFont><text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="${fontSizePt}pt" orgSize="${(fontSizePt * 3.6).toFixed(1)}pt" textColor="#000000" textPrintColorNumber="1"></text:fontExt></text:ptFontInfo></text:stringItem></text:text>`
+}
+
+/** Collects the bitmaps an LBX archive embeds next to label.xml. */
+class LbxImageSink {
+  readonly files = new Map<string, Uint8Array>()
+  private readonly names = new Map<string, string | null>()
+
+  invertedBand(text: string, widthPt: number, heightPt: number): string | null {
+    const widthPx = Math.round((widthPt / 72) * BAND_IMAGE_DPI)
+    const heightPx = Math.round((heightPt / 72) * BAND_IMAGE_DPI)
+    const key = `${text}|${widthPx}|${heightPx}`
+    if (this.names.has(key)) return this.names.get(key)!
+    const bytes = rasterizeInvertedBand(text, widthPx, heightPx)
+    const name = bytes ? `Object${this.files.size}.bmp` : null
+    if (name && bytes) this.files.set(name, bytes)
+    this.names.set(key, name)
+    return name
+  }
+
+  addTo(archive: JSZip): void {
+    for (const [name, bytes] of this.files) archive.file(name, bytes)
+  }
+}
+
+function imageObject(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fileName: string,
+  index: number
+): string {
+  return `<image:image>${objectStyle(x, y, width, height, `Image${index}`)}<image:imageStyle originalName="" alignInText="LEFT" firstMerge="true" fileName="${escapeXml(fileName)}"><image:transparent flag="false" color="#FFFFFF"></image:transparent><image:trimming flag="false" shape="RECTANGLE" trimOrgX="0pt" trimOrgY="0pt" trimOrgWidth="${pt(width)}" trimOrgHeight="${pt(height)}"></image:trimming><image:orgPos x="${pt(x)}" y="${pt(y)}" width="${pt(width)}" height="${pt(height)}"></image:orgPos><image:effect effect="NONE" brightness="50" contrast="50" photoIndex="4"></image:effect><image:mono operationKind="BINARY" reverse="0" ditherKind="STANDARD" threshold="128" gamma="0" ditherEdge="0" rgbconvProportionRed="0" rgbconvProportionGreen="0" rgbconvProportionBlue="0" rgbconvProportionReversed="0"></image:mono></image:imageStyle></image:image>`
+}
+
+function mainBandHeightPt(height: number): number {
+  return Math.max(MIN_BAND_HEIGHT_PT, height * 0.24)
 }
 
 function scissorSymbol(x: number, y: number, width: number, height: number, index: number): string {
@@ -254,7 +298,12 @@ function brotherContent(segment: LabelStripSegment): {
   const primary = parts?.find((part) => part.source === 'label')?.text ?? ''
   const secondary = (parts ?? [])
     .filter((part) => part.source !== 'label')
-    .map((part) => part.text)
+    // Tape cells hold three lines; longer downstream lists fall back to ranges.
+    .map((part) =>
+      part.compactText && (primary || part.text.split('\n').length > 3)
+        ? part.compactText
+        : part.text
+    )
     .filter(Boolean)
     .join('\n')
   if (primary || secondary) return { primary, secondary, technical: false }
@@ -274,8 +323,30 @@ function brotherTextObjects(
   width: number,
   height: number,
   index: number,
-  tapeWidthMm: BrotherTapeWidthMm
+  tapeWidthMm: BrotherTapeWidthMm,
+  images: LbxImageSink
 ): string {
+  if (segment.mainRole) {
+    const bandHeight = mainBandHeightPt(height)
+    const fileName = images.invertedBand(segment.mainRole, width, bandHeight)
+    const band = fileName
+      ? imageObject(x, y, width, bandHeight, fileName, index)
+      : textObject(x, y, width, bandHeight, segment.mainRole, index + 2000, {
+          fontSizePt: 6,
+          weight: 700,
+          clipFrame: true,
+        })
+    return `${band}${brotherTextObjects(
+      { ...segment, mainRole: undefined },
+      x,
+      y + bandHeight,
+      width,
+      height - bandHeight,
+      index,
+      tapeWidthMm,
+      images
+    )}`
+  }
   const content = brotherContent(segment)
   if (content.primary) {
     const hasSecondary = Boolean(content.secondary)
@@ -344,7 +415,7 @@ function stripWidthMm(strip: LabelStrip): number {
   return strip.segments.reduce((total, segment) => total + Math.max(1, segment.widthMm), 0)
 }
 
-function stripForSide(strip: LabelStrip, side: 'top' | 'bottom'): LabelStrip {
+function stripForSide(strip: LabelStrip, side: 'top' | 'bottom', double: boolean): LabelStrip {
   return {
     ...strip,
     segments: strip.segments.map((segment) => ({
@@ -353,6 +424,8 @@ function stripForSide(strip: LabelStrip, side: 'top' | 'bottom'): LabelStrip {
       description: side === 'bottom' ? segment.description : '',
       topParts: side === 'top' ? segment.topParts : undefined,
       bottomParts: side === 'bottom' ? segment.bottomParts : undefined,
+      mainRole:
+        !double || (segment.mainSide ?? 'bottom') === side ? segment.mainRole : undefined,
     })),
   }
 }
@@ -363,8 +436,8 @@ function physicalStripUnits(
 ): LabelStrip[][] {
   return strips.map((strip) =>
     options.stripMode === 'double'
-      ? [stripForSide(strip, 'top'), stripForSide(strip, 'bottom')]
-      : [stripForSide(strip, 'bottom')]
+      ? [stripForSide(strip, 'top', true), stripForSide(strip, 'bottom', true)]
+      : [stripForSide(strip, 'bottom', false)]
   )
 }
 
@@ -460,13 +533,11 @@ function sheetXml(
   sheetIndex: number,
   printerName: string,
   printerId: string,
-  tapeWidthMm: BrotherTapeWidthMm
+  tapeWidthMm: BrotherTapeWidthMm,
+  images: LbxImageSink
 ) {
-  const tapeWidthPt = tapeWidthMm * PT_PER_MM + 0.1764
   const contentLengthMm = Math.max(1, strip.segments.reduce((total, segment) => total + Math.max(1, segment.widthMm), 0))
-  const backgroundWidthPt = contentLengthMm * PT_PER_MM
-  const paperLengthPt = backgroundWidthPt + PROFILE_FEED_PT
-  const backgroundHeightPt = tapeWidthPt - 4.4
+  const backgroundHeightPt = backgroundHeightForTape(tapeWidthMm)
   const objects: string[] = []
   let cursor = 0
 
@@ -494,7 +565,8 @@ function sheetXml(
         Math.max(1, width - inset * 2),
         backgroundHeightPt,
         index + 1,
-        tapeWidthMm
+        tapeWidthMm,
+        images
       ))
     }
     if (segment.blank && !segment.cutSpacer) {
@@ -513,20 +585,105 @@ function sheetXml(
     if (index < strip.segments.length - 1) objects.push(dashedSeparator(BACKGROUND_X_PT + cursor, BACKGROUND_Y_PT, backgroundHeightPt, index + 1))
   })
 
+  return sheetEnvelope(sheetIndex, printerName, printerId, tapeWidthMm, contentLengthMm, objects)
+}
+
+function backgroundHeightForTape(tapeWidthMm: BrotherTapeWidthMm): number {
+  return tapeWidthMm * PT_PER_MM + 0.1764 - 4.4
+}
+
+function sheetEnvelope(
+  sheetIndex: number,
+  printerName: string,
+  printerId: string,
+  tapeWidthMm: BrotherTapeWidthMm,
+  contentLengthMm: number,
+  objects: string[]
+): string {
+  const tapeWidthPt = tapeWidthMm * PT_PER_MM + 0.1764
+  const backgroundWidthPt = contentLengthMm * PT_PER_MM
+  const paperLengthPt = backgroundWidthPt + PROFILE_FEED_PT
+  const backgroundHeightPt = backgroundHeightForTape(tapeWidthMm)
   const sheetName = `Sheet ${sheetIndex + 1}`
   return `<style:sheet name="${sheetName}"><style:paper media="0" width="${pt(tapeWidthPt)}" height="${pt(paperLengthPt)}" marginLeft="${pt(PAPER_MARGIN_X_PT)}" marginTop="${pt(PAPER_MARGIN_Y_PT)}" marginRight="${pt(PAPER_MARGIN_X_PT)}" marginBottom="${pt(PAPER_MARGIN_Y_PT)}" orientation="landscape" autoLength="false" monochromeDisplay="true" printColorDisplay="false" printColorsID="0" paperColor="#FFFFFF" paperInk="#000000" split="1" format="${PAPER_FORMAT}" backgroundTheme="0" printerID="${printerId}" printerName="${printerName}"/><style:cutLine regularCut="0pt" freeCut=""/><style:backGround x="${pt(BACKGROUND_X_PT)}" y="${pt(BACKGROUND_Y_PT)}" width="${pt(backgroundWidthPt)}" height="${pt(backgroundHeightPt)}" brushStyle="NULL" brushId="0" userPattern="NONE" userPatternId="0" color="#000000" printColorNumber="1" backColor="#FFFFFF" backPrintColorNumber="0"/><pt:objects>${objects.join('')}</pt:objects></style:sheet>`
 }
 
-function labelXml(strips: LabelStrip[], profile: (typeof BROTHER_PROFILES)[keyof typeof BROTHER_PROFILES], tapeWidthMm: BrotherTapeWidthMm): string {
-  const sheets = strips.map((strip, index) => sheetXml(strip, index, profile.printerName, profile.printerId, tapeWidthMm))
+const BOARD_LABEL_LENGTH_MM = 90
+const BOARD_HERO_WIDTH_MM = 26
+
+/** A cabinet identification label: board number, then name, feed and supply lines. */
+function boardSheetXml(
+  board: BoardLabel,
+  sheetIndex: number,
+  printerName: string,
+  printerId: string,
+  tapeWidthMm: BrotherTapeWidthMm
+): string {
+  const height = backgroundHeightForTape(tapeWidthMm)
+  const progress = (tapeWidthMm - 12) / 24
+  const objects: string[] = []
+  const heroWidth = board.code ? BOARD_HERO_WIDTH_MM * PT_PER_MM : 0
+  const index = 1
+  if (board.code) {
+    objects.push(
+      textObject(BACKGROUND_X_PT + 4, BACKGROUND_Y_PT, heroWidth - 8, height, board.code, index, {
+        fontSizePt: 18 + progress * 18,
+        weight: 700,
+        clipFrame: true,
+      }),
+      polyLine(BACKGROUND_X_PT + heroWidth, BACKGROUND_Y_PT + height * 0.15, height * 0.7, 'Divider')
+    )
+  }
+  const columnX = BACKGROUND_X_PT + heroWidth + 6
+  const columnWidth = BOARD_LABEL_LENGTH_MM * PT_PER_MM - heroWidth - 12
+  const titleHeight = height * (board.lines.length > 0 ? 0.42 : 1)
+  objects.push(
+    textObject(columnX, BACKGROUND_Y_PT, columnWidth, titleHeight, board.name, index + 1, {
+      fontSizePt: (board.code ? 10 : 13) + progress * 8,
+      weight: 700,
+      clipFrame: true,
+      align: 'LEFT',
+    })
+  )
+  if (board.lines.length > 0) {
+    objects.push(
+      textObject(
+        columnX,
+        BACKGROUND_Y_PT + titleHeight,
+        columnWidth,
+        height - titleHeight,
+        board.lines.join('\n'),
+        index + 2,
+        { fontSizePt: 6.5 + progress * 3, clipFrame: true, align: 'LEFT' }
+      )
+    )
+  }
+  return sheetEnvelope(sheetIndex, printerName, printerId, tapeWidthMm, BOARD_LABEL_LENGTH_MM, objects)
+}
+
+function labelXml(
+  strips: LabelStrip[],
+  profile: (typeof BROTHER_PROFILES)[keyof typeof BROTHER_PROFILES],
+  tapeWidthMm: BrotherTapeWidthMm,
+  images: LbxImageSink,
+  boards: BoardLabel[] = []
+): string {
+  const sheets = [
+    ...strips.map((strip, index) =>
+      sheetXml(strip, index, profile.printerName, profile.printerId, tapeWidthMm, images)
+    ),
+    ...boards.map((board, index) =>
+      boardSheetXml(board, strips.length + index, profile.printerName, profile.printerId, tapeWidthMm)
+    ),
+  ]
   return `<?xml version="1.0" encoding="UTF-8"?><pt:document xmlns:pt="${PT_NS}" xmlns:style="${STYLE_NS}" xmlns:text="${TEXT_NS}" xmlns:draw="${DRAW_NS}" xmlns:image="http://schemas.brother.info/ptouch/2007/lbx/image" xmlns:barcode="http://schemas.brother.info/ptouch/2007/lbx/barcode" xmlns:database="http://schemas.brother.info/ptouch/2007/lbx/database" xmlns:table="http://schemas.brother.info/ptouch/2007/lbx/table" xmlns:cable="http://schemas.brother.info/ptouch/2007/lbx/cable" version="1.7" generator="Condui browser exporter"><pt:body currentSheet="Sheet 1" direction="LTR">${sheets.join('')}</pt:body></pt:document>`
 }
 
-function propertiesXml(strips: LabelStrip[]): string {
+function propertiesXml(strips: LabelStrip[], boards: BoardLabel[] = []): string {
   const textValues = strips.flatMap((strip) => strip.segments.filter((segment) => !segment.cutSpacer).map(segmentText))
   const text = textValues.join('')
   const wordCount = textValues.reduce((total, value) => total + value.split(/\s+/).filter(Boolean).length, 0)
-  return `<?xml version="1.0" encoding="UTF-8"?><meta:properties xmlns:meta="http://schemas.brother.info/ptouch/2007/lbx/meta" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"><meta:appName>com.brother.PtouchEditor</meta:appName><dc:title>Condui cabinet labels</dc:title><dc:subject>DIN cabinet labels</dc:subject><dc:creator>Condui</dc:creator><meta:keyword>cabinet labels</meta:keyword><dc:description>Brother continuous label export</dc:description><meta:template></meta:template><meta:numPages>${strips.length}</meta:numPages><meta:numWords>${wordCount}</meta:numWords><meta:numChars>${Array.from(text).length}</meta:numChars><meta:security>0</meta:security><meta:transferScript></meta:transferScript></meta:properties>`
+  return `<?xml version="1.0" encoding="UTF-8"?><meta:properties xmlns:meta="http://schemas.brother.info/ptouch/2007/lbx/meta" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"><meta:appName>com.brother.PtouchEditor</meta:appName><dc:title>Condui cabinet labels</dc:title><dc:subject>DIN cabinet labels</dc:subject><dc:creator>Condui</dc:creator><meta:keyword>cabinet labels</meta:keyword><dc:description>Brother continuous label export</dc:description><meta:template></meta:template><meta:numPages>${strips.length + boards.length}</meta:numPages><meta:numWords>${wordCount}</meta:numWords><meta:numChars>${Array.from(text).length}</meta:numChars><meta:security>0</meta:security><meta:transferScript></meta:transferScript></meta:properties>`
 }
 
 function previewScissors(x: number, y: number, size: number): string {
@@ -563,6 +720,11 @@ function previewPrimaryFontSize(tapeWidthMm: number, combined: boolean): number 
 }
 
 function previewSegmentText(segment: LabelStripSegment, x: number, y: number, width: number, height: number): string {
+  if (segment.mainRole) {
+    const bandHeight = mainBandHeightPt(height * PT_PER_MM) / PT_PER_MM
+    const fontSize = Math.min(bandHeight * 0.62, (width * 0.92) / (segment.mainRole.length * 0.74))
+    return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${width.toFixed(2)}" height="${bandHeight.toFixed(2)}" fill="#111827"/><text x="${(x + width / 2).toFixed(2)}" y="${(y + bandHeight / 2 + fontSize * 0.36).toFixed(2)}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${fontSize.toFixed(2)}" font-weight="700" fill="#ffffff">${escapeXml(segment.mainRole)}</text>${previewSegmentText({ ...segment, mainRole: undefined }, x, y + bandHeight, width, height - bandHeight)}`
+  }
   const content = brotherContent(segment)
   if (!content.primary) {
     return previewText(content.secondary, x, y, width, height, {
@@ -618,15 +780,64 @@ function previewStrip(strip: LabelStrip, y: number, tapeWidthMm: number): { mark
   return { markup, width: totalWidth }
 }
 
+function previewBoard(board: BoardLabel, y: number, tapeWidthMm: number): { markup: string; width: number } {
+  const heroWidth = board.code ? BOARD_HERO_WIDTH_MM : 0
+  const titleHeight = tapeWidthMm * (board.lines.length > 0 ? 0.42 : 1)
+  const columnX = heroWidth + 2
+  const columnWidth = BOARD_LABEL_LENGTH_MM - heroWidth - 4
+  let markup = `<rect x="0" y="${y.toFixed(2)}" width="${BOARD_LABEL_LENGTH_MM}" height="${tapeWidthMm.toFixed(2)}" rx="0.8" fill="#fff" stroke="#9ca3af" stroke-width="0.35"/>`
+  if (board.code) {
+    markup += previewText(board.code, 1, y, heroWidth - 2, tapeWidthMm, {
+      bold: true,
+      fontSize: Math.min(tapeWidthMm * 0.5, (heroWidth - 4) / (board.code.length * 0.62)),
+      maxLines: 1,
+    })
+    markup += `<line x1="${heroWidth}" y1="${(y + tapeWidthMm * 0.15).toFixed(2)}" x2="${heroWidth}" y2="${(y + tapeWidthMm * 0.85).toFixed(2)}" stroke="#4b5563" stroke-width="0.3"/>`
+  }
+  const leftText = (value: string, top: number, height: number, fontSize: number, bold: boolean) =>
+    value
+      .split('\n')
+      .map((line, index, lines) => {
+        const lineHeight = fontSize * 1.2
+        const firstY = top + height / 2 - ((lines.length - 1) * lineHeight) / 2 + fontSize * 0.35
+        return `<text x="${columnX.toFixed(2)}" y="${(firstY + index * lineHeight).toFixed(2)}" font-family="Arial, sans-serif" font-size="${fontSize.toFixed(2)}" font-weight="${bold ? '700' : '400'}" fill="#111827">${escapeXml(line)}</text>`
+      })
+      .join('')
+  markup += leftText(
+    board.name,
+    y,
+    titleHeight,
+    Math.min(titleHeight * 0.6, (columnWidth * 0.95) / Math.max(1, board.name.length * 0.62)),
+    true
+  )
+  if (board.lines.length > 0) {
+    const linesHeight = tapeWidthMm - titleHeight
+    markup += leftText(
+      board.lines.join('\n'),
+      y + titleHeight,
+      linesHeight,
+      Math.min((linesHeight * 0.8) / board.lines.length, 3.2),
+      false
+    )
+  }
+  return { markup, width: BOARD_LABEL_LENGTH_MM }
+}
+
 export function renderBrotherLbxPreviewSvg(project: ProjectWithOptionalV2Electrical, options: LabelStripExportOptions, provider: LabelStripModuleProvider): string {
   const model = buildLabelStripModel(project, options, provider)
-  if (model.length === 0) throw new Error('No label strips can be generated from the selected modules.')
+  const boards = selectedBoardLabels(project, options)
+  if (model.length === 0 && boards.length === 0) throw new Error('No label strips can be generated from the selected modules.')
   const tapeWidthMm = effectiveTapeWidth(options)
   const strips = stripsForBrotherMode(model, options)
   const rowGap = 8
-  const rows = strips.map((strip, index) => previewStrip(strip, index * (tapeWidthMm + rowGap), tapeWidthMm))
+  const rows = [
+    ...strips.map((strip, index) => previewStrip(strip, index * (tapeWidthMm + rowGap), tapeWidthMm)),
+    ...boards.map((board, index) =>
+      previewBoard(board, (strips.length + index) * (tapeWidthMm + rowGap), tapeWidthMm)
+    ),
+  ]
   const width = Math.max(...rows.map((row) => row.width), 12)
-  const height = strips.length * tapeWidthMm + Math.max(0, strips.length - 1) * rowGap
+  const height = rows.length * tapeWidthMm + Math.max(0, rows.length - 1) * rowGap
   return `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Brother label preview" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet"><rect width="100%" height="100%" fill="#f3f4f6"/>${rows.map((row) => row.markup).join('')}</svg>`
 }
 
@@ -655,7 +866,9 @@ async function lbxArchiveBytes(
   tapeWidthMm: BrotherTapeWidthMm
 ): Promise<Uint8Array> {
   const archive = new JSZip()
-  archive.file('label.xml', labelXml([strip], profile, tapeWidthMm))
+  const images = new LbxImageSink()
+  archive.file('label.xml', labelXml([strip], profile, tapeWidthMm, images))
+  images.addTo(archive)
   archive.file('prop.xml', propertiesXml([strip]))
   return archive.generateAsync({
     type: 'uint8array',
@@ -666,15 +879,25 @@ async function lbxArchiveBytes(
 
 export async function exportLabelStripsToBrotherLbx(project: ProjectWithOptionalV2Electrical, options: LabelStripExportOptions, provider: LabelStripModuleProvider): Promise<Blob> {
   const model = buildLabelStripModel(project, options, provider)
-  if (model.length === 0) throw new Error('No label strips can be generated from the selected modules.')
+  const boards = selectedBoardLabels(project, options)
+  if (model.length === 0 && boards.length === 0) throw new Error('No label strips can be generated from the selected modules.')
   const profile = BROTHER_PROFILES[options.brotherPrinter ?? 'pt-p900-family']
   const strips = stripsForBrotherMode(model, options)
   if (effectiveMode(options) === 'single-strip') {
-    const packs = packLabelStrips(model, options)
+    const packs = model.length > 0 ? packLabelStrips(model, options) : []
     const bundle = new JSZip()
     for (const [index, pack] of packs.entries()) {
       const strip = combinedStrip(pack.strips, pack.header)
       bundle.file(packFileName(pack, index), await lbxArchiveBytes(strip, profile, effectiveTapeWidth(options)))
+    }
+    if (boards.length > 0) {
+      const archive = new JSZip()
+      archive.file('label.xml', labelXml([], profile, effectiveTapeWidth(options), new LbxImageSink(), boards))
+      archive.file('prop.xml', propertiesXml([], boards))
+      bundle.file(
+        `${String(packs.length + 1).padStart(3, '0')}-board-labels.lbx`,
+        await archive.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } })
+      )
     }
     return bundle.generateAsync({
       type: 'blob',
@@ -683,8 +906,10 @@ export async function exportLabelStripsToBrotherLbx(project: ProjectWithOptional
     })
   }
   const zip = new JSZip()
-  zip.file('label.xml', labelXml(strips, profile, effectiveTapeWidth(options)))
-  zip.file('prop.xml', propertiesXml(strips))
+  const images = new LbxImageSink()
+  zip.file('label.xml', labelXml(strips, profile, effectiveTapeWidth(options), images, boards))
+  images.addTo(zip)
+  zip.file('prop.xml', propertiesXml(strips, boards))
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } })
 }
 

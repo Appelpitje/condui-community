@@ -1,4 +1,5 @@
 import { useRef, useCallback, useState } from 'react'
+import { getEndpointPlanWallFacingSide } from '@/lib/plan/planWallOrientation'
 import { useUIStore } from '@/stores/uiStore'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { runProjectCommand } from '@/stores/liveProjectCommandSession'
@@ -127,7 +128,7 @@ type PlanDragCommit = {
 
 /**
  * Commits a finished plan drag through `plan.movePlacements`: snapped positions plus the
- * wall-snap rotation of selected sockets and distribution symbols, as one undo step.
+ * wall-snap rotation of selected mounted symbols, as one undo step.
  */
 function commitPlanDrag(options: PlanDragCommit): void {
   const { toCommit, activeFloorId, snapPos, planImage } = options
@@ -169,8 +170,7 @@ function commitPlanDrag(options: PlanDragCommit): void {
       const endpoint = store.getEndpointById(row.endpointId)
       const current = endpoint?.placements.find((p: Placement) => p.id === placementId)
       if (!current || !endpoint) continue
-      const wallFacingSide =
-        endpoint.type === 'socket' ? 'left' : endpoint.symbol === 'panel_distribution' ? 'top' : null
+      const wallFacingSide = getEndpointPlanWallFacingSide(endpoint)
       if (!wallFacingSide) continue
       const move = moves.get(placementId)
       const placementAtDrop = move?.pos ? { ...current, pos: move.pos } : current
@@ -496,20 +496,9 @@ export function usePlanDragHandling(
                 ? { ...ctx, socketCount: endpoint.socketProps?.socketCount ?? 1 }
                 : ctx
               const tmpPlacement = { ...placement, pos: currentPos }
-              if (
-                endpoint?.type === 'socket' &&
-                !hasExplicitSituationPlanRotation(tmpPlacement)
-              ) {
-                const suggested = suggestRotationForPlacement(tmpPlacement, placementCtx)
-                if (suggested != null) {
-                  const prev = usePlanDragVisualStore.getState().rotations.get(placement.id)
-                  if (prev !== suggested) rotationPatch.set(placement.id, suggested)
-                }
-              } else if (
-                endpoint?.symbol === 'panel_distribution' &&
-                !hasExplicitSituationPlanRotation(tmpPlacement)
-              ) {
-                const suggested = suggestRotationForPlacement(tmpPlacement, placementCtx, 'top')
+              const wallFacingSide = endpoint && getEndpointPlanWallFacingSide(endpoint)
+              if (wallFacingSide && !hasExplicitSituationPlanRotation(tmpPlacement)) {
+                const suggested = suggestRotationForPlacement(tmpPlacement, placementCtx, wallFacingSide)
                 if (suggested != null) {
                   const prev = usePlanDragVisualStore.getState().rotations.get(placement.id)
                   if (prev !== suggested) rotationPatch.set(placement.id, suggested)

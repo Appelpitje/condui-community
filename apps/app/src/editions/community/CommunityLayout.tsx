@@ -10,6 +10,7 @@ import {
   DocumentImportInput,
   LARGE_MENU_ICON_CLASS,
   createImportMenuItems,
+  createMaterialListExportMenuItem,
   menuSubmenusOnHover,
   openMenuActionPicker,
 } from '@/components/menu/projectMenuActions'
@@ -64,6 +65,7 @@ import { ShortcutsDialog } from '@/components/shortcuts/ShortcutsDialog'
 import { useDialog } from '@/hooks/useDialog'
 import { LabelStripExportDialog } from '@/components/export/LabelStripExportDialog'
 import { exportLabelStripsToPdf, type LabelStripExportOptions } from '@/lib/export/labelStripExport'
+import { OPEN_LABEL_STRIP_EXPORT_EVENT } from '@/lib/ui/labelStripExportDialog'
 import {
   exportLabelStripsToBrotherLbx,
   renderBrotherLbxPreviewSvg,
@@ -130,6 +132,14 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
     const handleResize = () => setWindowWidth(Math.max(window.innerWidth, 1))
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  const openLabelStripExportRef = useRef<(() => void) | null>(null)
+  openLabelStripExportRef.current = null
+  useEffect(() => {
+    const openFromCanvas = () => openLabelStripExportRef.current?.()
+    window.addEventListener(OPEN_LABEL_STRIP_EXPORT_EVENT, openFromCanvas)
+    return () => window.removeEventListener(OPEN_LABEL_STRIP_EXPORT_EVENT, openFromCanvas)
   }, [])
 
   if (!project) return null
@@ -235,6 +245,8 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
     })
   }
 
+  openLabelStripExportRef.current = openLabelStripExport
+
   const menuItemClass =
     'flex w-full items-center gap-2.5 px-5 py-2.5 text-left text-[1.09375rem] leading-snug text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
   const menuItemDisabledClass =
@@ -276,6 +288,7 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
       testId: 'app-menu-export-labels',
       onSelect: openLabelStripExport,
     },
+    ...(project ? [createMaterialListExportMenuItem(t, menuIconClass, closeMenu)] : []),
     {
       id: 'project',
       label: t('menu.exportKind.project'),

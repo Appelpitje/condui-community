@@ -279,6 +279,7 @@
     "zoom": "Zoom"
   },
   "commandPalette": {
+    "addPanelAtDomoticaOutput": "Dodaj rozdzielnicę na wyjściu",
     "addSupplyTransformer": "Dodaj transformator zasilający",
     "placeholder": "Szukaj poleceń",
     "empty": "Brak pasujących poleceń",
@@ -298,6 +299,7 @@
     "apply": "Zastosuj",
     "unavailable": "Nie można zastosować tej zmiany. Sprawdź wartości lub ponownie otwórz działanie.",
     "fields": {
+      "output": "Wyjście",
       "circuit": "Obwód",
       "position": "Pozycja",
       "row": "Rząd",
@@ -954,7 +956,8 @@
     "voltage_1x230": "1×230V",
     "lineToNeutral": "Faza zerowa (V)",
     "lineToLine": "Faza-Faza (V)",
-    "notes": "Notatki"
+    "notes": "Notatki",
+    "earthResistance": "Rezystancja uziemienia"
   },
   "panels": {
     "title": "Płyta",
@@ -971,9 +974,8 @@
     "secondaryPanel": "Płyta {{number}}",
     "diagramLabels": "Oznaczenia schematyczne",
     "panelNumbering": "Numeracja tablic",
-    "panelNumberingHint": "Dodaje B01, B02, … w kolejności od płyty głównej do płyt podrzędnych w schemat jednokreskowy.",
+    "panelNumber": "Numer tablicy",
     "panelNetTypeLabels": "Typ sieci zgodny z harmonogramem",
-    "panelNetTypeLabelsHint": "Dodaje połączenie zasilania, napięcia i uziemienia w złączu schemat jednokreskowy, gdy ustawiony jest system połączenia uziemiającego.",
     "earthingSystemLabel": "System podłączenia uziemienia",
     "earthingSystemGridLabel": "System uziemienia (sieć)",
     "earthingSystemBackupLabel": "System uziemiający (zapasowy)",
@@ -993,7 +995,9 @@
     "diagramNetWithEarthing": "Siatka: {{net}} – {{earthing}}",
     "diagramEarthingSystem": "System podłączenia uziemienia: {{earthing}}",
     "diagramEarthingSystemGrid": "System uziemienia (sieć): {{earthing}}",
-    "diagramEarthingSystemBackup": "Układ uziemienia (zapasowy): {{earthing}}"
+    "diagramEarthingSystemBackup": "Układ uziemienia (zapasowy): {{earthing}}",
+    "expectedShortCircuit": "Spodziewany maks. prąd zwarciowy",
+    "diagramShortCircuit": "Ik max: {{ka}} kA"
   },
   "panel": {
     "deleteConfirmTitle": "Usunąć płytę(y)?",
@@ -1015,6 +1019,8 @@
     "poles": "Polska",
     "polesConfig": "Konfiguracja biegunów",
     "residualCurrentType": "Typ mechanizmu różnicowego",
+    "selective": "Selektywny (S)",
+    "superImmunized": "Superodporny (SI)",
     "breakingCapacity": "Zdolność zwarciowa",
     "spdKind": "Symbol",
     "spdStandard": "Ochrona odgromowa",
@@ -1025,10 +1031,14 @@
     "poles_3P": "3P",
     "poles_3P_N": "3P+N",
     "poles_4P": "4P (3L+N)",
-    "residualType_AC": "AC (sinusoidalny)",
-    "residualType_A": "A (pulsujący prąd stały)",
-    "residualType_F": "F (częstotliwość mieszana)",
-    "residualType_B": "B (gładki DC)",
+    "residualType_AC": "AC (odbiorniki bez elektroniki)",
+    "residualTypeHelp_AC": "Tylko sinusoidalny prąd przemienny. Sprawdź, czy typ AC jest dozwolony w tej instalacji.",
+    "residualType_A": "A (obwody domowe)",
+    "residualTypeHelp_A": "Prąd przemienny i pulsujący prąd stały. Typowy wybór dla obwodów domowych.",
+    "residualType_F": "F (urządzenia z regulacją obrotów)",
+    "residualTypeHelp_F": "Również prądy o mieszanych częstotliwościach, np. w jednofazowych napędach silnikowych. Stosuj zalecenia producenta.",
+    "residualType_B": "B (niektóre ładowarki EV / instalacje PV)",
+    "residualTypeHelp_B": "Również gładki prąd stały. Nie każda ładowarka EV lub falownik PV wymaga typu B; sprawdź zalecenia producenta i wbudowaną ochronę przed upływem prądu stałego.",
     "description": "Opis",
     "type_MCB": "Automatyczny",
     "type_RCD": "Wyłącznik różnicowoprądowy",
@@ -1222,6 +1232,21 @@
       "field": "Na obiekcie"
     },
     "controlLink": {
+      "busDevices": "Urządzenia magistrali",
+      "connection": "Połączenie",
+      "standard": "Standardowe",
+      "bus": "Magistrala",
+      "busName": "Nazwa magistrali",
+      "busSystem": "System magistrali",
+      "moduleSystem": "System modułu",
+      "showBusLabel": "Pokaż etykietę magistrali",
+      "serialNumber": "Numer seryjny",
+      "duplicateDeviceAddress": "Adres urządzenia jest już używany na tej magistrali",
+      "functions": "Funkcje",
+      "buttonAddresses": "Adresy przycisków",
+      "buttonNumber": "Przycisk {{number}}",
+      "previousButtons": "Poprzednie",
+      "nextButtons": "Następne",
       "section": "Automatyka domowa",
       "controlSection": "Sterowanie",
       "operates": "Steruje",
@@ -1264,6 +1289,7 @@
         "niko_hc": "Niko Home Control",
         "dali": "DALI",
         "loxone": "Loxone",
+        "qbus": "Qbus",
         "other": "Inny"
       },
       "controlArea": "Sterowniczy",
@@ -1289,7 +1315,9 @@
       "count": "Liczba paneli",
       "groupTitle": "Marka i model",
       "wattage": "Moc (Wp)",
-      "voltage": "Napięcie (V)"
+      "voltage": "Napięcie (V)",
+      "wattageProperty": "Moc (Pmax) (Wp)",
+      "voltageProperty": "Napięcie (Umax) (V)"
     },
     "battery": {
       "voltage": "Napięcie (V)",
@@ -1456,6 +1484,8 @@
     "labelSourceNotes": "Notatki",
     "labelSourceExtra": "Dodatkowe",
     "labelSourceTechnical": "Dane techniczne",
+    "labelSourceFeeds": "Zasila",
+    "labelSourceMain": "Główny",
     "labelCellPlaceholder": "Etykieta",
     "notesCellPlaceholder": "Notatki",
     "extraCellPlaceholder": "Dodaj notatki na etykiecie",
@@ -1515,9 +1545,9 @@
       "customStatus": "Zmodyfikowano",
       "setCustomLabel": "Ustaw etykietę niestandardową",
       "useAutomaticLabel": "Użyj automatycznej etykiety",
-      "customLabelNonStandardWarning": "Ta etykieta niestandardowa jest poza zakresem A, B, C…",
+      "customLabelNonStandardWarning": "Ta etykieta niestandardowa jest poza automatyczną kolejnością.",
       "customLabelDuplicateWarning": "Ta etykieta jest również używana przez inny obwód na tej płycie.",
-      "customLabelBothWarnings": "Ta niestandardowa etykieta znajduje się poza zakresem A, B, C… i jest również używana przez inny obwód na tej płycie.",
+      "customLabelBothWarnings": "Ta niestandardowa etykieta znajduje się poza automatyczną kolejnością i jest również używana przez inny obwód na tej płycie.",
       "resetAllLabels": "Zresetuj wszystkie etykiety",
       "resetAllTooltip": "Usuń wszystkie etykiety niestandardowe i użyj ponownie etykiet automatycznych dla wszystkich okręgów.",
       "resetAllConfirmTitle": "Zresetować wszystkie niestandardowe etykiety?",
@@ -1525,7 +1555,59 @@
       "resetAllConfirm": "Zresetuj etykiety",
       "confirmOverwriteTitle": "Zamienić litery?",
       "confirmOverwriteMessage": "Autonaming zastępuje obecne litery A, B, C… zgodnie z rzędami na każdej planszy. Kontynuować?",
-      "confirmOverwriteConfirm": "Kontynuuj"
+      "confirmOverwriteConfirm": "Kontynuuj",
+      "scheme": {
+        "searchAliases": "styl etykiet numeracja litery obwodów numery tablic nazewnictwo",
+        "dialogTitle": "Automatyczne etykiety",
+        "style": "Styl",
+        "conduiStyles": "Style Condui",
+        "myStyles": "Moje style",
+        "customStyle": "Własny (niezapisany)",
+        "styleClassic": "Klasyczny",
+        "stylePanelLetterLetter": "Litera tablicy + litera",
+        "styleNumbers": "Numery",
+        "stylePanelLetterNumber": "Litera tablicy + numer",
+        "stylePanelDotCircuit": "Tablica.obwód",
+        "saveStyle": "Zapisz jako mój styl",
+        "updateStyle": "Zaktualizuj „{{name}}”",
+        "deleteStyle": "Usuń styl",
+        "styleName": "Nazwa stylu",
+        "separator": "Separator",
+        "prefix": "Prefiks",
+        "subPanels": "Tablice podrzędne",
+        "ownNumber": "Własny numer",
+        "underParent": "Pod tablicą nadrzędną",
+        "circuits": "Obwody",
+        "sequence": "Kolejność",
+        "panelInLabel": "Tablica w etykiecie",
+        "panelPartNone": "Brak",
+        "panelPartNumber": "Numer",
+        "panelPartFull": "Pełna",
+        "joined": "Razem",
+        "separated": "Oddzielnie",
+        "numbersSeparated": "Dwie liczby są zawsze oddzielane.",
+        "lettersRunTogether": "Powyżej 26 obwodów nie da się odróżnić liter tablicy i obwodu.",
+        "branches": "Odgałęzienia",
+        "changeCount_one": "Zmieni się {{count}} etykieta",
+        "changeCount_few": "Zmienią się {{count}} etykiety",
+        "changeCount_many": "Zmieni się {{count}} etykiet",
+        "changeCount_other": "Zmieni się {{count}} etykiety",
+        "apply": "Zastosuj",
+        "customize": "Dostosuj…",
+        "startsAt": "Zaczyna od",
+        "betweenPanelAndCircuit": "Między tablicą a obwodem",
+        "betweenCircuitAndBranch": "Między obwodem a odgałęzieniem",
+        "separatorHelp": "Wstawiany między częściami etykiety tam, gdzie są oddzielone, jak w A1.1.",
+        "subPanelsHelp": "Własny numer kontynuuje kolejność; pod tablicą nadrzędną numeruje tablicę podrzędną po tablicy, która ją zasila.",
+        "panelInLabelHelp": "Która część numeru tablicy rozpoczyna etykietę obwodu: nic, sam numer albo pełny numer z prefiksem.",
+        "numberingHelp": "Numeruje rozdzielnice w instalacjach mieszkalnych i niemieszkalnych.",
+        "prefixHelp": "Litery przed numerem rozdzielnicy, na przykład B w B1.",
+        "panelSequenceHelp": "Używa liczb, liczb z zerem wiodącym lub liter dla rozdzielnic.",
+        "startHelp": "Pierwszy numer rozdzielnicy. Ciągi liter zaczynają się od A.",
+        "circuitSequenceHelp": "Używa wielkich liter, małych liter lub liczb dla obwodów.",
+        "betweenPanelAndCircuitHelp": "Łączy kod rozdzielnicy i obwodu lub umieszcza między nimi separator.",
+        "betweenCircuitAndBranchHelp": "Łączy kod obwodu i numer odgałęzienia lub umieszcza między nimi separator."
+      }
     }
   },
   "planImport": {
@@ -1664,6 +1746,7 @@
     "movePoint": "Przesuń punkt ściany",
     "insertDoor": "Włóż drzwi",
     "insertWindow": "Wstaw okno",
+    "curvedWallOpeningHint": "Nie można wstawiać drzwi ani okien w zakrzywionych ścianach.",
     "drawStair": "Rysunek schodów",
     "placeNote": "Notatka",
     "graphicElements": "Elementy graficzne",
@@ -1811,6 +1894,11 @@
     "library": "Biblioteka symboli",
     "recent": "Najnowsze",
     "favorites": "Ulubione",
+    "jump": {
+      "filterOnly": "Ctrl/Cmd+klik: pokaż tylko tę",
+      "filterAdd": "Ctrl/Cmd+Shift+klik: dodaj do filtra",
+      "clearFilter": "Pokaż wszystkie kategorie"
+    },
     "armed": {
       "placing": "Miejsca: {{name}}",
       "stop": "Zatrzymaj wysyłanie"
@@ -1826,6 +1914,7 @@
     "switch_2p_twoway": "Przełącznik (2-biegunowy)",
     "switch_dimmer": "Ściemniacz",
     "switch_1p_changeover": "Przełącznik",
+    "switch_shutter": "Łącznik roletowy",
     "switch_1p_pull": "Przełącznik pociągany",
     "contact": "Styk",
     "switch_impulse": "Przełącznik impulsowy",
@@ -1911,6 +2000,7 @@
       "switch_cross": "Łącznik krzyżowy",
       "switch_dimmer": "Ściemniacz",
       "switch_1p_changeover": "Przełącznik",
+      "switch_shutter": "Łącznik roletowy",
       "switch_1p_pull": "Łącznik pociągany",
       "switch_impulse": "Łącznik impulsowy",
       "motion_detector": "Czujnik ruchu",
@@ -2025,6 +2115,75 @@
     "endpoint": "Punkt końcowy"
   },
   "validation": {
+    "incompleteChecks": {
+      "message": "Nie można było ukończyć wszystkich kontroli",
+      "details": "Niektórym kontrolom brakuje danych lub nie obsługują tej instalacji.",
+      "showChecks": "Niepełne kontrole ({{total}})",
+      "affected": "Dotyczy: {{total}}",
+      "missing": "Brak: {{information}}",
+      "unavailable": "Niedostępne: {{information}}",
+      "unknown": "Brak informacji o kontroli",
+      "checks": {
+        "supplyRcdCircuitCount": "Obwody na RCD",
+        "cableHasCrossSection": "Przekrój przewodów",
+        "breakerSizeMatchesCrossSection": "Zabezpieczenie a przekrój",
+        "minimumCrossSection": "Minimalny przekrój",
+        "dcCrossSectionHeuristic": "Dobór przewodów DC",
+        "protectionPhaseCompatibility": "Bieguny i fazy zasilania",
+        "earthResistanceWithinLimits": "Rezystancja uziemienia",
+        "nonHouseholdEarthResistanceEntered": "Dane uziemienia",
+        "circuitHasRcdProtection": "Ochrona różnicowoprądowa",
+        "nonHouseholdTtIndirectContact": "Ochrona TT przy dotyku pośrednim",
+        "rcdHasTooManyCircuits": "Obwody na RCD",
+        "circuitHasTooManyEndpoints": "Punkty na obwód",
+        "circuitWithinMaximumProtectedLength": "Maksymalna chroniona długość przewodu",
+        "circuitShortCircuitProtectionVerifiable": "Ochrona zwarciowa",
+        "nonHouseholdBreakingCapacity": "Zdolność wyłączania",
+        "nonHouseholdBoardShortCircuitStated": "Prąd zwarciowy rozdzielnicy",
+        "householdSocketProtection": "Zabezpieczenie obwodu gniazd"
+      },
+      "facts": {
+        "cable-path-conductor-segments": "Trasa przewodów / odcinki żył",
+        "cable-installation-method": "Sposób ułożenia przewodu",
+        "cable-cross-section": "Przekrój przewodu",
+        "design-current-and-admissible-current-iz-for-the-installation-method": "Prąd obliczeniowy i dopuszczalny prąd Iz",
+        "upstream-protection-rating": "Prąd znamionowy zabezpieczenia nadrzędnego",
+        "validated-ampacity-for-this-cross-section-and-installation-method": "Obsługiwana obciążalność dla tego przekroju i sposobu ułożenia",
+        "design-current": "Prąd obliczeniowy",
+        "dc-cable-cross-section": "Przekrój przewodu DC",
+        "validated-dc-ampacity-for-this-cross-section": "Obsługiwana obciążalność DC dla tego przekroju",
+        "dc-design-power-current": "Moc lub prąd obliczeniowy DC",
+        "dc-operating-voltage": "Napięcie robocze DC",
+        "dc-cable-installation-method": "Sposób ułożenia przewodu DC",
+        "earth-electrode-resistance": "Rezystancja uziemienia",
+        "upstream-rcd-rcbo-residual-current-sensitivity-ma": "Czułość nadrzędnego RCD/RCBO (mA)",
+        "rcd-sensitivity-ma": "Czułość RCD (mA)",
+        "rcd-sensitivity": "Czułość RCD",
+        "upstream-main-rcd-and-its-sensitivity": "Nadrzędny główny RCD i jego czułość",
+        "panel-record": "Dane rozdzielnicy",
+        "circuit-record": "Dane obwodu",
+        "nominal-voltage-system": "Układ napięcia znamionowego",
+        "supported-explicit-phase-system": "Obsługiwany układ faz",
+        "protection-pole-configuration-or-incoming-phase-assignment": "Bieguny zabezpieczenia lub fazy wejściowe",
+        "upstream-protective-device": "Zabezpieczenie nadrzędne",
+        "supported-protective-device-curve-model": "Obsługiwany model charakterystyki wyzwalania",
+        "protective-device-current-rating": "Prąd znamionowy zabezpieczenia",
+        "modeled-cable-path": "Trasa przewodu",
+        "complete-route-length-connected-cable-anchors": "Pełna długość trasy / połączone punkty przewodu",
+        "cable-edge-length": "Długość odcinka przewodu",
+        "protective-device-trip-curve": "Charakterystyka wyzwalania zabezpieczenia",
+        "conductor-material": "Materiał żyły",
+        "expected-maximum-short-circuit-current-at-the-board": "Spodziewany prąd zwarciowy rozdzielnicy",
+        "socket-circuit-overcurrent-protection-rating": "Prąd znamionowy zabezpieczenia obwodu gniazd"
+      },
+      "reasons": {
+        "unknown-primitive": "Kontrola niedostępna",
+        "unknown-skip-condition-primitive": "Kontrola warunku wstępnego niedostępna",
+        "no-rule-pack-loaded": "Nie wczytano reguł walidacji",
+        "no-rule-pack-for-jurisdiction": "Brak reguł dla tej jurysdykcji",
+        "prerequisite-could-not-be-evaluated": "Nie można sprawdzić warunku wstępnego"
+      }
+    },
     "title": "Walidacja AREI",
     "disabledOutsideBelgium": "Walidacja wyłączona poza Belgią.",
     "belgianRulesOnly": "Aplikacja sprawdza obecnie tylko zasady AREI dla Belgii.",
@@ -2123,8 +2282,8 @@
         "rcd-grouping": {
           "shortTitle": "Za dużo obwodów na wyłączniku różnicowoprądowym",
           "message": "Zbyt wiele obwodów jest podłączonych do jednego wyłącznika różnicowoprądowego 30 mA",
-          "details": "Wyłącznik różnicowoprądowy 30 mA może chronić maksymalnie 8 obwodów (w tym obwody z własnym zabezpieczeniem różnicowoprądowym).",
-          "remediation": "Zmniejsz liczbę obwodów podłączonych do tego wyłącznika różnicowoprądowego albo podziel je między kilka takich wyłączników. Obwody chronione wyłącznikiem różnicowonadprądowym nie są wliczane."
+          "details": "Domowy RCD do 30 mA za głównym RCD może chronić najwyżej 8 obwodów końcowych, również z własnym RCBO i w podrozdzielnicach. Główny RCD na początku instalacji nie podlega temu limitowi.",
+          "remediation": "Rozdziel obwody końcowe między kilka RCD za głównym RCD, po najwyżej osiem na każdy. Wlicz również obwody chronione własnym RCBO."
         },
         "rcd-selectivity": {
           "shortTitle": "Brak selektywności wyłączników różnicowoprądowych",
@@ -2284,6 +2443,48 @@
           "message": "Zabezpieczenie lub odbiornik zasilania awaryjnego nie ma etykiety",
           "details": "Komponenty zasilacza rezerwowego znajdują się poza główną szyną zbiorczą i nie są automatycznie nazywane.",
           "remediation": "Należy wyraźnie i ręcznie oznaczyć każde zabezpieczenie i odbiornik w gałęzi rezerwowej falownika."
+        },
+        "earth-resistance": {
+          "shortTitle": "Za wysoka rezystancja uziemienia",
+          "message": "Rezystancja uziemienia przekracza limit AREI",
+          "details": "Instalacje mieszkaniowe wymagają mniej niż 100 Ω, a powyżej 30 Ω dwóch wyłączników różnicowoprądowych 30 mA, każdy z maksymalnie 16 gniazdami. Instalacje niemieszkaniowe TT dopuszczają maksymalnie 250 Ω lub 500 Ω w suchych pomieszczeniach z nieprzewodzącymi podłogami i ścianami.",
+          "remediation": "Popraw uziom lub dodaj wyłączniki różnicowoprądowe zgodnie z opisem."
+        },
+        "nonhousehold-earth-resistance-entered": {
+          "shortTitle": "Brak rezystancji uziemienia",
+          "message": "Nie wprowadzono rezystancji uziemienia",
+          "details": "Rezystancja uziemienia jest potrzebna do sprawdzenia ochrony przy dotyku pośrednim w niemieszkaniowej instalacji TT.",
+          "remediation": "Zaznacz symbol uziemienia i wprowadź rezystancję uziemienia."
+        },
+        "nonhousehold-tt-indirect-contact": {
+          "shortTitle": "Obwód TT bez ochrony",
+          "message": "Obwód bez ochrony przy dotyku pośrednim",
+          "details": "W sieci TT samoczynne wyłączenie wymaga wyłącznika różnicowoprądowego o czułości spełniającej IΔn × RE ≤ UL (50 V w warunkach suchych).",
+          "remediation": "Dodaj wyłącznik różnicowoprądowy lub RCBO o odpowiedniej czułości albo zastosuj urządzenia klasy II, SELV lub separację elektryczną."
+        },
+        "nonhousehold-board-short-circuit-current": {
+          "shortTitle": "Brak prądu zwarciowego",
+          "message": "Rozdzielnica bez spodziewanego prądu zwarciowego",
+          "details": "Schematy i oznaczenia rozdzielnic niemieszkaniowych podają spodziewany maksymalny prąd zwarciowy, gdy przekracza 3000 A.",
+          "remediation": "Otwórz właściwości rozdzielnicy i wprowadź spodziewany maksymalny prąd zwarciowy."
+        },
+        "nonhousehold-breaking-capacity": {
+          "shortTitle": "Za niska zdolność wyłączania",
+          "message": "Zdolność wyłączania poniżej spodziewanego prądu zwarciowego",
+          "details": "Każde zabezpieczenie nadprądowe wymaga zdolności wyłączania co najmniej równej spodziewanemu prądowi zwarciowemu w miejscu instalacji.",
+          "remediation": "Wybierz urządzenia o wyższej zdolności wyłączania lub potwierdź selektywność kaskadową tabelami producenta."
+        },
+        "nonhousehold-breaking-capacity-shown": {
+          "shortTitle": "Brak zdolności wyłączania",
+          "message": "Nie wprowadzono zdolności wyłączania",
+          "details": "Schematy obwodów niemieszkaniowych podają zdolność wyłączania każdego urządzenia zabezpieczającego.",
+          "remediation": "Zaznacz każde wymienione urządzenie i wybierz jego zdolność wyłączania."
+        },
+        "nonhousehold-supply-transformer": {
+          "shortTitle": "Brak danych transformatora",
+          "message": "Niepełne dane transformatora zasilającego",
+          "details": "Schematy niemieszkaniowe podają parametry źródeł, w tym moc pozorną i napięcie zwarcia transformatora zasilającego.",
+          "remediation": "Zaznacz transformator zasilający i wprowadź moc znamionową oraz napięcie zwarcia."
         }
       }
     },
@@ -2310,6 +2511,48 @@
       "branchMultiplierEndpointsSplit": "Obwód {{circuitCode}}: gałąź „{{branchLabel}}” ma dodatkowe symbole mnożenia {{absorbCount}} jako oddzielne punkty końcowe; powinien być jednym punktem końcowym z wieloma miejscami docelowymi. Użyj naprawy podczas inspekcji sierot."
     },
     "primitives": {
+      "feedbackSafety": {
+        "rcdOverload": {
+          "message": "Za mały prąd znamionowy wyłącznika różnicowoprądowego",
+          "details": "Podłączone źródła mogą spowodować przepływ przez wskazany wyłącznik różnicowoprądowy prądu większego niż jego prąd znamionowy. Sprawdź jego prąd znamionowy i zabezpieczenia nadprądowe na tej drodze. Sam wyłącznik różnicowoprądowy nie chroni przed przeciążeniem."
+        },
+        "rcdType": {
+          "message": "Domowy RCD musi być typu A, F lub B",
+          "details": "Wymień urządzenie typu AC na odpowiedni RCD typu A, F lub B."
+        },
+        "breakingCapacity": {
+          "message": "Nie podano zdolności wyłączania",
+          "details": "Podaj potwierdzoną zdolność wyłączania każdego zabezpieczenia nadprądowego, także na zasilaniu. Nieznanej wartości nie można sprawdzić."
+        },
+        "earthingSeparator": {
+          "message": "Brak złącza kontrolnego uziemienia",
+          "details": "Dodaj złącze kontrolne przy każdym przyłączu uziomu, aby umożliwić pomiar jego rezystancji."
+        },
+        "socketSafety": {
+          "message": "Gniazdo bez styku ochronnego lub zabezpieczenia dziecięcego",
+          "details": "Zwykłe gniazda domowe wymagają styku ochronnego i zabezpieczenia dziecięcego. Sprawdź ewentualne udokumentowane odstępstwa dla istniejącej instalacji."
+        },
+        "socketProtection": {
+          "message": "Zabezpieczenie zwykłego gniazda jest zbyt duże",
+          "details": "Dla zwykłych gniazd domowych stosuj wyłącznik nadprądowy do 20 A lub bezpiecznik topikowy do 16 A. Sam większy przekrój kabla nie pozwala na większe zabezpieczenie."
+        },
+        "placement": {
+          "message": "Nie podano sposobu ułożenia przewodu",
+          "details": "Podaj trasę lub sposób ułożenia przewodu, aby uzupełnić schemat i sprawdzić przekrój."
+        },
+        "fireClass": {
+          "message": "Nie podano klasy reakcji kabla na ogień",
+          "details": "Podaj potwierdzoną klasę reakcji kabla na ogień. Przydatność zależy od budynku i sposobu ułożenia; nieznana klasa oznacza brak informacji."
+        },
+        "evCoordination": {
+          "message": "Sprawdź koordynację DC RCD przed punktami ładowania",
+          "details": "Kilka punktów ładowania z detekcją DC 6 mA lub RCD typu B za urządzeniem może narazić poprzedzający RCD typu A na nadmierny prąd stały. Zastosuj z przodu typ B lub sprawdź dopuszczone przez producenta połączenie i liczbę punktów ładowania."
+        },
+        "rcdCircuitCount": {
+          "message": "RCD na zasilaniu chroni więcej niż osiem obwodów końcowych",
+          "details": "Domowy RCD do 30 mA za głównym RCD może chronić najwyżej 8 obwodów końcowych, również z własnym RCBO i w podrozdzielnicach. Główny RCD na początku instalacji nie podlega temu limitowi."
+        }
+      },
       "supplyModePaths": {
         "message": "Brak prawidłowej ścieżki sieciowej/zapasowej dla {{phases}}",
         "details": "Narysowana topologia nie obejmuje kompletnej i skoordynowanej siatki oraz ścieżki zapasowej dla {{phases}}.",
@@ -2325,6 +2568,10 @@
         "details": "Zduplikowane nazwy zabezpieczeń na tej samej płycie (magistrala główna, magistrala pomocnicza lub zasilacz) utrudniają identyfikację obwody. Zmień nazwę jednego zabezpieczenia lub włącz automatyczne nadawanie nazw."
       },
       "controlLinkIntegrity": {
+        "duplicateBusDeviceAddress": {
+          "message": "Adres urządzenia {{address}} jest już używany na tej magistrali",
+          "details": "Przypisz każdemu urządzeniu na tej magistrali unikalny adres."
+        },
         "dangling": {
           "message": "{{endpoint}} jest sterowany przez urządzenie, które już nie istnieje",
           "details": "Wybierz inne urządzenie w polu Sterowany przez lub usuń powiązanie."
@@ -2501,7 +2748,7 @@
       },
       "rcdHasTooManyCircuits": {
         "message": "Wyłącznik różnicowoprądowy chroni zbyt wiele obwodów ({{circuitCount}} > {{threshold}})",
-        "details": "Liczba obwodów podłączonych do jednego wyłącznika różnicowoprądowego 30 mA nie może przekraczać {{threshold}}, aby ograniczyć niepożądane zadziałania. Obwody z własnym wyłącznikiem różnicowonadprądowym nie są wliczane."
+        "details": "Domowy RCD do 30 mA za głównym RCD może chronić najwyżej {{threshold}} obwodów końcowych, również z własnym RCBO i w podrozdzielnicach. Główny RCD na początku instalacji nie podlega temu limitowi."
       },
       "rcdSelectivity": {
         "message": "Selektywność wyłączników różnicowoprądowych: urządzenie nadrzędne musi być mniej czułe niż urządzenie podrzędne (np. główne 300 mA, podrzędne 30 mA)",
@@ -2589,6 +2836,58 @@
       "fixedApplianceDedicatedCircuitHint": {
         "message": "Urządzenia stałe {{applianceLabels}} w obwodzie {{circuitCode}} współdzielą obwód z innymi odbiornikami",
         "details": "Urządzenia stacjonarne często podłącza się do osobnego obwodu, aby przekrój przewodu i zabezpieczenie były do nich dostosowane i pozwalały na przyszłą wymianę. Rozważ podłączenie tych urządzeń do osobnego obwodu bez dodatkowych gniazd wtyczkowych, oświetlenia ani innych odbiorników."
+      },
+      "earthResistanceWithinLimits": {
+        "nonHouseholdDryOnly": {
+          "message": "Rezystancja uziemienia {{ohm}} Ω jest dopuszczalna tylko w suchych, nieprzewodzących pomieszczeniach"
+        },
+        "nonHouseholdTooHigh": {
+          "message": "Rezystancja uziemienia {{ohm}} Ω przekracza 500 Ω"
+        },
+        "nonHousehold": {
+          "details": "Przy ochronie różnicowoprądowej w instalacji niemieszkaniowej rezystancja uziemienia nie może przekraczać 500 Ω w suchych pomieszczeniach z nieprzewodzącymi podłogami i ścianami (AD1, BB1, BC1) oraz 250 Ω w innych pomieszczeniach."
+        },
+        "householdTooHigh": {
+          "message": "Rezystancja uziemienia {{ohm}} Ω nie jest niższa niż 100 Ω",
+          "details": "Uziom instalacji mieszkaniowej musi mieć rezystancję poniżej 100 Ω."
+        },
+        "householdSplitRcd": {
+          "message": "Rezystancja uziemienia {{ohm}} Ω wymaga co najmniej dwóch wyłączników różnicowoprądowych 30 mA",
+          "details": "Powyżej 30 Ω instalacja mieszkaniowa wymaga co najmniej dwóch wysokoczułych wyłączników różnicowoprądowych (30 mA), każdy z maksymalnie 16 gniazdami lub równoważnymi odbiornikami stałymi."
+        },
+        "householdOutlets": {
+          "message": "Ponad 16 gniazd za: {{labels}}"
+        }
+      },
+      "nonHouseholdEarthResistanceEntered": {
+        "message": "Nie wprowadzono rezystancji uziemienia",
+        "details": "W niemieszkaniowej instalacji TT rezystancja uziemienia decyduje, jaka czułość wyłącznika różnicowoprądowego chroni przy dotyku pośrednim (IΔn × RE ≤ UL)."
+      },
+      "nonHouseholdTtIndirectContact": {
+        "missing": {
+          "message": "Obwód {{circuitCode}} nie ma ochrony różnicowoprądowej w sieci TT",
+          "details": "W sieci TT same zabezpieczenia nadprądowe nie wyłączają zwarcia doziemnego w porę. Zabezpiecz obwód wyłącznikiem różnicowoprądowym lub RCBO albo zastosuj urządzenia klasy II, SELV lub separację elektryczną."
+        },
+        "insensitive": {
+          "message": "Obwód {{circuitCode}}: wyłącznik różnicowoprądowy {{sensitivityMa}} mA jest niewystarczająco czuły dla tej rezystancji uziemienia",
+          "details": "IΔn × RE nie może przekraczać 50 V. Przy {{ohm}} Ω użyj wyłącznika różnicowoprądowego o czułości najwyżej {{maxSensitivityMa}} mA. W warunkach wilgotnych (BB2) limit wynosi 25 V."
+        }
+      },
+      "nonHouseholdBoardShortCircuitStated": {
+        "message": "Rozdzielnica {{panelName}} nie ma spodziewanego prądu zwarciowego",
+        "details": "Schematy i oznaczenia rozdzielnic niemieszkaniowych podają spodziewany maksymalny prąd zwarciowy, gdy przekracza 3000 A. Jest on też potrzebny do sprawdzenia zdolności wyłączania."
+      },
+      "nonHouseholdBreakingCapacity": {
+        "message": "Zdolność wyłączania poniżej {{ka}} kA: {{labels}}",
+        "details": "Spodziewany prąd zwarciowy w tej rozdzielnicy wynosi {{ka}} kA. Każde zabezpieczenie nadprądowe wymaga co najmniej takiej zdolności wyłączania, chyba że urządzenie powyżej zapewnia ochronę kaskadową według tabel producenta."
+      },
+      "nonHouseholdBreakingCapacityShown": {
+        "message": "Nie wprowadzono zdolności wyłączania: {{labels}}",
+        "details": "Schematy obwodów niemieszkaniowych podają zdolność wyłączania każdego urządzenia zabezpieczającego."
+      },
+      "nonHouseholdSupplyTransformerDocumented": {
+        "message": "Brak mocy lub napięcia zwarcia transformatora zasilającego",
+        "details": "Schematy niemieszkaniowe podają parametry źródeł, w tym moc pozorną i impedancję transformatora zasilającego."
       }
     },
     "citations": {
@@ -2711,7 +3010,13 @@
     "export": "Import",
     "errorTitle": "Eksport etykiety nie powiódł się",
     "errorMessage": "Nie można utworzyć eksportu etykiety. Spróbuj ponownie.",
-    "generatedDescription": "{{type}} dla {{items}}"
+    "generatedDescription": "{{type}} dla {{items}}",
+    "mainRoleSwitch": "Wyłącznik główny",
+    "mainRoleRcd": "Główny RCD",
+    "mainRoleProtection": "Zabezpieczenie główne",
+    "boardLabels": "Etykiety rozdzielnic",
+    "boardLabel": "Etykieta rozdzielnicy",
+    "boardFedFromCircuit": "Zasilanie z {{source}}, obwód {{circuit}}"
   },
   "panelRelationOverview": "Przegląd powiązań między panelami",
   "properties": {
@@ -2844,7 +3149,7 @@
     "categoryDomotica": "Automatyka domowa / Inteligentny dom",
     "categoryStove": "Dystrybutor pieca",
     "categoryPanels": "Płyta",
-    "categoryWires": "Przewody",
+    "categoryWires": "Kable",
     "wireLengthTotal": "{{length}} ogółem",
     "wireLengthEstimate": "Przybliżone szacunki na podstawie planu piętra: {{length}}",
     "wireLengthEstimateShort": "oszacowanie {{length}}",
@@ -2874,6 +3179,7 @@
     "csvDetails": "Bliższe dane"
   },
   "wires": {
+    "wireTypeLabel": "Typ przewodu",
     "cableDefault": "Standard",
     "makeCableDefault": "Wykonaj standard",
     "useCableDefault": "Użyj standardu",
@@ -3557,6 +3863,31 @@
     },
     "bridgeThroughRail": "Uziemienie jest już połączone przez szynę",
     "shapeOf": "Kształt"
+  },
+  "materialListExport": {
+    "cableMargin": "Zapas kabla (%)",
+    "invalidCableMargin": "Wpisz prawidłowy procent nie mniejszy niż 0.",
+    "skipSupplyPanel": "Pomiń elementy w rozdzielnicy sieciowej",
+    "title": "Eksportuj listę materiałów",
+    "menu": "Przedmiar / lista materiałów",
+    "export": "Eksportuj",
+    "searchAliases": "Excel CSV Robaws przedmiar ilości materiały",
+    "preset": "Ustawienie wstępne",
+    "standard": "Standardowe",
+    "format": "Format pliku",
+    "categories": "Kategorie",
+    "description": "Opis",
+    "quantity": "Ilość",
+    "unit": "Jednostka",
+    "piece": "szt.",
+    "estimated": "Szacowana długość",
+    "partialLength": "Długość częściowa",
+    "includePlanEstimates": "Uwzględnij długości kabli oszacowane na planie",
+    "roundCableLengths": "Zaokrąglij długości kabli w górę do pełnych metrów",
+    "missingLengths": "Trasy kablowe bez długości są pomijane. Niepełne sumy są oznaczone jako częściowe.",
+    "robawsImport": "W ofercie Robaws wybierz import i przypisz kolumny Omschrijving, Aantal i Eenheid. Dodaj ceny w Robaws.",
+    "empty": "Nie wybrano materiałów.",
+    "error": "Nie udało się utworzyć pliku eksportu. Spróbuj ponownie."
   },
   "oneWireReference": {
     "title": "Zeskanowana strona",

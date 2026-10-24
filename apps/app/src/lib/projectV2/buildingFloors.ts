@@ -122,6 +122,7 @@ function floorToV2(floor: Floor & Partial<FloorV2>): FloorV2 {
     planImageOpacity: floor.planImageOpacity,
     sitplanSymbolSizeCm: floor.sitplanSymbolSizeCm,
     hiddenSitplanElementIds: floor.hiddenSitplanPlacementIds,
+    trikPlanReference: floor.trikPlanReference,
   }
 }
 
@@ -204,6 +205,7 @@ function floorV2ToCompatibility(
     planImageOpacity: v2Floor.planImageOpacity,
     sitplanSymbolSizeCm: v2Floor.sitplanSymbolSizeCm,
     hiddenSitplanPlacementIds: v2Floor.hiddenSitplanElementIds,
+    trikPlanReference: v2Floor.trikPlanReference,
   }
 
   const floorPlan = document ? selectProjectFloorPlan(document, v2Floor.id) : undefined

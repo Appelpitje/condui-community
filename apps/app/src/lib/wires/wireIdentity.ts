@@ -1,4 +1,5 @@
 import { buildWireBusIndex } from './wireBusIndex'
+import { applyWireInstallationSpecification, circuitWireSpecifications } from './circuitWireSpecifications'
 import { asRailCable, isSecondaryBusFeederAnchor, railRunByGroup } from './railWireRuns'
 import {
   isProjectDefaultCableAnchor,
@@ -261,18 +262,19 @@ export function stampWireSegmentAnchors(
         .sort((a, b) => a.trunkPosition - b.trunkPosition)
         .at(-1)
       if (lastTrunk && segment.fromElementId !== lastTrunk.id) continue
-      const sharedBranches = (circuit.branches?.length ?? 0) > 1
       const targets = (circuit.branches ?? [])
         .filter((b) => !b.dcBusId)
         .flatMap((b) => {
-          const all = [
+          const first = [
             ...(b.branchDevices ?? []).map((device) => `trunk-device:${device.id}`),
             // Module outputs start after the module, not on its shared input stem.
             ...b.endpointIds
               .filter((id) => !circuit.endpoints.find((endpoint) => endpoint.id === id)?.domoticaChildProps)
               .map((id) => `endpoint:${id}`),
           ]
-          return sharedBranches ? all : all.slice(0, 1)
+          // The shared vertical stops at the first symbol on each branch. Later devices and
+          // endpoints have distinct connections even when the branch continues in series.
+          return first.slice(0, 1)
         })
       if (circuit.subCircuitIds?.length) targets.push(`bus-section:secondary-bus:${circuit.id}`)
       segment.wireAnchors = [...new Set(targets)].map((nodeRef) =>
@@ -297,6 +299,7 @@ export function applyWireRunsToSegments(
 ): void {
   const buses = buildWireBusIndex(panels)
   const rails = railRunByGroup(buses, runs)
+  const specifications = circuitWireSpecifications(panels, runs)
   for (const segment of segments) {
     let anchors = segment.wireAnchor
       ? [segment.wireAnchor]
@@ -325,6 +328,12 @@ export function applyWireRunsToSegments(
     const run = findWireRunForAnchor(runs, anchors[0]!)
     if (!run || !anchors.every((anchor) => findWireRunForAnchor(runs, anchor)?.id === run.id)) {
       if (followsDefault) segment.cable = resolveDerivedCircuitCable(segment.cable, defaultCableKind)
+      const inherited = specifications.get(anchors[0]!)
+      if (!run && inherited && anchors.every((anchor) => {
+        const other = specifications.get(anchor)
+        return other?.fireClass === inherited.fireClass && other?.route === inherited.route && other?.inTube === inherited.inTube
+      }))
+        applyWireInstallationSpecification(segment, inherited)
       if (anchors.every(isSecondaryBusFeederAnchor)) {
         segment.cable = asRailCable(segment.cable)
         hideRailDecorations(segment)
@@ -338,6 +347,8 @@ export function applyWireRunsToSegments(
     segment.wireRoute = wireRoute
     segment.inTube = run.inTube
     segment.inWall = inWall
+    const specification = specifications.get(anchors[0]!)
+    if (specification) applyWireInstallationSpecification(segment, specification)
     segment.wireLengthM = segment.wireAnchor && run.segmentLengthSources?.[segment.wireAnchor] !== 'estimated-stale' ? run.segmentLengths?.[segment.wireAnchor] : undefined
     segment.wireLengthEstimated =
       segment.wireAnchor && run.segmentLengthSources?.[segment.wireAnchor] === 'estimated'

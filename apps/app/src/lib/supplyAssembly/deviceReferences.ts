@@ -18,6 +18,8 @@ function protectionProperties(device: TrunkDevice): SupplyProtectionProperties {
     curve: device.curve,
     sensitivityMa: device.sensitivityMa,
     residualCurrentType: device.residualCurrentType,
+    selective: device.selective,
+    superImmunized: device.superImmunized,
     breakingCapacityKa: device.breakingCapacityKa,
     breakingCapacityOption: device.breakingCapacityOption,
     surgeProtectionKind: device.surgeProtectionKind,

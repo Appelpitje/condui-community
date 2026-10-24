@@ -2024,8 +2024,8 @@ export function estimateCableRoutes(
   }
 
   /**
-   * Least-wire tree through a point's placements, grown from its feeder (Prim): a placement
-   * with a drawn wire from a reached spot joins there first, otherwise the cheapest pair joins.
+   * Least-wire tree through a point's placements, grown from its feeder (Prim). Drawn wires
+   * replace their targets' feeders while retaining the other automatic connections where possible.
    * A box takes its incoming and one outgoing wire for free; every further wire there costs
    * `BRANCH_PENALTY_M` more, so placements chain unless branching saves real cable.
    * `first` is the placement the feeder's own wire reaches; `hops` are the further wires.
@@ -2035,6 +2035,30 @@ export function estimateCableRoutes(
     locations: RouteLocation[],
     drawnFeederOf: ReadonlyMap<string, string>
   ): { first: RouteLocation; hops: Array<{ from: RouteLocation; to: RouteLocation }> } {
+    const placementIds = new Set([from?.placementId, ...locations.map((location) => location.placementId)])
+    const explicitFeeders = new Map<string, string>()
+    for (const location of locations) {
+      const drawn = location.placementId ? drawnFeederOf.get(location.placementId) : undefined
+      if (location.placementId && drawn && placementIds.has(drawn)) {
+        explicitFeeders.set(location.placementId, drawn)
+      }
+    }
+    const preferredFeeders = new Map<string, string>()
+    if (explicitFeeders.size > 0) {
+      // Solve the unedited tree first. Prioritizing a newly drawn switch→second light wire
+      // during Prim's search otherwise reverses the automatic first→second light chain.
+      const automatic = placementTree(from, locations, new Map())
+      const automaticEdges = [
+        ...(from ? [{ from, to: automatic.first }] : []),
+        ...automatic.hops,
+      ]
+      for (const edge of automaticEdges) {
+        if (edge.from.placementId && edge.to.placementId) {
+          preferredFeeders.set(edge.to.placementId, edge.from.placementId)
+        }
+      }
+      for (const [target, source] of explicitFeeders) preferredFeeders.set(target, source)
+    }
     const reached: RouteLocation[] = from ? [from] : [locations[0]!]
     const remaining = from ? [...locations] : locations.slice(1)
     const edges: Array<{ from: RouteLocation; to: RouteLocation }> = []
@@ -2045,22 +2069,28 @@ export function estimateCableRoutes(
     while (remaining.length > 0) {
       let pick: { from: RouteLocation; index: number } | undefined
       remaining.some((location, index) => {
-        const drawn = location.placementId ? drawnFeederOf.get(location.placementId) : undefined
+        const drawn = location.placementId ? preferredFeeders.get(location.placementId) : undefined
         const source = drawn ? reached.find((spot) => spot.placementId === drawn) : undefined
         if (source) pick = { from: source, index }
         return source != null
       })
       if (!pick) {
         let best = Infinity
-        remaining.forEach((location, index) => {
-          for (const spot of reached) {
-            const cost = linkCostM(spot, location) + branchPenaltyM(spot)
-            if (cost < best) {
-              best = cost
-              pick = { from: spot, index }
+        // Reversing a drawn connection can invalidate an automatic feeder (A→B, then B→A).
+        // Reconnect the automatic side first so the user's explicit wire can still be honored.
+        for (const allowExplicit of [false, true]) {
+          remaining.forEach((location, index) => {
+            if (!allowExplicit && location.placementId && explicitFeeders.has(location.placementId)) return
+            for (const spot of reached) {
+              const cost = linkCostM(spot, location) + branchPenaltyM(spot)
+              if (cost < best) {
+                best = cost
+                pick = { from: spot, index }
+              }
             }
-          }
-        })
+          })
+          if (pick) break
+        }
       }
       const [to] = remaining.splice(pick!.index, 1)
       edges.push({ from: pick!.from, to: to! })

@@ -6,6 +6,12 @@
 import { create } from 'zustand'
 import type Konva from 'konva'
 
+export interface SitplanPlacementTarget {
+  activeFloorId: string
+  viewportCenter: { x: number; y: number }
+  ownerDocument: Document
+}
+
 interface CanvasRegistry {
   eendraad: {
     getStage: () => Konva.Stage | null
@@ -20,6 +26,7 @@ interface CanvasRegistry {
     fitToView?: (floorId: string) => void
     importBackground?: () => void
     calibrateScale?: () => void
+    getPlacementTarget?: () => SitplanPlacementTarget | null
   } | null
 }
 
@@ -33,10 +40,15 @@ interface CanvasRegistryState {
   registerSitplan: (
     getStage: (floorId: string) => Konva.Stage | null,
     fitToView?: (floorId: string) => void,
-    actions?: { importBackground: () => void; calibrateScale: () => void },
+    actions?: {
+      importBackground: () => void
+      calibrateScale: () => void
+      getPlacementTarget?: () => SitplanPlacementTarget | null
+    },
     viewportUI?: object
   ) => () => void
   getSitplanForViewport: (viewportUI: object) => CanvasRegistry['sitplan']
+  getSitplanPlacementTarget: (ownerDocument?: Document) => SitplanPlacementTarget | null
   unregisterEendraad: () => void
   unregisterPanel: () => void
   unregisterSitplan: () => void
@@ -87,6 +99,17 @@ export const useCanvasRegistryStore = create<CanvasRegistryState>((set) => {
       register('sitplan', { getStage, fitToView, ...actions }, viewportUI),
     getSitplanForViewport: (viewportUI) =>
       registrations.sitplan.findLast((item) => item.viewportUI === viewportUI)?.entry ?? null,
+    getSitplanPlacementTarget: (ownerDocument) => {
+      const targets = registrations.sitplan.flatMap(({ entry }) => {
+        const target = entry.getPlacementTarget?.()
+        return target ? [target] : []
+      })
+      return (
+        targets.findLast((target) => target.ownerDocument === ownerDocument) ??
+        targets.at(-1) ??
+        null
+      )
+    },
     unregisterEendraad: () => clear('eendraad'),
     unregisterPanel: () => clear('panel'),
     unregisterSitplan: () => clear('sitplan'),

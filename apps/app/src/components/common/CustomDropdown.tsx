@@ -24,6 +24,8 @@ interface CustomDropdownProps {
   menuClassName?: string
   /** When true, shows the control styled like the dropdown but does not open a menu. */
   disabled?: boolean
+  /** Show complete selected and menu labels in compact property fields. */
+  wrapLabels?: boolean
   onPointerDown?: () => void
   renderValue?: (option: CustomDropdownOption | undefined) => React.ReactNode
   renderOption?: (option: CustomDropdownOption, isActive: boolean) => React.ReactNode
@@ -168,6 +170,7 @@ export default function CustomDropdown({
   className = defaultControlClassName,
   menuClassName = defaultMenuClassName,
   disabled = false,
+  wrapLabels = false,
   onPointerDown,
   renderValue,
   renderOption,
@@ -326,7 +329,7 @@ export default function CustomDropdown({
 
   const controlInner = (
     <>
-      <span className="min-w-0 flex-1 truncate">
+      <span className={`min-w-0 flex-1 ${wrapLabels ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'}`}>
         {renderValue ? renderValue(selectedOption) : selectedOption?.label ?? placeholder}
       </span>
       <ChevronDown
@@ -398,6 +401,7 @@ export default function CustomDropdown({
     <div
       ref={menuRef}
       role="listbox"
+      data-app-scroll="true"
       className={`${menuPortal ? 'fixed' : `absolute z-20 ${positionClass}`} ${menuClassName} transition-[opacity,transform] ease-out motion-reduce:transition-none ${
         menuEnter ? enterToClass : enterFromClass
       }`}
@@ -436,7 +440,7 @@ export default function CustomDropdown({
                 : 'text-gray-800 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700/60'
             }`}
           >
-            <span className="min-w-0 flex-1 truncate">
+            <span className={`min-w-0 flex-1 ${wrapLabels ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'}`}>
               {renderOption ? renderOption(option, isActive) : option.label}
             </span>
           </button>

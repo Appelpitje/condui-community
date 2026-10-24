@@ -209,6 +209,7 @@ export function useEendraadDragPreview(
               preferMainBusOverGroundWire: true,
               preferMainBusOverSupplyWire: prefersMainBus,
               preferSecondaryBusForNestedProtection: isProtectionPlacement,
+              preferDomoticaEndpointOutput: symbol.id === 'panel_distribution',
               ...(symbol.id === 'dc_bus' ? { preferCircuitTrunkWire: true } : {}),
               ...(symbol.id === 'source_changeover'
                 ? { normalizeDirectConverterChangeoverDrop: true }

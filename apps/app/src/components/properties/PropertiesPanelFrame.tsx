@@ -72,8 +72,6 @@ export function PropertiesPanelFrame({
   allowReadOnlyInteraction,
   showSensitiveInfoNotice,
   onToggle,
-  onMouseEnter,
-  onMouseLeave,
   children,
 }: {
   title: string
@@ -86,8 +84,6 @@ export function PropertiesPanelFrame({
   allowReadOnlyInteraction?: boolean
   showSensitiveInfoNotice?: boolean
   onToggle: () => void
-  onMouseEnter: React.MouseEventHandler<HTMLElement>
-  onMouseLeave: React.MouseEventHandler<HTMLElement>
   children: React.ReactNode
 }) {
   if (!panelVisible && !embedded) {
@@ -110,8 +106,6 @@ export function PropertiesPanelFrame({
       className={`flex flex-col bg-white dark:bg-gray-800 overflow-hidden ${
         embedded ? 'h-full min-h-0' : 'border-l border-gray-200 dark:border-gray-700'
       }`}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
     >
       {!embedded && (
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">

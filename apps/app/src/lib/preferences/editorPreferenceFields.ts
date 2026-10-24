@@ -1,4 +1,5 @@
 import { isLayoutPreset } from '@/lib/viewport/layoutPresets'
+import type { SavedLabelStyle } from '@/lib/eendraad/labelScheme'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { LayoutPreset } from '@/types/ui'
 import { normalizeSupportedLanguage } from '@/utils/languageRouting'
@@ -40,10 +41,18 @@ const themeMode: EditorPreferenceField<ThemeMode> = {
   isValid: (value): value is ThemeMode => value === 'light' || value === 'dark',
 }
 
+const labelStyles: EditorPreferenceField<SavedLabelStyle[]> = {
+  key: 'labelStyles',
+  read: () => useSettingsStore.getState().labelStyles,
+  apply: (value) => useSettingsStore.getState().setLabelStyles(value),
+  isValid: (value): value is SavedLabelStyle[] => Array.isArray(value),
+}
+
 /** Workflow preferences synced to the account (language and theme have their own profile columns). */
 export const ACCOUNT_EDITOR_PREFERENCE_FIELDS: EditorPreferenceField[] = [
   placePlanSymbolsManually,
   defaultLayoutPreset,
+  labelStyles,
 ] as EditorPreferenceField[]
 
 /** Everything Community keeps in the server settings when server storage is on. */
@@ -52,6 +61,7 @@ export const COMMUNITY_EDITOR_PREFERENCE_FIELDS: EditorPreferenceField[] = [
   themeMode,
   placePlanSymbolsManually,
   defaultLayoutPreset,
+  labelStyles,
 ] as EditorPreferenceField[]
 
 export function subscribeToSettingsChanges(onChange: () => void): () => void {

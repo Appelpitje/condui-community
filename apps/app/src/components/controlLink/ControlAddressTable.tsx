@@ -15,7 +15,9 @@ import {
   type AddressTableRow,
 } from '@/lib/controlLink/addressTable'
 import { describeAddressTableDevice, getAddressTablePdfLabels } from '@/lib/controlLink/addressTablePdf'
-import { formatGroups, normalizeChannel, parseGroupsInput } from '@/lib/controlLink/controlAddress'
+import { formatGroups, normalizeChannel, normalizeGroups, parseGroupsInput } from '@/lib/controlLink/controlAddress'
+import { setControlButtonAddress } from '@/lib/controlLink/buttonAddressing'
+import { updateEndpointProperties } from '@/handlers/properties/editProperties'
 import { controlAddressesDocument } from '@/lib/documents/projectDocuments'
 import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { findEndpointById } from '@/lib/eendraad/projectElectricalDomain'
@@ -138,7 +140,6 @@ export function ControlAddressTableActions() {
 export function ControlAddressTable() {
   const { t } = useTranslation()
   const { panels, devices, view, labels } = useAddressTableModel()
-  const updateEndpoint = useProjectStore((s) => s.updateEndpoint)
   const selection = useUIStore((s) => s.selection)
   const setSelection = useUIStore((s) => s.setSelection)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
@@ -149,7 +150,11 @@ export function ControlAddressTable() {
       return next
     })
   const selectedIds = selection.type === 'endpoint' ? selection.ids : []
-  const select = (endpointId: string) => setSelection({ type: 'endpoint', ids: [endpointId] })
+  const [activeConnectionId, setActiveConnectionId] = useState<string>()
+  const select = (endpointId: string, connectionId?: string) => {
+    setActiveConnectionId(connectionId)
+    setSelection({ type: 'endpoint', ids: [endpointId] })
+  }
 
   const endpointOf = (endpointId: string): Endpoint | undefined => {
     for (const panel of panels) {
@@ -163,9 +168,13 @@ export function ControlAddressTable() {
     const endpoint = endpointOf(row.endpointId)
     if (!endpoint) return
     if (row.source === 'linked' && endpoint.controlLink) {
-      updateEndpoint(row.endpointId, { controlLink: { ...endpoint.controlLink, ...patch } })
+      updateEndpointProperties(row.endpointId, { controlLink: row.buttonIndex == null
+        ? { ...endpoint.controlLink, ...patch }
+        : setControlButtonAddress(endpoint.controlLink, row.buttonIndex, patch) })
     } else if (endpoint.domoticaChildProps) {
-      updateEndpoint(row.endpointId, { domoticaChildProps: { ...endpoint.domoticaChildProps, ...patch } })
+      updateEndpointProperties(row.endpointId, { domoticaChildProps: row.buttonIndex == null
+        ? { ...endpoint.domoticaChildProps, ...patch }
+        : setControlButtonAddress(endpoint.domoticaChildProps, row.buttonIndex, patch) })
     }
   }
 
@@ -189,19 +198,23 @@ export function ControlAddressTable() {
     view === 'devices'
       ? sortedDevices.flatMap((device) => (collapsed.has(device.deviceId) ? [] : device.rows))
       : groupAddressTable(sortedDevices).flatMap((entry) => entry.rows)
+  const activeRow = visibleRows.find((row) => row.connectionId === activeConnectionId && selectedIds.includes(row.endpointId))
+  const isRowSelected = (row: AddressTableRow) => selectedIds.includes(row.endpointId) &&
+    (!activeRow || activeRow.endpointId !== row.endpointId || row.connectionId === activeRow.connectionId)
   const listRef = useRef<HTMLDivElement>(null)
   const tableRef = useRef<HTMLTableElement>(null)
   const sidePaddingPx = useSidePaddingThatYields(listRef, tableRef, devices.length > 0)
   const pointerInsideRef = useRef(false)
   const stepRef = useRef<(delta: number) => boolean>(() => false)
   stepRef.current = (delta) => {
-    const index = visibleRows.findIndex((row) => selectedIds.includes(row.endpointId))
+    let index = visibleRows.findIndex((row) => row.connectionId === activeConnectionId && selectedIds.includes(row.endpointId))
+    if (index < 0) index = visibleRows.findIndex((row) => selectedIds.includes(row.endpointId))
     if (index < 0) return false
     const row = visibleRows[index + delta]
     if (!row) return true
-    select(row.endpointId)
+    select(row.endpointId, row.connectionId)
     listRef.current
-      ?.querySelector(`[data-endpoint="${CSS.escape(row.endpointId)}"]`)
+      ?.querySelector(`[data-connection="${CSS.escape(row.connectionId)}"]`)
       ?.scrollIntoView({ block: 'nearest' })
     return true
   }
@@ -235,7 +248,7 @@ export function ControlAddressTable() {
           aria-label={labels.channel}
           className={`${cellInputClass} tabular-nums font-medium ${row.hasIssue ? '!text-amber-600 dark:!text-amber-400' : ''}`}
           value={row.channel ?? ''}
-          resetKey={row.endpointId}
+          resetKey={row.connectionId}
           onCommit={(value) => updateAddressing(row, { channel: normalizeChannel(value) })}
         />
       </td>
@@ -248,9 +261,10 @@ export function ControlAddressTable() {
           aria-label={labels.groups}
           className={cellInputClass}
           value={formatGroups(row.groups)}
-          resetKey={row.endpointId}
+          resetKey={row.connectionId}
           onCommit={(value) => {
-            const groups = parseGroupsInput(value)
+            const groups = row.busKey && row.system !== 'knx' && row.system !== 'dali'
+              ? normalizeGroups(value.split(/[,;\n]+/)) : parseGroupsInput(value)
             if (formatGroups(groups) !== formatGroups(row.groups)) updateAddressing(row, { groups })
           }}
         />
@@ -365,11 +379,12 @@ export function ControlAddressTable() {
                     {open &&
                       device.rows.map((row, index) => (
                         <tr
-                          key={row.endpointId}
+                          key={row.connectionId}
                           data-endpoint={row.endpointId}
-                          aria-selected={selectedIds.includes(row.endpointId)}
-                          className={rowClass(selectedIds.includes(row.endpointId))}
-                          onClick={() => select(row.endpointId)}
+                          data-connection={row.connectionId}
+                          aria-selected={isRowSelected(row)}
+                          className={rowClass(isRowSelected(row))}
+                          onClick={() => select(row.endpointId, row.connectionId)}
                         >
                           <td
                             className={`py-1.5 pr-2 font-medium whitespace-nowrap text-gray-800 dark:text-gray-100 ${
@@ -416,11 +431,12 @@ export function ControlAddressTable() {
               groups.map((entry) =>
                 entry.rows.map((row, index) => (
                   <tr
-                    key={`${entry.group}:${row.endpointId}`}
+                    key={`${entry.group}:${row.connectionId}`}
                     data-endpoint={row.endpointId}
-                    aria-selected={selectedIds.includes(row.endpointId)}
-                    className={rowClass(selectedIds.includes(row.endpointId))}
-                    onClick={() => select(row.endpointId)}
+                    data-connection={row.connectionId}
+                    aria-selected={isRowSelected(row)}
+                    className={rowClass(isRowSelected(row))}
+                    onClick={() => select(row.endpointId, row.connectionId)}
                   >
                     <td
                       className={`px-2 py-1.5 font-medium whitespace-nowrap tabular-nums ${

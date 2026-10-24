@@ -1,4 +1,10 @@
 import { polesConfigToDisplay } from '@/constants/poleConfig'
+import { formatProtectionCurveRating, type ProtectionLike } from '@/lib/protectionLabels'
+import {
+  breakingCapacityLabelForOption,
+  breakingCapacityOptionIsAmpStyle,
+  resolveBreakingCapacitySelectValue,
+} from '@/lib/protectionDefaults'
 import type {
   Circuit,
   Endpoint,
@@ -208,6 +214,8 @@ function countCircuitEndpoints(pr: ProtectionDevice): number {
 export interface ModuleDisplayInfo {
   label: string
   specLines: string[]
+  /** Cabinet specifications retain graphical capacity frames in the shared export scene. */
+  specRows?: PanelModuleSpecRow[]
   /** Relay symbol details rendered in the center band of endpoint modules. */
   relay?: {
     symbolPath: string
@@ -225,6 +233,36 @@ export interface ModuleDisplayInfo {
   phaseLabel?: string
   tooltipText: string
   kind: 'protection' | 'trunkDevice' | 'domotica'
+}
+
+export interface PanelModuleSpecRow {
+  text: string
+  frame?: boolean
+}
+
+function getProtectionModuleSpecRows(source: ProtectionLike): PanelModuleSpecRow[] {
+  const type = source.type === 'protection' ? source.protectionType : source.type
+  const rows: PanelModuleSpecRow[] = []
+  const rating = type === 'MCB' || type === 'RCBO'
+    ? formatProtectionCurveRating(source.curve, source.ratingA)
+    : source.ratingA != null ? `${source.ratingA}A` : ''
+  if (type !== 'ROTATING_SWITCH' && rating) rows.push({ text: rating })
+  if (type === 'RCD' || type === 'RCBO') {
+    if (source.sensitivityMa != null) rows.push({ text: `IΔn ${source.sensitivityMa}mA` })
+    const residual = [
+      source.residualCurrentType ? `Type ${source.residualCurrentType}` : '',
+      source.selective ? 'S' : '',
+      source.superImmunized ? 'SI' : '',
+    ].filter(Boolean).join(' ')
+    if (residual) rows.push({ text: residual })
+  }
+  if (source.breakingCapacityKa != null && (type === 'MCB' || type === 'RCBO' || type === 'SPD')) {
+    const option = resolveBreakingCapacitySelectValue(source.breakingCapacityOption, source.breakingCapacityKa)
+    rows.push(type === 'SPD'
+      ? { text: `${source.breakingCapacityKa}kA` }
+      : { text: breakingCapacityLabelForOption(option), frame: breakingCapacityOptionIsAmpStyle(option) })
+  }
+  return rows
 }
 
 function getLocalizedPanelDeviceName(symbolId: string | undefined): string | null {
@@ -247,12 +285,7 @@ function buildProtectionTooltip(
   const lines: string[] = [pr.label]
 
   // Full type & specs line
-  const specParts: string[] = [pr.type]
-  if (pr.curve) specParts.push(pr.curve)
-  if (pr.ratingA != null) specParts.push(`${pr.ratingA}A`)
-  if (pr.sensitivityMa != null) specParts.push(`IΔn ${pr.sensitivityMa}mA`)
-  if (pr.residualCurrentType) specParts.push(`Type ${pr.residualCurrentType}`)
-  if (pr.breakingCapacityKa != null) specParts.push(`${pr.breakingCapacityKa}kA`)
+  const specParts = [pr.type, ...getProtectionModuleSpecRows(pr).map((row) => row.text)]
   if (pr.polesConfig) specParts.push(polesConfigToDisplay(pr.polesConfig) || pr.polesConfig)
   lines.push(specParts.join(' '))
 
@@ -296,49 +329,8 @@ export function getModuleDisplayInfo(
     const pr = findProtectionRecursive(panels, ref.id)
     if (!pr) return { ...empty, label: ref.id }
 
-    const specLines: string[] = []
-
-    switch (pr.type) {
-      case 'MCB': {
-        if (pr.ratingA != null) specLines.push(`${pr.ratingA}A`)
-        if (pr.curve) specLines.push(pr.curve)
-        if (pr.breakingCapacityKa != null) specLines.push(`${pr.breakingCapacityKa}kA`)
-        break
-      }
-      case 'RCD': {
-        if (pr.sensitivityMa != null) specLines.push(`IΔn ${pr.sensitivityMa}mA`)
-        if (pr.residualCurrentType) specLines.push(`Type ${pr.residualCurrentType}`)
-        if (pr.ratingA != null) specLines.push(`${pr.ratingA}A`)
-        break
-      }
-      case 'RCBO': {
-        if (pr.sensitivityMa != null) specLines.push(`IΔn ${pr.sensitivityMa}mA`)
-        if (pr.ratingA != null) specLines.push(`${pr.ratingA}A`)
-        if (pr.curve) specLines.push(pr.curve)
-        if (pr.breakingCapacityKa != null) specLines.push(`${pr.breakingCapacityKa}kA`)
-        break
-      }
-      case 'FUSE': {
-        if (pr.ratingA != null) specLines.push(`${pr.ratingA}A`)
-        break
-      }
-      case 'MAIN_SWITCH': {
-        if (pr.ratingA != null) specLines.push(`${pr.ratingA}A`)
-        break
-      }
-      case 'SPD': {
-        if (pr.ratingA != null) specLines.push(`${pr.ratingA}A`)
-        if (pr.breakingCapacityKa != null) specLines.push(`${pr.breakingCapacityKa}kA`)
-        break
-      }
-      case 'ROTATING_SWITCH': {
-        break
-      }
-      default: {
-        if (pr.ratingA != null) specLines.push(`${pr.ratingA}A`)
-        break
-      }
-    }
+    const specRows = getProtectionModuleSpecRows(pr)
+    const specLines = specRows.map((row) => row.text)
 
     return {
       // A rotating switch needs a useful module title even without a custom label.
@@ -348,6 +340,7 @@ export function getModuleDisplayInfo(
           ? pr.label.trim() || getLocalizedPanelDeviceName('rotating_switch') || pr.type
           : pr.label,
       specLines,
+      specRows,
       phaseLabel: getProtectionModulePhaseLabel(pr, panels, system, installation),
       tooltipText: buildProtectionTooltip(pr, project, ref.id),
       kind: 'protection',
@@ -384,44 +377,15 @@ export function getModuleDisplayInfo(
     }
 
     if (d.type === 'protection' && d.protectionType) {
-      switch (d.protectionType) {
-        case 'MCB': {
-          if (d.ratingA != null) specLines.push(`${d.ratingA}A`)
-          if (d.curve) specLines.push(d.curve)
-          if (d.breakingCapacityKa != null) specLines.push(`${d.breakingCapacityKa}kA`)
-          break
-        }
-        case 'RCD': {
-          if (d.sensitivityMa != null) specLines.push(`IΔn ${d.sensitivityMa}mA`)
-          if (d.residualCurrentType) specLines.push(`Type ${d.residualCurrentType}`)
-          break
-        }
-        case 'RCBO': {
-          if (d.sensitivityMa != null) specLines.push(`IΔn ${d.sensitivityMa}mA`)
-          if (d.ratingA != null) specLines.push(`${d.ratingA}A`)
-          if (d.curve) specLines.push(d.curve)
-          break
-        }
-        case 'SPD': {
-          if (d.ratingA != null) specLines.push(`${d.ratingA}A`)
-          if (d.breakingCapacityKa != null) specLines.push(`${d.breakingCapacityKa}kA`)
-          break
-        }
-        default: {
-          if (d.ratingA != null) specLines.push(`${d.ratingA}A`)
-          break
-        }
-      }
+      const rows = getProtectionModuleSpecRows(d)
+      specLines.push(...rows.map((row) => row.text))
       const polesDisplay = d.polesConfig ? polesConfigToDisplay(d.polesConfig) : ''
       const typeLabel =
         localizedPanelDeviceName ??
         i18n.t(`protections.type_${d.protectionType}`, { defaultValue: d.protectionType })
       const specStr = [
         typeLabel,
-        d.curve,
-        d.ratingA != null ? `${d.ratingA}A` : '',
-        d.sensitivityMa != null ? `IΔn ${d.sensitivityMa}mA` : '',
-        d.breakingCapacityKa != null ? `${d.breakingCapacityKa}kA` : '',
+        ...rows.map((row) => row.text),
         polesDisplay,
       ]
         .filter(Boolean)
@@ -453,6 +417,7 @@ export function getModuleDisplayInfo(
     return {
       label: visibleLabel,
       specLines,
+      ...(d.type === 'protection' && d.protectionType ? { specRows: getProtectionModuleSpecRows(d) } : {}),
       phaseLabel: (() => {
         if (d.symbol === 'source_changeover') {
           return getPhaseAssignmentLabel(getFullInstallationPhaseAssignment(system), system)

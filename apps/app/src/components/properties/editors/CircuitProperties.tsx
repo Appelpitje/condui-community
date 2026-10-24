@@ -106,10 +106,8 @@ export function CircuitProperties({
       : undefined
 
   React.useEffect(() => {
-    if (circuit?.code !== localCode) {
-      setLocalCode(circuit?.code || '')
-    }
-  }, [circuit?.code, localCode])
+    setLocalCode(circuit?.code || '')
+  }, [circuit?.id, circuit?.code])
 
   React.useEffect(() => {
     if (!focusCustomLabel || !manualLabelOverride) return

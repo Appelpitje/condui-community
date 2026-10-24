@@ -119,8 +119,8 @@ function rotationFromWallNormal(
     ? normalA
     : { x: -normalA.x, y: -normalA.y }
 
-  // At rotation 0, sockets face left and distribution panels face down.
-  const baseFacingAngle = wallFacingSide === 'left' ? 180 : 90
+  // At rotation 0, sockets face left, wall lights right and distribution panels down.
+  const baseFacingAngle = wallFacingSide === 'left' ? 180 : wallFacingSide === 'right' ? 0 : 90
   const normalAngle = Math.atan2(normal.y, normal.x) * 180 / Math.PI
   const normalized = ((normalAngle - baseFacingAngle) % 360 + 360) % 360
   return Math.round(normalized * 1e6) / 1e6
@@ -390,10 +390,11 @@ function getQuadrantWallScoresFromWalls(
 /**
  * Which side of the symbol faces the wall at rotation 0.
  * - 'left': sockets — at rotation 0 the left side (tail) is against the wall
+ * - 'right': wall lights — the mounting line is on the right
  * - 'top':  distribution panels — at rotation 0 the bottom side is against the wall
  *          (symbol body opens away from the wall)
  */
-export type WallFacingSide = 'left' | 'top'
+export type WallFacingSide = 'left' | 'right' | 'top'
 
 /**
  * Rotation mapping per wall-facing side.
@@ -402,6 +403,7 @@ export type WallFacingSide = 'left' | 'top'
 const ROTATION_MAP: Record<WallFacingSide, { top: Rotation; right: Rotation; bottom: Rotation; left: Rotation }> = {
   // Socket: original LEFT faces wall → left wall = 0°
   left: { left: 0 as Rotation, top: 90 as Rotation, right: 180 as Rotation, bottom: 270 as Rotation },
+  right: { left: 180 as Rotation, top: 270 as Rotation, right: 0 as Rotation, bottom: 90 as Rotation },
   // Panel: bottom faces wall at 0° → top wall = 180°
   top:  { top: 180 as Rotation, right: 270 as Rotation, bottom: 0 as Rotation, left: 90 as Rotation },
 }

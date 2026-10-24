@@ -1,6 +1,7 @@
+import { LabelPreviewText } from './LabelPreviewText'
 import { useCallback, useState } from 'react'
 import { ZOOM_100 } from '@/constants/canvasConstants'
-import { Group, Rect, Text, Line } from 'react-konva'
+import { Group, Rect, Line } from 'react-konva'
 import { useUIStore } from '@/stores/uiStore'
 import { useClearHover, useSetHover, useSetSelection } from '@/editions/community/communityHooks'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -40,6 +41,7 @@ interface PanelSymbolProps {
   circuitCount?: number // Number of circuits in this sub-panel
   symbolLabelDisplay?: SymbolLabelDisplayConfig
   maxLabelWidth?: number
+  showName?: boolean
   labelPosition?: 'right' | 'top'
   onDragStart?: (altKey: boolean, evt: MouseEvent) => boolean
   onDragMove?: (position: Point) => void
@@ -53,6 +55,7 @@ export function PanelSymbol({
   subPanelId,
   circuitCount = 0,
   maxLabelWidth,
+  showName = true,
   labelPosition = 'right',
   onDragStart,
   onDragMove,
@@ -82,7 +85,7 @@ export function PanelSymbol({
     (s) => !!subPanelId && s.hover.type === 'panel' && s.hover.ids.includes(subPanelId)
   )
   const isHoveredAny = isHovered || isHoveredFromBreadcrumb
-  const isPanelNameVisible = true
+  const isPanelNameVisible = showName
 
   const handleMouseEnter = useCallback(() => {
     setIsHovered(true)
@@ -141,6 +144,7 @@ export function PanelSymbol({
 
   return (
     <Group
+      name={subPanelId ? `panel-attachment-${subPanelId}` : undefined}
       x={position.x}
       y={position.y}
       draggable={isInteractive && isSelected && !!onDragEnd}
@@ -245,7 +249,7 @@ export function PanelSymbol({
         })}
 
       {panelName && isPanelNameVisible && (
-        <Text
+        <LabelPreviewText section="panels" maximumWidth={maxLabelWidth}
           x={
             labelPosition === 'top'
               ? -(maxLabelWidth ?? 120) / 2

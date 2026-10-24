@@ -395,9 +395,14 @@ export function applyExtraElectricalAction(
     if (installation.defaultCableKind === action.cable.kind && run?.followsDefaultCable === true)
       return []
     installation.defaultCableKind = action.cable.kind
-    editWireRunAtAnchor(project, action.anchor, action.cable as CableSpec, {
-      followsDefaultCable: true,
-    })
+    editWireRunAtAnchor(
+      project,
+      action.anchor,
+      action.cable as CableSpec,
+      { followsDefaultCable: true },
+      undefined,
+      action.sharedGeometryAnchors
+    )
     return [
       { kind: 'installation', id: 'electrical' },
       { kind: 'element', id: action.anchor },

@@ -1,7 +1,7 @@
 import { getAllCircuits } from '@/lib/eendraad/projectElectricalDomain'
 import { getProjectElectricalPanels, type ProjectWithOptionalV2Electrical } from '@/lib/projectV2/electrical'
 import { getVisibleEndpointNoteText } from '@/lib/conversionLabels'
-import type { Circuit, ControlDeviceFields, Endpoint, EndpointControlLink, Panel } from '@/types/schema'
+import type { Circuit, ControlDeviceFields, ControlSystem, Endpoint, EndpointControlLink, Panel } from '@/types/schema'
 import {
   addressKey,
   normalizeChannel,
@@ -10,7 +10,9 @@ import {
   validateDeviceChannel,
   validateDeviceGroup,
 } from './controlAddress'
-import { rowAddressKey } from './controlLinkNoteContext'
+import { busDeviceAddressKey, busRowLabelKey, rowAddressKey } from './controlLinkNoteContext'
+import { getDomoticaBusContext, getDomoticaBusDeviceFields, getDomoticaBusLabel, type DomoticaBusContext } from './domoticaBus'
+import { controlConnectionId, getActiveControlButtonAddresses, getControlButtonCount, setControlButtonAddress } from './buttonAddressing'
 
 export { normalizeChannel } from './controlAddress'
 
@@ -40,14 +42,62 @@ export function getOperatingDeviceKind(endpoint: Endpoint | undefined): Operatin
   return undefined
 }
 
+/** A module on an explicitly modeled bus also operates its own ordinary outputs. */
+function contextualOperatingKind(
+  panels: Panel[], endpoint: Endpoint | undefined, endpoints: ReadonlyMap<string, Endpoint>,
+): OperatingDeviceKind | undefined {
+  return getOperatingDeviceKind(endpoint) ??
+    (endpoint?.symbol === 'domotica' && getDomoticaBusContext(panels, endpoint, endpoints) ? 'domotica' : undefined)
+}
+
 /**
  * Endpoints that may carry a control link: contacts operated by a module or relay (outputs),
- * and switches or pushbuttons that signal one (inputs). Wired domotica children are connected
- * through their parent instead.
+ * switches or pushbuttons that signal one (inputs), and relay coils switched by another
+ * device (outputs). Wired domotica children are connected through their parent instead.
  */
 export function canHaveControlLink(endpoint: Endpoint | undefined): boolean {
   if (!endpoint || endpoint.domoticaChildProps) return false
-  return endpoint.symbol === 'contact' || isSwitchSymbol(endpoint.symbol)
+  return endpoint.symbol === 'contact' || endpoint.symbol === 'relay' || isSwitchSymbol(endpoint.symbol)
+}
+
+/** Shared picker/command eligibility: a relay may be both a consumer and an operator,
+ * but its chain of operating devices must remain acyclic. */
+export function canLinkControlDevice(
+  panels: Panel[],
+  endpoint: Endpoint | undefined,
+  deviceId: string,
+  projectedEndpoints?: ReadonlyMap<string, Endpoint>,
+): boolean {
+  if (!canHaveControlLink(endpoint) || !endpoint || deviceId === endpoint.id) return false
+  const endpoints = projectedEndpoints ?? new Map(
+    collectControlLinkEntries(panels).map((entry) => [entry.endpoint.id, entry.endpoint]),
+  )
+  let current = endpoints.get(deviceId)
+  if (!contextualOperatingKind(panels, current, endpoints)) return false
+  const visited = new Set([endpoint.id])
+  while (current) {
+    if (visited.has(current.id) || !contextualOperatingKind(panels, current, endpoints)) return false
+    visited.add(current.id)
+    const parentId = current.controlLink?.deviceId
+    if (!parentId) return true
+    current = endpoints.get(parentId)
+    if (!current) return false
+  }
+  return true
+}
+
+/** A new operating device assigns the first effective channel; the remaining
+ * button addresses and all group assignments belong to the connection. */
+export function rebindControlLink(
+  endpoint: Endpoint,
+  deviceId: string | undefined,
+  channel?: string,
+): EndpointControlLink | undefined {
+  if (!deviceId) return undefined
+  const next: EndpointControlLink = { ...endpoint.controlLink, deviceId, channel: normalizeChannel(channel) }
+  const perButton = getConnectionDirection(endpoint) === 'input' &&
+    (getControlButtonCount(endpoint) > 1 || !!endpoint.controlLink?.buttonAddresses?.length)
+  return perButton ? setControlButtonAddress(next, 0, { channel: next.channel }) : next
 }
 
 export function collectControlLinkEntries(panels: Panel[]): ControlLinkEntry[] {
@@ -67,8 +117,10 @@ export function collectControlLinkEntries(panels: Panel[]): ControlLinkEntry[] {
 
 /** All domotica module endpoints that can be chosen as an operating device. */
 export function findControlLinkDevices(panels: Panel[]): ControlLinkEntry[] {
-  return collectControlLinkEntries(panels).filter(({ endpoint }) =>
-    canOperateControlLinks(endpoint)
+  const entries = collectControlLinkEntries(panels)
+  const endpoints = new Map(entries.map(({ endpoint }) => [endpoint.id, endpoint]))
+  return entries.filter(({ endpoint }) =>
+    contextualOperatingKind(panels, endpoint, endpoints) != null
   )
 }
 
@@ -114,15 +166,27 @@ export function getControlLinkLabel(
 }
 
 /**
- * Wired domotica outputs show their channel after the row label. A row may hold several
- * endpoints; the first entered channel is shared by all of them, so the address follows
- * whichever endpoint carries the row label.
+ * Wired domotica outputs show their channel below the last symbol on the row. A row may hold
+ * several output loads; its shared channel follows the endpoint that carries the row label.
+ * Input buttons keep their own addresses below each symbol instead.
  */
-function addRowAddressNotes(entries: ControlLinkEntry[], notes: Map<string, string>): void {
+function addRowAddressNotes(entries: ControlLinkEntry[], notes: Map<string, string>, panels: Panel[]): void {
   const rows = new Map<string, { ids: string[]; channel?: string }>()
   for (const { endpoint } of entries) {
     const child = endpoint.domoticaChildProps
     if (!child) continue
+    const bus = getDomoticaBusContext(panels, endpoint)
+    if (bus) {
+      const label = getDomoticaBusLabel(bus)
+      if (label) {
+        notes.set(rowAddressKey(endpoint.id), label)
+        notes.set(busRowLabelKey(endpoint.id), label)
+      }
+      const address = getDomoticaBusDeviceFields(bus, endpoint).deviceAddress
+      if (address) notes.set(busDeviceAddressKey(endpoint.id), address)
+      continue
+    }
+    if (getConnectionDirection(endpoint) === 'input') continue
     const key = `${child.parentEndpointId}:${child.outputGroup}:${child.outputIndex}`
     const row = rows.get(key) ?? { ids: [] }
     row.ids.push(endpoint.id)
@@ -131,7 +195,8 @@ function addRowAddressNotes(entries: ControlLinkEntry[], notes: Map<string, stri
   }
   for (const row of rows.values()) {
     if (row.channel == null) continue
-    for (const id of row.ids) notes.set(rowAddressKey(id), row.channel)
+    const rowLabelEndpointId = row.ids.at(-1)
+    if (rowLabelEndpointId) notes.set(rowAddressKey(rowLabelEndpointId), row.channel)
   }
 }
 
@@ -139,30 +204,30 @@ function addRowAddressNotes(entries: ControlLinkEntry[], notes: Map<string, stri
 export function buildControlLinkNoteMap(panels: Panel[]): Map<string, string> {
   const notes = new Map<string, string>()
   const entries = collectControlLinkEntries(panels)
-  addRowAddressNotes(entries, notes)
+  addRowAddressNotes(entries, notes, panels)
   if (!entries.some(({ endpoint }) => endpoint.controlLink)) return notes
   const devices = new Map(
-    entries
-      .filter(({ endpoint }) => canOperateControlLinks(endpoint))
+    findControlLinkDevices(panels)
       .map(({ endpoint }) => [endpoint.id, endpoint])
   )
   for (const { endpoint } of entries) {
     const link = endpoint.controlLink
     const device = link ? devices.get(link.deviceId) : undefined
-    if (link && device) notes.set(endpoint.id, formatControlLinkLabel(device, link))
+    if (link && device && getConnectionDirection(endpoint) !== 'input')
+      notes.set(endpoint.id, formatControlLinkLabel(device, link))
   }
   return notes
 }
 
 /**
- * The note text painted under an endpoint on the one-wire. A valid control link wins over
- * the endpoint's own notes (and their visibility flag).
+ * A linked output contact shows its operating device. Input buttons keep their ordinary
+ * notes independent of the per-button addresses painted directly below the symbol.
  */
 export function getEndpointOneWireNoteText(
   endpoint: Endpoint,
   project: ProjectWithOptionalV2Electrical
 ): string {
-  const linked = endpoint.controlLink
+  const linked = endpoint.controlLink && getConnectionDirection(endpoint) !== 'input'
     ? getControlLinkLabel(getProjectElectricalPanels(project), endpoint.controlLink)
     : undefined
   return getVisibleEndpointNoteText(endpoint, linked)
@@ -174,7 +239,7 @@ export function isEndpointNoteOverriddenByControlLink(
   project: ProjectWithOptionalV2Electrical
 ): boolean {
   return (
-    endpoint.controlLink != null &&
+    endpoint.controlLink != null && getConnectionDirection(endpoint) !== 'input' &&
     getControlLinkLabel(getProjectElectricalPanels(project), endpoint.controlLink) !== undefined
   )
 }
@@ -199,6 +264,7 @@ const INPUT_SYMBOLS = new Set([
   'switch_cross',
   'switch_dimmer',
   'switch_1p_changeover',
+  'switch_shutter',
   'switch_1p_pull',
   'switch_impulse',
   'motion_detector',
@@ -224,6 +290,17 @@ export interface ConnectedEndpointEntry extends ControlLinkEntry {
   direction: ConnectionDirection
   channel: string | undefined
   groups: string[]
+  /** Stable identity when a multiplied pushbutton contributes several input channels. */
+  connectionId: string
+  buttonIndex?: number
+  bus?: {
+    key: string
+    label: string
+    outputGroup: 'control' | 'endpoint'
+    outputIndex: number
+    system: ControlSystem | undefined
+    deviceAddress: string | undefined
+  }
 }
 
 export interface ControlDeviceEntry extends ControlLinkEntry {
@@ -231,6 +308,7 @@ export interface ControlDeviceEntry extends ControlLinkEntry {
   fields: ControlDeviceFields
   /** Wired children and linked endpoints, naturally sorted by channel (unassigned last). */
   connections: ConnectedEndpointEntry[]
+  busContext?: DomoticaBusContext
 }
 
 export interface ControlDeviceIndex {
@@ -242,14 +320,20 @@ export interface ControlDeviceIndex {
 /** Every operating device with everything connected to it, from one pass over the project. */
 export function buildControlDeviceIndex(panels: Panel[]): ControlDeviceIndex {
   const entries = collectControlLinkEntries(panels)
+  const endpoints = new Map(entries.map(({ endpoint }) => [endpoint.id, endpoint]))
   const devices = new Map<string, ControlDeviceEntry>()
   for (const entry of entries) {
-    if (!canOperateControlLinks(entry.endpoint)) continue
+    const kind = contextualOperatingKind(panels, entry.endpoint, endpoints)
+    if (!kind) continue
+    const bus = getDomoticaBusContext(panels, entry.endpoint, endpoints)
     devices.set(entry.endpoint.id, {
       ...entry,
-      kind: getOperatingDeviceKind(entry.endpoint)!,
-      fields: getControlDeviceFields(entry.endpoint),
+      kind,
+      fields: bus
+        ? { ...getControlDeviceFields(entry.endpoint), ...getDomoticaBusDeviceFields(bus, entry.endpoint) }
+        : getControlDeviceFields(entry.endpoint),
       connections: [],
+      ...(bus ? { busContext: bus } : {}),
     })
   }
   const dangling: ControlLinkEntry[] = []
@@ -262,29 +346,50 @@ export function buildControlDeviceIndex(panels: Panel[]): ControlDeviceIndex {
         dangling.push(entry)
         continue
       }
-      device.connections.push({
-        ...entry,
-        source: 'linked',
-        direction: getConnectionDirection(endpoint, 'linked'),
-        channel: normalizeChannel(link.channel),
-        groups: normalizeGroups(link.groups),
-      })
+      device.connections.push(...connectionEntries(entry, 'linked', link))
       continue
     }
     const child = endpoint.domoticaChildProps
-    if (!child || endpoint.symbol === 'domotica') continue
-    devices.get(child.parentEndpointId)?.connections.push({
-      ...entry,
-      source: 'wired',
-      direction: getConnectionDirection(endpoint, 'wired'),
-      channel: normalizeChannel(child.channel),
-      groups: normalizeGroups(child.groups),
-    })
+    if (!child) continue
+    const bus = getDomoticaBusContext(panels, endpoint, endpoints)
+    if (endpoint.symbol === 'domotica' && !bus) continue
+    devices.get(child.parentEndpointId)?.connections.push(...connectionEntries(entry, 'wired', child, bus))
   }
   for (const device of devices.values()) {
     device.connections.sort((left, right) => compareChannels(left.channel, right.channel))
   }
   return { devices, dangling }
+}
+
+function connectionEntries(
+  entry: ControlLinkEntry,
+  source: ConnectedEndpointSource,
+  addressing: EndpointControlLink | NonNullable<Endpoint['domoticaChildProps']>,
+  busContext?: DomoticaBusContext,
+): ConnectedEndpointEntry[] {
+  const direction = getConnectionDirection(entry.endpoint, source)
+  const bus = busContext ? {
+    key: busContext.busKey, label: getDomoticaBusLabel({ ...busContext, wire: { ...busContext.wire, showBusLabel: true } }),
+    outputGroup: busContext.outputGroup, outputIndex: busContext.outputIndex,
+    system: busContext.system,
+    deviceAddress: getDomoticaBusDeviceFields(busContext, entry.endpoint).deviceAddress,
+  } : undefined
+  if (direction === 'input') {
+    const numbered = getControlButtonCount(entry.endpoint) > 1 || addressing.buttonAddresses != null
+    return getActiveControlButtonAddresses(entry.endpoint, addressing).map(({ buttonIndex, channel, groups }) => ({
+      ...entry, source, direction, channel, groups,
+      connectionId: controlConnectionId(entry.endpoint.id, buttonIndex),
+      ...(numbered ? { buttonIndex } : {}),
+      ...(bus ? { bus } : {}),
+    }))
+  }
+  return [{
+    ...entry, source, direction,
+    channel: normalizeChannel(addressing.channel),
+    groups: normalizeGroups(addressing.groups),
+    connectionId: controlConnectionId(entry.endpoint.id),
+    ...(bus ? { bus } : {}),
+  }]
 }
 
 /** All operating devices, in project order. */
@@ -320,8 +425,9 @@ export function getNextFreeChannel(
   const device = buildControlDeviceIndex(panels).devices.get(deviceId)
   // A relay usually has one contact; numbering only starts once the user chooses to.
   if (device?.kind === 'relay') return ''
+  if (ignoreEndpointId && device?.connections.some((entry) => entry.endpoint.id === ignoreEndpointId && entry.bus)) return ''
   const used = (device?.connections ?? [])
-    .filter((entry) => entry.direction === direction && entry.endpoint.id !== ignoreEndpointId)
+    .filter((entry) => !entry.bus && entry.direction === direction && entry.endpoint.id !== ignoreEndpointId)
     .map(({ channel }) => channel)
     .filter((channel): channel is string => channel != null)
   if (!used.every((channel) => /^[0-9]+$/.test(channel))) return ''
@@ -345,14 +451,17 @@ export interface ChannelCapacity {
  * inputs, output connections), since the drawn count covers inputs and outputs together.
  */
 export function getChannelCapacity(device: ControlDeviceEntry): ChannelCapacity {
-  const used = device.connections.filter((entry) => entry.direction === 'output').length
-  const inputs = device.connections.length - used
+  const used = device.connections.filter((entry) => !entry.bus && entry.direction === 'output').length
+  const inputs = device.connections.filter((entry) => entry.direction === 'input').length
   const explicit = device.fields.channelCount
   if (explicit != null && Number.isFinite(explicit) && explicit > 0) {
     return { capacity: Math.floor(explicit), used, inputs, explicit: true }
   }
   const drawn = device.endpoint.domoticaProps?.endpointCount ?? 0
-  return { capacity: Math.max(drawn - inputs, used), used, inputs, explicit: false }
+  const inputSlots = new Set(device.connections.filter((entry) => !entry.bus && entry.direction === 'input').map((entry) => entry.endpoint.id)).size
+  const busSlots = (device.endpoint.domoticaProps?.endpointOutputWires ?? [])
+    .slice(0, drawn).filter((wire) => wire?.connectionType === 'bus').length
+  return { capacity: Math.max(drawn - inputSlots - busSlots, used), used, inputs, explicit: false }
 }
 
 export type ControlDeviceIssue =
@@ -363,10 +472,13 @@ export type ControlDeviceIssue =
       direction: ConnectionDirection
       channel: string
       endpointIds: string[]
+      connectionIds?: string[]
     }
-  | { kind: 'invalid-channel'; deviceId: string; endpointId: string; channel: string }
-  | { kind: 'invalid-group'; deviceId: string; endpointId: string; group: string }
+  | { kind: 'invalid-channel'; deviceId: string; endpointId: string; channel: string; buttonIndex?: number }
+  | { kind: 'invalid-group'; deviceId: string; endpointId: string; group: string; buttonIndex?: number }
   | { kind: 'invalid-device-address'; deviceId: string; address: string }
+  | { kind: 'invalid-bus-device-address'; deviceId: string; endpointId: string; address: string }
+  | { kind: 'duplicate-bus-device-address'; deviceId: string; busKey: string; address: string; endpointIds: string[] }
   | { kind: 'over-capacity'; deviceId: string; used: number; capacity: number }
 
 /**
@@ -383,31 +495,56 @@ export function validateControlDevices(panels: Panel[]): ControlDeviceIssue[] {
   for (const device of devices.values()) {
     const deviceId = device.endpoint.id
     const address = normalizeChannel(device.fields.deviceAddress)
-    if (address != null && !validateDeviceAddress(device.fields.system, address)) {
+    if (!device.busContext && address != null && !validateDeviceAddress(device.fields.system, address)) {
       issues.push({ kind: 'invalid-device-address', deviceId, address })
     }
     const claims = new Map<
       string,
-      { direction: ConnectionDirection; channel: string; endpointIds: string[] }
+      { direction: ConnectionDirection; channel: string; endpointIds: string[]; connectionIds: string[]; numbered: boolean }
     >()
-    for (const { endpoint, direction, channel, groups } of device.connections) {
-      if (channel != null) {
-        if (!validateDeviceChannel(device.fields, channel)) {
-          issues.push({ kind: 'invalid-channel', deviceId, endpointId: endpoint.id, channel })
+    const busDevices = new Set<string>()
+    const busAddressClaims = new Map<string, { busKey: string; address: string; endpointIds: string[] }>()
+    for (const { endpoint, direction, channel, groups, connectionId, buttonIndex, bus } of device.connections) {
+      const connectionFields = bus ? { system: bus.system } : device.fields
+      if (bus && !busDevices.has(endpoint.id)) {
+        busDevices.add(endpoint.id)
+        if (bus.deviceAddress != null) {
+          if (!validateDeviceAddress(bus.system, bus.deviceAddress)) {
+            issues.push({ kind: 'invalid-bus-device-address', deviceId, endpointId: endpoint.id, address: bus.deviceAddress })
+          }
+          const key = `${bus.key}:${addressKey(bus.deviceAddress)}`
+          const claim = busAddressClaims.get(key) ?? { busKey: bus.key, address: bus.deviceAddress, endpointIds: [] }
+          claim.endpointIds.push(endpoint.id)
+          busAddressClaims.set(key, claim)
         }
-        const key = `${direction}:${addressKey(channel)}`
-        const claim = claims.get(key) ?? { direction, channel, endpointIds: [] }
+      }
+      if (channel != null) {
+        if (!bus && !validateDeviceChannel(connectionFields, channel)) {
+          issues.push({ kind: 'invalid-channel', deviceId, endpointId: endpoint.id, channel, ...(buttonIndex == null ? {} : { buttonIndex }) })
+        }
+        const key = `${bus ? `bus-device:${endpoint.id}:` : ''}${direction}:${addressKey(channel)}`
+        const claim = claims.get(key) ?? { direction, channel, endpointIds: [], connectionIds: [], numbered: false }
         claim.endpointIds.push(endpoint.id)
+        claim.connectionIds.push(connectionId)
+        claim.numbered ||= buttonIndex != null
         claims.set(key, claim)
       }
       for (const group of groups) {
-        if (!validateDeviceGroup(device.fields, group)) {
-          issues.push({ kind: 'invalid-group', deviceId, endpointId: endpoint.id, group })
+        if (!validateDeviceGroup(connectionFields, group)) {
+          issues.push({ kind: 'invalid-group', deviceId, endpointId: endpoint.id, group, ...(buttonIndex == null ? {} : { buttonIndex }) })
         }
       }
     }
+    for (const claim of busAddressClaims.values()) {
+      if (claim.endpointIds.length > 1) issues.push({ kind: 'duplicate-bus-device-address', deviceId, ...claim })
+    }
     for (const claim of claims.values()) {
-      if (claim.endpointIds.length > 1) issues.push({ kind: 'duplicate-channel', deviceId, ...claim })
+      if (claim.connectionIds.length > 1) issues.push({
+        kind: 'duplicate-channel', deviceId,
+        direction: claim.direction, channel: claim.channel,
+        endpointIds: [...new Set(claim.endpointIds)],
+        ...(claim.numbered ? { connectionIds: claim.connectionIds } : {}),
+      })
     }
     const capacity = getChannelCapacity(device)
     if (capacity.explicit && capacity.used > capacity.capacity) {
@@ -426,11 +563,17 @@ export function validateProjectControlDevices(
 /** Issues that concern one endpoint as a connection. */
 export function issuesForConnection(
   issues: ControlDeviceIssue[],
-  endpointId: string
+  endpointId: string,
+  buttonIndex?: number,
 ): ControlDeviceIssue[] {
-  return issues.filter((issue) =>
-    issue.kind === 'duplicate-channel'
-      ? issue.endpointIds.includes(endpointId)
-      : 'endpointId' in issue && issue.endpointId === endpointId
-  )
+  return issues.filter((issue) => {
+    if (issue.kind === 'duplicate-bus-device-address') return issue.endpointIds.includes(endpointId)
+    if (issue.kind === 'duplicate-channel') {
+      return buttonIndex != null && issue.connectionIds
+        ? issue.connectionIds.includes(controlConnectionId(endpointId, buttonIndex))
+        : issue.endpointIds.includes(endpointId)
+    }
+    return 'endpointId' in issue && issue.endpointId === endpointId &&
+      (buttonIndex == null || !('buttonIndex' in issue) || issue.buttonIndex === buttonIndex)
+  })
 }

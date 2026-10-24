@@ -31,6 +31,8 @@ import { findCircuitTrunkBranchSlot, type CircuitTrunkBranchSlot } from './circu
 
 /** Options for findDropTarget / findDropTargetWithDebug (all optional). */
 export interface FindDropTargetOptions {
+  /** Board placement consumes an output even when its marker overlaps an existing load. */
+  preferDomoticaEndpointOutput?: boolean
   /** Reuse a trunk-only slot index during a synchronous batch of hit tests. */
   trunkBranchSlotAt?: (position: Point) => CircuitTrunkBranchSlot | null
   /**
@@ -667,6 +669,10 @@ export function findDropTarget(
   position: Point,
   options?: FindDropTargetOptions
 ): DropTarget {
+  if (options?.preferDomoticaEndpointOutput) {
+    const output = findDomoticaOutputDropTarget(tree, position)
+    if (output?.domoticaOutput?.group === 'endpoint') return output
+  }
   return withCircuitTrunkBranchSlot(tree, position, findDropTargetBySegment(tree, position, options), options?.trunkBranchSlotAt)
 }
 
@@ -813,6 +819,10 @@ export function findDropTargetWithDebug(
   position: Point,
   options?: FindDropTargetOptions
 ): { target: DropTarget; debug: DebugInfo } {
+  if (options?.preferDomoticaEndpointOutput) {
+    const output = findDomoticaOutputDropTarget(tree, position)
+    if (output?.domoticaOutput?.group === 'endpoint') return { target: output, debug: { path: [] } }
+  }
   const result = findDropTargetWithDebugBySegment(tree, position, options)
   return { ...result, target: withCircuitTrunkBranchSlot(tree, position, result.target, options?.trunkBranchSlotAt) }
 }

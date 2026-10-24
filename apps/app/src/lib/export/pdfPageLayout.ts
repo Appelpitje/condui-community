@@ -106,6 +106,39 @@ export function getEendraadSchematicTopMm(paperSize: ExportPaperSize = 'A4'): nu
   return PAGE_MARGIN + getEendraadTopChromeHeightMm(paperSize)
 }
 
+/** Conservative text reserve: two ems per character also covers wide fallback glyphs. */
+export function getEendraadTitleReserveWidthMm(title: string, paperSize: ExportPaperSize = 'A4'): number {
+  return Math.min(
+    getEendraadSchematicAreaMm('landscape', paperSize).widthMm,
+    Array.from(title).length * 3.5 * 2 * getChromeScale(paperSize)
+  )
+}
+
+/** Separate corner obstacles allow a tall central trunk to use the top margin. */
+export function getEendraadTopObstaclesMm(
+  paperSize: ExportPaperSize = 'A4',
+  title?: string,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const page = getPageDimensions('landscape', paperSize)
+  const chrome = getChromeScale(paperSize)
+  return [
+    {
+      x: PAGE_MARGIN,
+      y: PAGE_MARGIN,
+      width: title == null
+        ? getEendraadSchematicAreaMm('landscape', paperSize).widthMm
+        : getEendraadTitleReserveWidthMm(title, paperSize),
+      height: getPanelTitleHeightMm(paperSize),
+    },
+    {
+      x: page.width - PAGE_MARGIN - (REFERENCE_IMAGE_SIZE_MM + 2) * chrome,
+      y: PAGE_MARGIN,
+      width: (REFERENCE_IMAGE_SIZE_MM + 4) * chrome,
+      height: getEendraadTopChromeHeightMm(paperSize),
+    },
+  ]
+}
+
 /** PDF info-box rectangle used as a one-wire collision obstacle. */
 export function getEendraadInfoBlockObstacleMm(
   orientation: 'landscape' | 'portrait' = 'landscape',
@@ -131,12 +164,13 @@ export function limitEendraadScaleToInfoBlockCollision(
   packHeightPx: number,
   scale: number,
   nativeWidth?: number,
-  paperSize: ExportPaperSize = 'A4'
+  paperSize: ExportPaperSize = 'A4',
+  schematicTopMm = getEendraadSchematicTopMm(paperSize)
 ): number {
   const height = Math.max(packHeightPx, 1)
   const area = getEendraadSchematicAreaMm('landscape', paperSize)
   const obstacle = getEendraadInfoBlockObstacleMm('landscape', nativeWidth, paperSize)
-  const topMm = getEendraadSchematicTopMm(paperSize)
+  const topMm = schematicTopMm
   let next = scale
   const schematicRect = () => ({
     x: PAGE_MARGIN,

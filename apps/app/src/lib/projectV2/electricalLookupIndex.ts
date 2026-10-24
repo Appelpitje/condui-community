@@ -1,5 +1,6 @@
 import type { Circuit, Endpoint, Panel, ProtectionDevice } from '@/types/schema'
 import { isDraft } from 'immer'
+import { isDomoticaPanelFeedEndpoint } from '@/lib/eendraad/panelSupplyLink'
 
 export interface CircuitContext {
   panel: Panel
@@ -20,7 +21,7 @@ export interface ElectricalLookupIndex {
   endpointsById: Map<string, { endpoint: Endpoint; circuit: Circuit }>
   circuitContextsById: Map<string, CircuitContext>
   parentCircuitsByChildId: Map<string, ParentCircuitInfo>
-  panelFeedersByPanelId: Map<string, { feederCircuit: Circuit }>
+  panelFeedersByPanelId: Map<string, { feederCircuit: Circuit; sourcePanelEndpoint?: Endpoint }>
 }
 
 const cache = new WeakMap<Panel[], ElectricalLookupIndex>()
@@ -181,6 +182,13 @@ function addPanel(index: ElectricalLookupIndex, panel: Panel, state: IndexBuildS
     }
     for (const circuit of protection.circuits ?? []) {
       addCircuit(index, circuit, panel, protection, state)
+      for (const endpoint of circuit.endpoints) {
+        if (!isDomoticaPanelFeedEndpoint(endpoint) || seenPanelFeeds.has(endpoint.panelId)) continue
+        const parent = circuit.endpoints.find((candidate) => candidate.id === endpoint.domoticaChildProps.parentEndpointId)
+        if (parent?.symbol !== 'domotica' || !parent.domoticaProps) continue
+        seenPanelFeeds.add(endpoint.panelId)
+        index.panelFeedersByPanelId.set(endpoint.panelId, { feederCircuit: circuit, sourcePanelEndpoint: endpoint })
+      }
     }
     const targetPanelId = protection.subPanelId
     if (targetPanelId && !seenPanelFeeds.has(targetPanelId)) {

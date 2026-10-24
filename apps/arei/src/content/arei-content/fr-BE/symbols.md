@@ -105,6 +105,9 @@ Un variateur règle l'intensité d'un point lumineux.
 ### [switch_1p_changeover]
 Un interrupteur double allumage commande deux circuits séparément depuis un seul endroit, par exemple le plafonnier et les spots du séjour.
 
+### [switch_shutter]
+Un interrupteur de volet roulant commande la montée et la descente d’un volet ou d’un store. Représentez le moteur entraîné comme un appareil distinct.
+
 ### [switch_1p_pull]
 Un interrupteur à tirette s'actionne avec un cordon, surtout dans les anciennes salles de bain.
 

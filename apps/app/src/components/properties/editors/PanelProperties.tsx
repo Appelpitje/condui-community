@@ -1,9 +1,8 @@
-import {
-  editProperties,
-  updateInstallationProperties,
-  updatePanelGridProperties,
-} from '@/handlers/properties/editProperties'
-import { useMemo } from 'react'
+import { editProperties, updatePanelGridProperties } from '@/handlers/properties/editProperties'
+import { buildPanelCodeById } from '@/lib/panel/panelDiagramLabels'
+import { openLabelSchemeDialog } from '@/components/canvas/eendraad/LabelSchemeSettings'
+import { AutomaticNamingOverrideControl } from '@/components/properties/shared/AutomaticNamingOverrideControl'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DebouncedTextInput } from '@/components/forms'
 import CustomDropdown from '@/components/common/CustomDropdown'
@@ -23,7 +22,8 @@ import {
   type InstallDatePropagationMode,
   type InstallDateTarget,
 } from '@/lib/installDatePropagation'
-import { InstallDateField } from '../shared/propertiesShared'
+import { InstallDateField, OptionalNumberField } from '../shared/propertiesShared'
+import { isHouseholdInstallation } from '@/lib/installationProfile'
 import { selectClass } from '../shared/propertiesSharedUtils'
 import { installationDateUpdateFromYear } from '@/lib/installDates'
 import {
@@ -44,7 +44,6 @@ export function PanelProperties({
 }) {
   const { t, i18n } = useTranslation()
   const currentProject = useProjectStore((s: ProjectState) => s.currentProject)
-  const updateInstallation = updateInstallationProperties
   const updatePanelGrid = updatePanelGridProperties
   const openDialog = useDialogStore((s) => s.openDialog)
   const { advancedPanelLabels } = useEditionFeatureAvailability(currentProject?.project.id)
@@ -53,7 +52,18 @@ export function PanelProperties({
   const displayName = panel?.nameByLocale?.[projectLocale] ?? panel?.name ?? ''
   const installation = currentProject ? getProjectElectricalInstallation(currentProject) : undefined
   const panelNumberingEnabled = !!installation?.panelNumberingEnabled
+  const panelCode = currentProject
+    ? buildPanelCodeById(getProjectElectricalPanels(currentProject), installation).get(panelId)
+    : undefined
+  const panelNumberInputRef = useRef<HTMLInputElement>(null)
+  const [panelNumberReset, setPanelNumberReset] = useState(0)
+  const setPanelNumberOverride = (numberOverride: string | null) =>
+    editProperties({
+      edits: [{ kind: 'panel', ids: [panelId], set: { numberOverride } }],
+      refreshAutomaticNaming: true,
+    })
   const panelNetTypeLabelsEnabled = !!installation?.panelNetTypeLabelsEnabled
+  const netTypeLabelsAvailable = !!installation && !isHouseholdInstallation(installation)
   const hasBackupFeed =
     currentProject != null && panel != null && panelHasBackupOutput(currentProject, panel.id)
   const mainPanel = currentProject
@@ -207,39 +217,98 @@ export function PanelProperties({
           placeholder={t('panels.location', 'Location')}
         />
       </div>
+      {installation && !isHouseholdInstallation(installation) ? (
+        <OptionalNumberField
+          label={t('panels.expectedShortCircuit', 'Expected max. short-circuit current')}
+          unit="kA"
+          value={panel.expectedShortCircuitKa}
+          resetKey={panelId}
+          onChange={(expectedShortCircuitKa) => onUpdate(panelId, { expectedShortCircuitKa })}
+        />
+      ) : null}
       {advancedPanelLabels ? (
         <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
-          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-            <input
-              type="checkbox"
-              checked={panelNumberingEnabled}
-              onChange={(e) => updateInstallation({ panelNumberingEnabled: e.target.checked })}
-            />
-            {t('panels.panelNumbering', 'Panel numbering')}
-          </label>
-          <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
-            {t(
-              'panels.panelNumberingHint',
-              'Adds B01, B02, … in order from the main panel through sub-panels on the one-wire diagram.'
-            )}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                type="checkbox"
+                checked={panelNumberingEnabled}
+                onChange={(e) =>
+                  // Project-wide, like the setting in the automatic labels dialog; circuit labels
+                  // that include the panel number follow at once.
+                  editProperties({
+                    installation: { panelNumberingEnabled: e.target.checked },
+                    refreshAutomaticNaming: true,
+                  })
+                }
+              />
+              {t('panels.panelNumbering', 'Panel numbering')}
+            </label>
+            <button
+              type="button"
+              onClick={() => openLabelSchemeDialog(t)}
+              className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-400"
+            >
+              {t('canvas.eendraadNaming.scheme.customize', 'Customize…')}
+            </button>
+          </div>
+          {panelNumberingEnabled && panel ? (
+            <div>
+              <div className="mb-1 flex items-center gap-2">
+                <label
+                  htmlFor="panel-number-override"
+                  className="flex-1 text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t('panels.panelNumber', 'Panel number')}
+                </label>
+                <AutomaticNamingOverrideControl
+                  custom={!!panel.numberOverride}
+                  automaticLabel={t('canvas.eendraadNaming.automaticStatus', 'Automatic')}
+                  customLabel={t('canvas.eendraadNaming.customStatus', 'Custom')}
+                  setCustomLabel={t('canvas.eendraadNaming.setCustomLabel', 'Set custom label')}
+                  useAutomaticLabel={t('canvas.eendraadNaming.useAutomaticLabel', 'Use automatic label')}
+                  onSetCustom={() => {
+                    setPanelNumberOverride(panelCode ?? '')
+                    panelNumberInputRef.current?.focus()
+                    panelNumberInputRef.current?.select()
+                  }}
+                  onUseAutomatic={() => setPanelNumberOverride(null)}
+                />
+              </div>
+              {/* Like circuit codes: always editable, and typing a different number makes it custom. */}
+              <DebouncedTextInput
+                ref={panelNumberInputRef}
+                id="panel-number-override"
+                type="text"
+                value={panelCode ?? ''}
+                resetKey={`${panelId}:${panelNumberReset}`}
+                maxLength={12}
+                onCommit={(value) => {
+                  const typed = value.trim()
+                  // An emptied field goes back to the current number, as circuit codes do.
+                  if (!typed || typed === panelCode) setPanelNumberReset((count) => count + 1)
+                  else setPanelNumberOverride(typed)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur()
+                }}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+              />
+            </div>
+          ) : null}
 
-          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-            <input
-              type="checkbox"
-              checked={panelNetTypeLabelsEnabled}
-              onChange={(e) => handlePanelNetTypeLabelsChange(e.target.checked)}
-            />
-            {t('panels.panelNetTypeLabels', 'Net type on diagram')}
-          </label>
-          <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
-            {t(
-              'panels.panelNetTypeLabelsHint',
-              'Adds supply, voltage, and earthing lines on the one-wire panel header when an earthing system is set.'
-            )}
-          </p>
+          {netTypeLabelsAvailable ? (
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                type="checkbox"
+                checked={panelNetTypeLabelsEnabled}
+                onChange={(e) => handlePanelNetTypeLabelsChange(e.target.checked)}
+              />
+              {t('panels.panelNetTypeLabels', 'Net type on diagram')}
+            </label>
+          ) : null}
 
-          {panelNetTypeLabelsEnabled ? (
+          {netTypeLabelsAvailable && panelNetTypeLabelsEnabled ? (
             <div className="space-y-3">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 {t(

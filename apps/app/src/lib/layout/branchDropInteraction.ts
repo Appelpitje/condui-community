@@ -9,7 +9,7 @@ import { getEndpointTypeFromSymbol } from '@/utils/symbolMapping'
 import type { SymbolMetadata } from '@/lib/symbols'
 import type { Point } from '@/types/ui'
 import type { Circuit } from '@/types/schema'
-import { isCircuitTrunkSwitchSymbol, isCircuitTrunkSwitchDropTarget } from '@/lib/eendraad/circuitTrunkSwitch'
+import { circuitAcceptsTrunkSwitch, isCircuitTrunkSwitchSymbol, isCircuitTrunkSwitchDropTarget } from '@/lib/eendraad/circuitTrunkSwitch'
 
 /** Keep marks readable at working zooms without dwarfing or disappearing beside the diagram. */
 export function getBranchDropPreviewUnit(zoom: number): number {
@@ -90,6 +90,35 @@ export function collectBranchDropTargets(
     for (const branch of panel.branches) {
       const column = panel.circuits.find((candidate) => candidate.circuit.id === branch.circuitId)
       const circuit = column?.circuit
+      // Empty circuits need the same explicit choice as populated stems. Their short
+      // wire and empty-branch hit areas overlap, so geometry alone hides this choice.
+      if (circuit && column && !branch.endpoints.length && !circuit.endpoints.length &&
+          !circuit.trunkDevices?.length && circuitAcceptsTrunkSwitch(circuit) &&
+          !moving.size && isCircuitTrunkSwitchSymbol(symbol.id) &&
+          !panel.panel.protections.some((protection) => protection.subPanelId &&
+            protection.circuits?.some((entry) => entry.id === circuit.id))) {
+        const protection = panel.elements.find((element) =>
+          element.type === 'protection' && element.protectionId === column.protection?.id)
+        if (!protection) continue
+        const wirePoint = { x: branch.trunkX, y: (branch.branchY + protection.position.y) / 2 }
+        const direction = branch.branchX < branch.trunkX ? -1 : 1
+        const id = `${diagramId}/${circuit.id}/stem/0`
+        const target: DropTarget = {
+          type: 'circuit', panelId: panel.ownerPanelId ?? panel.panel.id, diagramId,
+          circuitId: circuit.id, wireDomain: 'AC', circuitTrunkSegmentIndex: 0,
+        }
+        result.intents.push({ id: `${id}/trunk`, kind: 'trunk', target,
+          point: wirePoint, wirePoint, direction, radiusPx: 8 })
+        result.intents.push({ id, kind: 'branch',
+          target: { ...target, branchEndpoints: [], branchInsertIndex: 0 },
+          point: { x: wirePoint.x + direction * 20 / zoom, y: wirePoint.y },
+          wirePoint, direction, radiusPx: 10 })
+        result.circuitIds.add(circuit.id)
+        result.regions.push({ left: wirePoint.x - (direction > 0 ? 12 : 32) / zoom,
+          right: wirePoint.x + (direction > 0 ? 32 : 12) / zoom,
+          top: wirePoint.y - 11 / zoom, bottom: wirePoint.y + 11 / zoom })
+        continue
+      }
       if (!circuit || circuit.code === 'PANEL' || !branch.endpoints.length ||
           panel.panel.protections.some((protection) => protection.subPanelId &&
             protection.circuits?.some((entry) => entry.id === circuit.id)) ||

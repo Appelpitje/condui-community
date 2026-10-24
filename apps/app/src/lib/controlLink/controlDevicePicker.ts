@@ -97,7 +97,7 @@ export function getOutputChannelOptions(device: ControlDeviceEntry): string[] | 
   const letters =
     system === 'knx' &&
     device.connections.some(
-      (entry) => entry.direction === 'output' && /^[A-Za-z]$/.test(entry.channel ?? '')
+      (entry) => !entry.bus && entry.direction === 'output' && /^[A-Za-z]$/.test(entry.channel ?? '')
     )
   if (count < 1 || count > (letters ? 26 : MAX_CHANNEL_CHIPS)) return undefined
   return Array.from({ length: count }, (_, index) =>

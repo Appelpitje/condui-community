@@ -2,6 +2,7 @@ import type { ControlSystem, Panel } from '@/types/schema'
 import { findPanelContainingCircuit } from '@/lib/eendraad/projectElectricalDomain'
 import { getElectricalLookupIndex } from '@/lib/projectV2/electricalLookupIndex'
 import { addressKey } from './controlAddress'
+import { getControlButtonCount } from './buttonAddressing'
 import { getOutputChannelOptions } from './controlDevicePicker'
 import {
   buildControlDeviceIndex,
@@ -24,6 +25,8 @@ import {
 
 export interface AddressTableRow {
   endpointId: string
+  connectionId: string
+  buttonIndex?: number
   deviceId: string
   direction: ConnectionDirection
   source: ConnectedEndpointSource
@@ -33,6 +36,10 @@ export interface AddressTableRow {
   circuitId: string
   circuit: string
   hasIssue: boolean
+  busKey?: string
+  busName?: string
+  system?: ControlSystem
+  deviceAddress?: string
 }
 
 export interface AddressTableDevice {
@@ -85,7 +92,8 @@ function label(value: string): string {
 
 function deviceHasOwnIssue(issues: ControlDeviceIssue[], deviceId: string): boolean {
   return issues.some(
-    (issue) =>
+    (issue) => (issue.kind === 'invalid-bus-device-address' && issue.endpointId === deviceId) ||
+      (issue.kind === 'duplicate-bus-device-address' && issue.endpointIds.includes(deviceId)) ||
       (issue.kind === 'invalid-device-address' || issue.kind === 'over-capacity') &&
       issue.deviceId === deviceId
   )
@@ -104,22 +112,33 @@ export function buildAddressTable(panels: Panel[], filter: AddressTableFilter = 
       .map(
         (entry): AddressTableRow => ({
           endpointId: entry.endpoint.id,
+          connectionId: entry.connectionId,
+          ...(entry.buttonIndex == null ? {} : { buttonIndex: entry.buttonIndex }),
           deviceId,
           direction: entry.direction,
           source: entry.source,
           channel: entry.channel,
           groups: entry.groups,
-          load: label(entry.endpoint.label),
+          load: [
+            entry.buttonIndex == null || getControlButtonCount(entry.endpoint) === 1
+              ? label(entry.endpoint.label)
+              : `${label(entry.endpoint.label)} · ${entry.buttonIndex + 1}`,
+            ...(entry.bus ? [entry.bus.label, entry.bus.deviceAddress] : []),
+          ].filter(Boolean).join(' · '),
+          ...(entry.bus ? {
+            busKey: entry.bus.key, busName: entry.bus.label,
+            system: entry.bus.system, deviceAddress: entry.bus.deviceAddress,
+          } : {}),
           circuitId: entry.circuit.id,
           circuit: getCircuitIdentifierFromPanels(panels, entry.circuit.id),
-          hasIssue: issuesForConnection(issues, entry.endpoint.id).length > 0,
+          hasIssue: issuesForConnection(issues, entry.endpoint.id, entry.buttonIndex).length > 0,
         })
       )
       // Connections arrive sorted by channel; a stable sort keeps that within each direction.
       .sort((left, right) => (left.direction === right.direction ? 0 : left.direction === 'output' ? -1 : 1))
     const used = new Set(
       rows
-        .filter((row) => row.direction === 'output' && row.channel != null)
+        .filter((row) => !row.busKey && row.direction === 'output' && row.channel != null)
         .map((row) => addressKey(row.channel!))
     )
     const entry: AddressTableDevice = {
@@ -137,7 +156,7 @@ export function buildAddressTable(panels: Panel[], filter: AddressTableFilter = 
       freeChannels: (getOutputChannelOptions(device) ?? []).filter((channel) => !used.has(addressKey(channel))),
       hasIssue: deviceHasOwnIssue(issues, deviceId) || rows.some((row) => row.hasIssue),
     }
-    if (filter.system && entry.system !== filter.system && entry.outputSystem !== filter.system) continue
+    if (filter.system && entry.system !== filter.system && entry.outputSystem !== filter.system && !entry.rows.some((row) => row.system === filter.system)) continue
     if (filter.panelId && entry.panelId !== filter.panelId) continue
     if (filter.issuesOnly && !entry.hasIssue) continue
     table.push(entry)
@@ -238,8 +257,8 @@ export function addressTableCsv(devices: AddressTableDevice[], labels: AddressTa
       lines.push(
         [
           device.label,
-          system,
-          [device.deviceAddress, device.line].filter(Boolean).join(' · '),
+          row.busKey ? labels.system(row.system) : system,
+          row.busKey ? row.deviceAddress ?? '' : [device.deviceAddress, device.line].filter(Boolean).join(' · '),
           labels.direction(row.direction),
           row.channel ?? '',
           row.groups.join(' '),

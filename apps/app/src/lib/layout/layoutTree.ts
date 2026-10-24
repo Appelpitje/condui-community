@@ -18,11 +18,10 @@ import type {
 } from '@/types/schema'
 import { getSubPanelMainBusFeedDevice } from '@/lib/panel/subPanelFeed'
 import { getEndpointBranchLabelPrefix } from '@/lib/eendraad/automaticEndpointBranchNaming'
+import { formatBranchLabel } from '@/lib/eendraad/labelScheme'
+import { getActiveLabelScheme } from '@/lib/eendraad/labelSchemeContext'
 import { resolvePanelSupplyLinkForProtectionInPanels } from '@/lib/eendraad/panelSupplyLink'
-import {
-  getCrowdedEndpointNoteLabelBounds,
-  getEndpointNoteMinimumLeftX,
-} from '@/lib/eendraad/endpointNoteLabelCollision'
+import { getEndpointNoteMinimumLeftX } from '@/lib/eendraad/endpointNoteLabelCollision'
 import { getVisibleEndpointNoteText } from '@/lib/conversionLabels'
 import {
   getProtectionOneWireAnchorLineIndex,
@@ -74,6 +73,7 @@ import {
 } from './circuitConverterGeometry'
 import { getEndpointXOffsets } from './bottomUpBranchWidths'
 import { runWithControlLinkNotes } from '@/lib/controlLink/controlLinkNoteContext'
+import { getControlButtonLabelLayout } from '@/lib/eendraad/controlButtonLabels'
 import {
   getCircuitConverterMetadataCallouts,
   getBranchConverterMetadataCallouts,
@@ -178,6 +178,8 @@ export interface LabelVisual {
   text: string
   translationKey?: string
   fontSize?: number
+  /** Optional bus-row text box measured without the ordinary circuit-label wrapping cap. */
+  unwrappedWidth?: number
   variant?: 'circuit-notes' | 'default' // 'circuit-notes' for italic, gray styling
   /** When 'left', label is drawn with left edge at bounds.x (e.g. to the right of domotica endpoints). */
   align?: 'left' | 'center' | 'right'
@@ -303,6 +305,8 @@ export interface LayoutNode {
   domainRef?: Panel | Circuit | ProtectionDevice | Endpoint | TrunkDevice // Typed domain reference
   /** When set on an `mcb` node, wires for this column use this circuit (multi-circuit protections / merged sub-panel feed). */
   circuitIdForWires?: string
+  /** Precise module-output occurrence feeding a sub-panel; upstream protection stays separate. */
+  sourceEndpointForWires?: Endpoint
   visual?: NodeVisual
   hitZone?: HitZone
   children: LayoutNode[]
@@ -364,10 +368,20 @@ import {
 import { getDcBusBranchHorizontalLayouts } from './circuitLayoutEnvelope'
 
 /** Minimum vertical segment length on sub-panel incoming feeder (matches virtual MCB anchor math). */
-export const MIN_SUBPANEL_INCOMING_SEGMENT_LENGTH = 60
+export const MIN_SUBPANEL_INCOMING_SEGMENT_LENGTH = 70
 /** Sub-panel incoming feeder: circuit code, then parent panel name (Y grows downward, from virtual MCB anchor). */
 export const SUBPANEL_FEED_CIRCUIT_LABEL_Y = 0
 export const SUBPANEL_FEED_PARENT_TAG_Y = 28
+
+/**
+ * Y of the virtual parent-MCB anchor on a sub-panel's incoming feeder. The total feeder height fits
+ * two minimum wire segments (below and above an inserted protection), unless the layout asked for
+ * a compact feeder.
+ */
+function subPanelFeedAnchorY(panelLayout: BottomUpPanelLayout, parentMcbBaseY: number): number {
+  if (panelLayout.compactSubPanelFeed) return parentMcbBaseY
+  return Math.max(parentMcbBaseY, panelLayout.mainBus.y + MIN_SUBPANEL_INCOMING_SEGMENT_LENGTH * 2)
+}
 
 /**
  * Scene anchors for sub-panel feeder labels — same geometry as `buildPanelNode` parent-MCB branch
@@ -379,12 +393,7 @@ export function getSubPanelIncomingFeedLabelAnchors(
   const parentMcbEl = panelLayout.elements.find((e) => e.id === 'parent-mcb')
   if (!parentMcbEl) return null
 
-  const mainBusY = panelLayout.mainBus.y
-  const parentMcbBaseY = parentMcbEl.position.y
-  const parentMcbAnchorY = Math.max(
-    parentMcbBaseY,
-    mainBusY + MIN_SUBPANEL_INCOMING_SEGMENT_LENGTH * 2
-  )
+  const parentMcbAnchorY = subPanelFeedAnchorY(panelLayout, parentMcbEl.position.y)
 
   return {
     centerX: parentMcbEl.position.x,
@@ -1390,12 +1399,7 @@ function buildPanelNode(panelLayout: BottomUpPanelLayout): LayoutNode {
     //   the mirrored parent MCB, its label, and the incoming wire hit zone in this tree.
     // - This does not mutate panel data; it only affects layout-tree rendering/hit-testing.
     const parentMcbAnchorY = mainBusElement
-      ? Math.max(
-          parentMcbElement.position.y,
-          // Ensure the total feeder height can fit two minimum wire segments
-          // (below + above inserted protection): 2 * minSegmentLength.
-          mainBusElement.position.y + MIN_SUBPANEL_INCOMING_SEGMENT_LENGTH * 2
-        )
+      ? subPanelFeedAnchorY(panelLayout, parentMcbElement.position.y)
       : parentMcbElement.position.y
 
     // Resolve the protection type for correct symbol rendering
@@ -1414,6 +1418,7 @@ function buildPanelNode(panelLayout: BottomUpPanelLayout): LayoutNode {
       domainId: parentMcbElement.protectionId,
       domainRef: parentMcbProtection,
       circuitIdForWires: parentMcbElement.circuitId,
+      sourceEndpointForWires: panelLayout.parentMcb?.sourceEndpoint,
       visual: {
         type: 'symbol',
         symbolId: protectionSymbolId,
@@ -3638,7 +3643,7 @@ function buildCircuitConverterDcConnectionNodes(
     )
     const labelText =
       connectionIndex === 0 || chainLength > 0
-        ? `${getEndpointBranchLabelPrefix(circuit)}${connectionIndex + 1}` ||
+        ? formatBranchLabel(getActiveLabelScheme(), getEndpointBranchLabelPrefix(circuit), connectionIndex + 1) ||
           storedBranch?.label?.trim() ||
           ''
         : ''
@@ -4473,12 +4478,6 @@ function buildBranchNode(
   const children: LayoutNode[] = []
   const constrainSingleEndpointLabel =
     branch.endpoints.length === 1 && branch.endpoints[0]?.type !== 'switch'
-  const endpointXs = branch.endpoints.map(
-    (endpoint) =>
-      panelLayout.elements.find(
-        (element) => element.type === 'endpoint' && element.endpointId === endpoint.id
-      )?.position.x ?? branch.branchX
-  )
   const bottomNoteEndpointIndexes = new Set(
     branch.endpoints.flatMap((endpoint, endpointIndex) => {
       const isRightLabel =
@@ -4486,7 +4485,7 @@ function buildBranchNode(
         (endpoint.symbol === 'solar_panel' ||
           endpoint.symbol === 'battery' ||
           endpoint.symbol === 'ev')
-      return endpoint.symbol !== 'domotica' && !isRightLabel && getVisibleEndpointNoteText(endpoint) ? [endpointIndex] : []
+      return endpoint.symbol !== 'domotica' && !isRightLabel && (getVisibleEndpointNoteText(endpoint) || getControlButtonLabelLayout(endpoint)) ? [endpointIndex] : []
     })
   )
 
@@ -4528,12 +4527,6 @@ function buildBranchNode(
     )
 
     if (endpointElement) {
-      const crowdedNoteLabelBounds = getCrowdedEndpointNoteLabelBounds(
-        endpointIndex,
-        endpointXs,
-        bottomNoteEndpointIndexes,
-        branch.branchX
-      )
       const isDomoticaParent = endpoint.symbol === 'domotica'
       const isDomoticaChild = !!endpoint.domoticaChildProps
       const endpointMetadataCallout = branchMetadataCallouts.get(endpoint.id)
@@ -4572,10 +4565,8 @@ function buildBranchNode(
           bottomLabelMinimumLeftX: constrainSingleEndpointLabel || isDomoticaParent
             ? getEndpointNoteMinimumLeftX(endpointElement.position.x, branch.branchX)
             : bottomNoteEndpointIndexes.has(endpointIndex)
-              ? (crowdedNoteLabelBounds?.minimumLeftX ??
-                getEndpointNoteMinimumLeftX(endpointElement.position.x, branch.branchX))
+              ? getEndpointNoteMinimumLeftX(endpointElement.position.x, branch.branchX)
               : undefined,
-          bottomLabelMaximumRightX: crowdedNoteLabelBounds?.maximumRightX,
           metadataCallout: endpointMetadataCallout
             ? {
                 x: endpointMetadataCallout.x,
@@ -4670,12 +4661,13 @@ function buildBranchNode(
           bounds: {
             x: rowLabel.x,
             y: rowLabel.y,
-            width: 80,
+            width: rowLabel.unwrappedWidth ?? 80,
             height: 20,
           },
           visual: {
             type: 'label',
             text: rowLabel.text,
+            ...(rowLabel.unwrappedWidth != null ? { unwrappedWidth: rowLabel.unwrappedWidth } : {}),
             align: 'left',
           },
           children: [],

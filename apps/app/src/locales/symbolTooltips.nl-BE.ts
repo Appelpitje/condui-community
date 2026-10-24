@@ -35,6 +35,7 @@ export const symbolTooltipsNlBE = {
   switch_cross: 'Kruisschakelaar voor meer dan twee bedienpunten.',
   switch_dimmer: 'Dimmer om verlichting te regelen.',
   switch_1p_changeover: 'Omschakelaar die tussen twee circuits kiest.',
+  switch_shutter: "Op- en neerbediening voor rolluiken of zonwering.",
   switch_1p_pull: 'Trekschakelaar, vaak aan het plafond.',
   contact: 'Los contact, bv. een ingangscontact voor domotica.',
   switch_impulse: 'Drukknop of impulsschakelaar voor teleruptor of domotica.',

@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import { collectDomoticaRowLabelPlacements } from '@/lib/layout/domoticaRowLabelPlacement'
+import { runWithControlLinkNotes } from '@/lib/controlLink/controlLinkNoteContext'
 import type { BottomUpPanelLayout } from '@/lib/layout/bottomUpLayout'
 import { estimateProtectionNameLabelWidth, LAYOUT_CONSTANTS } from '@/lib/layout/bottomUpLayout'
 import {
@@ -210,7 +211,11 @@ function getBaselineForOverlay(kind: ExportLabelKind): PdfBaseline {
 export function collectEendraadTextOverlays(
   panelLayout: BottomUpPanelLayout,
   exportTheme: ExportTheme,
+  controlLinkNotes?: ReadonlyMap<string, string>,
 ): ExportTextOverlay[] {
+  if (controlLinkNotes) {
+    return runWithControlLinkNotes(controlLinkNotes, () => collectEendraadTextOverlays(panelLayout, exportTheme))
+  }
   const overlays: ExportTextOverlay[] = []
   const colors = getEendraadExportColors(exportTheme)
   const fontFamily = getExportFontFamily()
@@ -316,6 +321,7 @@ export function collectEendraadTextOverlays(
       fontStyle: 'normal',
       color: colors.textColor,
       align: 'left',
+      ...(rowLabel.unwrappedWidth != null ? { estimatedWidthPx: rowLabel.unwrappedWidth, estimatedHeightPx: LABEL_FONT_SIZE } : {}),
     })
   }
 
@@ -1435,132 +1441,4 @@ function drawFreeNoteOverlay(
 
     accumulatedLineOffsetScene += line.lineHeight
   }
-}
-
-/**
- * Inject label elements into a slice SVG so they appear on top at the same positions
- * as on the live canvas. Only includes labels whose circuit is in sliceCircuitIds.
- */
-export function injectEendraadLabelsIntoSvg(
-  svgString: string,
-  sliceCircuitIds: string[],
-  panelLayout: BottomUpPanelLayout,
-  exportTheme: ExportTheme
-): string {
-  const circuitIdSet = new Set(sliceCircuitIds)
-  const subPanelFeedAnchors = getSubPanelIncomingFeedLabelAnchors(panelLayout)
-  const subPanelFeedCircuitId = panelLayout.elements.find((e) => e.id === 'parent-mcb-label')
-    ?.circuitId
-
-  const labelElements = panelLayout.elements.filter((e) => {
-    if (e.type !== 'label' || !e.label || e.id?.startsWith('circuit-notes-')) return false
-    if (e.circuitId && circuitIdSet.has(e.circuitId)) return true
-    if (
-      subPanelFeedAnchors &&
-      e.id?.startsWith('parent-tag-') &&
-      subPanelFeedCircuitId &&
-      circuitIdSet.has(subPanelFeedCircuitId)
-    ) {
-      return true
-    }
-    return false
-  })
-  const circuitNotes = (panelLayout.circuitNotes ?? []).filter(
-    (n) => circuitIdSet.has(n.circuitId) && (n.label ?? '').trim() && n.notesVisible !== false
-  )
-  if (labelElements.length === 0 && circuitNotes.length === 0) return svgString
-
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(svgString, 'image/svg+xml')
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) return svgString
-
-  const svgRoot = doc.documentElement
-  const ns = 'http://www.w3.org/2000/svg'
-  const labelGroup = doc.createElementNS(ns, 'g')
-  labelGroup.setAttribute('data-export', 'eendraad-labels')
-
-  const colors = getEendraadExportColors(exportTheme)
-  const fontFamily = getExportFontFamily()
-  const fill = colors.textColor
-  const notesFill = colors.secondaryText ?? colors.textColor
-
-  for (const el of labelElements) {
-    let x = el.position.x
-    let y = el.position.y - LABEL_Y_OFFSET
-    if (subPanelFeedAnchors && el.id === 'parent-mcb-label') {
-      x = subPanelFeedAnchors.centerX
-      y = subPanelFeedAnchors.circuitAnchorY - LABEL_Y_OFFSET
-    } else if (subPanelFeedAnchors && el.id?.startsWith('parent-tag-')) {
-      x = subPanelFeedAnchors.centerX
-      y = subPanelFeedAnchors.circuitAnchorY - LABEL_Y_OFFSET
-    }
-
-    const text = (el.label ?? '').trim()
-    if (!text) continue
-
-    const isBranchLabel = !!el.branchId
-    const circuitLabel = labelElements.find(
-      (candidate) => candidate.circuitId === el.circuitId && !candidate.branchId
-    )
-    if (isBranchLabel && circuitLabel?.label) {
-      x = getCenteredCircuitLabelRight(circuitLabel.position.x, circuitLabel.label)
-    }
-    const alignIsRight = isBranchLabel
-    const fontSizePx =
-      subPanelFeedAnchors && el.id?.startsWith('parent-tag-')
-        ? SUBPANEL_PARENT_TAG_FONT_SIZE
-        : LABEL_FONT_SIZE
-    const textEl = doc.createElementNS(ns, 'text')
-    textEl.setAttribute('x', String(x))
-    textEl.setAttribute('y', String(y))
-    textEl.setAttribute('font-size', String(fontSizePx))
-    textEl.setAttribute('font-family', fontFamily)
-    textEl.setAttribute('fill', fill)
-    const textAnchor: 'start' | 'middle' | 'end' = alignIsRight
-        ? 'end'
-        : 'middle'
-    textEl.setAttribute('text-anchor', textAnchor)
-    textEl.setAttribute('dominant-baseline', 'hanging')
-    textEl.textContent = text
-    labelGroup.appendChild(textEl)
-  }
-
-  // Circuit notes labels (drawn after regular labels; same positions as live canvas)
-  for (const note of circuitNotes) {
-    const text = normalizeCircuitNotesText(note.label)
-    if (!text) continue
-
-    const orientation = note.notesOrientation ?? 'horizontal'
-    const placements = getCircuitNoteLinePlacements({
-      text,
-      x: note.x,
-      y: note.y,
-      orientation,
-      fontFamily,
-    })
-
-    for (const placement of placements) {
-      const textEl = doc.createElementNS(ns, 'text')
-      textEl.setAttribute('x', String(placement.x))
-      textEl.setAttribute('y', String(placement.y))
-      textEl.setAttribute('font-size', String(NOTES_FONT_SIZE))
-      textEl.setAttribute('font-family', fontFamily)
-      textEl.setAttribute('fill', notesFill)
-      textEl.setAttribute('font-style', 'italic')
-      textEl.setAttribute('text-anchor', 'start')
-      textEl.setAttribute('dominant-baseline', 'middle')
-      if (placement.rotationDeg !== 0) {
-        textEl.setAttribute(
-          'transform',
-          `rotate(${placement.rotationDeg} ${placement.x} ${placement.y})`
-        )
-      }
-      textEl.textContent = placement.text
-      labelGroup.appendChild(textEl)
-    }
-  }
-
-  svgRoot.appendChild(labelGroup)
-  return new XMLSerializer().serializeToString(doc)
 }

@@ -28,6 +28,7 @@ export function placeElectricalSymbol(options: {
   dropCanvasPosition?: Point
   panelGrid?: PanelDropPlacement
   label?: string
+  ownerDocument?: Document
 }): PlaceElectricalSymbolResult {
   try {
     const outcome = liveProjectSession.execute(
@@ -39,7 +40,7 @@ export function placeElectricalSymbol(options: {
             target: options.target,
             dropCanvasPosition: options.dropCanvasPosition,
             panelGrid: options.panelGrid,
-            sitplan: createUiDropBehaviorHooks().getSitplanTarget(),
+            sitplan: createUiDropBehaviorHooks(options.ownerDocument).getSitplanTarget(),
           },
         },
       ],

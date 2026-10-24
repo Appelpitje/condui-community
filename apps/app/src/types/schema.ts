@@ -120,7 +120,7 @@ export interface PanelGridConfig {
 }
 
 /** Source used to populate one of the two editable panel label cells. */
-export type PanelLabelCellSource = 'label' | 'notes' | 'labelNotes' | 'technical'
+export type PanelLabelCellSource = 'label' | 'notes' | 'labelNotes' | 'technical' | 'feeds'
 
 export interface PanelLabelCellConfig {
   /** First source retained for backward compatibility with older editors. */
@@ -134,6 +134,8 @@ export interface PanelLabelCellConfig {
 export interface PanelLabelConfig {
   top?: PanelLabelCellConfig
   bottom?: PanelLabelCellConfig
+  /** Main-protection band override; missing follows automatic detection. */
+  main?: boolean
 }
 
 export interface Panel {
@@ -151,6 +153,11 @@ export interface Panel {
    */
   nameByLocale?: Record<string, string>
   location?: string
+  /**
+   * Panel number typed by hand (for example `VB1`), shown instead of the automatic one while panel
+   * numbering is on. The panel keeps its place in the automatic sequence, so other numbers do not move.
+   */
+  numberOverride?: string
   symbol: 'panel_distribution'
   isMain?: boolean // One panel must be marked as main, others are sub-panels
   protections: ProtectionDevice[]
@@ -184,6 +191,11 @@ export interface Panel {
   hasGround?: boolean
   /** Devices on this panel's local ground wire (typically a linked earthing-separator pair). */
   groundTrunkDevices?: TrunkDevice[]
+  /**
+   * Expected maximum short-circuit current at this board, in kA (AREI 3.1.2.2.b, 3.1.3.3.b).
+   * Missing means not determined.
+   */
+  expectedShortCircuitKa?: number
 }
 
 export type ProtectionType =
@@ -214,6 +226,10 @@ export interface ProtectionDevice {
   curve?: CurveType // For MCB/RCBO (e.g. B, C, D)
   sensitivityMa?: number // For RCD/RCBO (e.g. 30mA, 300mA)
   residualCurrentType?: ResidualCurrentType // For RCD/RCBO - waveform class (AC, A, F, B)
+  /** Selective (time-delayed, S-type) residual-current protection. */
+  selective?: boolean
+  /** Super-immunized residual-current protection (SI). */
+  superImmunized?: boolean
   breakingCapacityKa?: number // For MCB/RCBO - breaking capacity in kA
   /** Unique breaking-capacity dropdown value (`3000` vs `3`, etc.). */
   breakingCapacityOption?: string
@@ -253,6 +269,8 @@ export type ProtectionCreationTemplate = Pick<
   | 'curve'
   | 'sensitivityMa'
   | 'residualCurrentType'
+  | 'selective'
+  | 'superImmunized'
   | 'breakingCapacityKa'
   | 'breakingCapacityOption'
   | 'surgeProtectionKind'
@@ -417,6 +435,7 @@ export type SymbolKey =
   | 'switch_2p_twoway'
   | 'switch_dimmer'
   | 'switch_1p_changeover'
+  | 'switch_shutter'
   | 'switch_1p_pull'
   | 'contact'
   | 'switch_impulse'
@@ -617,6 +636,10 @@ export interface TrunkDevice {
   curve?: CurveType
   sensitivityMa?: number
   residualCurrentType?: ResidualCurrentType
+  /** Selective (time-delayed, S-type) residual-current protection. */
+  selective?: boolean
+  /** Super-immunized residual-current protection (SI). */
+  superImmunized?: boolean
   breakingCapacityKa?: number
   /** Unique breaking-capacity dropdown value (`3000` vs `3`, etc.). */
   breakingCapacityOption?: string
@@ -708,6 +731,12 @@ export type DomoticaSwitchType = '1p' | '2p' | 'impulse'
  * When unset for a given slot, the parent circuit's wire settings apply.
  */
 export interface DomoticaOutputWireProps {
+  /** Optional physical bus on this existing output row; absent keeps a switched output. */
+  connectionType?: 'bus'
+  busName?: string
+  busSystem?: ControlSystem
+  /** Bus labels are shown by default only while connectionType is bus. */
+  showBusLabel?: boolean
   /** Optional cable override for this output; falls back to the parent circuit cable when omitted. */
   cable?: CableSpec
   /** Optional phase assignment for this output; falls back to the parent circuit when omitted. */
@@ -795,7 +824,7 @@ export interface DomoticaChildEndpointProps extends ControlAddressing {
   outputIndex: number
 }
 
-export const CONTROL_SYSTEMS = ['knx', 'niko_hc', 'dali', 'loxone', 'other'] as const
+export const CONTROL_SYSTEMS = ['knx', 'niko_hc', 'dali', 'loxone', 'qbus', 'other'] as const
 /** Building control system of a device; only selects which address syntax warnings apply. */
 export type ControlSystem = (typeof CONTROL_SYSTEMS)[number]
 
@@ -817,6 +846,14 @@ export interface ControlAddressing {
   /** Physical channel: KNX `C`, DALI short address `5`, Loxone `Q7`, NHC output `2`. */
   channel?: string
   /** Logical addresses the channel listens to: KNX group addresses, DALI groups. */
+  groups?: string[]
+  /** Sparse per-button overrides; zero-based identity survives changes to the drawn count. */
+  buttonAddresses?: ControlButtonAddress[]
+}
+
+export interface ControlButtonAddress {
+  buttonIndex: number
+  channel?: string
   groups?: string[]
 }
 
@@ -1034,6 +1071,8 @@ export interface Endpoint {
    * Carries no topology or wiring; the device side is always derived, never stored.
    */
   controlLink?: EndpointControlLink
+  /** This endpoint's own physical identity on its wired bus; never inherited from the parent. */
+  busDeviceProps?: { deviceAddress?: string }
   /** When symbol === 'panel_distribution', optional back-reference to the owning panel */
   panelId?: string
   controlledEndpointIds?: string[] // For switches: what they control (on same circuit)
@@ -1262,6 +1301,21 @@ export interface CadReferenceCropRect {
 }
 
 /** Versioned CAD import mapping for DXF overlay export (see docs-context/Future/dxf-electrical-overlay.md). */
+/** One thing a TRiK page draws its plan with (a picture or its walls) and where, in plan coordinates. */
+export interface TrikPlanAnchor {
+  /** `figure:<image hash>` or `walls:<shape hash>`; equal keys draw the same plan. */
+  key: string
+  center: Point2
+  width: number
+  height: number
+  rotationDeg: number
+}
+
+export interface TrikPlanReferenceV1 {
+  version: 1
+  anchors: TrikPlanAnchor[]
+}
+
 export interface CadReferenceV1 {
   version: 1
   sourceKind: 'dxf' | 'dwg'
@@ -1358,6 +1412,8 @@ export interface Floor {
   floorPlan?: FloorPlan
   /** Placement IDs that are hidden on the situation plan (sitplan) view for this floor. */
   hiddenSitplanPlacementIds?: string[]
+  /** How the TRiK page this floor came from drew its plan; aligns later TRiK files with it. */
+  trikPlanReference?: TrikPlanReferenceV1
 }
 
 export type Rotation = 0 | 90 | 180 | 270
@@ -1590,6 +1646,8 @@ export interface Installation {
    */
   defaultCableKind?: CableSpec['kind']
   hasGround?: boolean // Flag: show the shared earth electrode on main boards (default true). Secondary boards use Panel.hasGround.
+  /** Earth electrode resistance (spreidingsweerstand) of the shared electrode, in ohm. Missing = unknown. */
+  earthResistanceOhm?: number
   /** Devices on the shared ground wire (earthing separators).
    *  Drawn on the vertical ground wire between ground symbol and main bus. */
   groundTrunkDevices?: TrunkDevice[]
@@ -1618,11 +1676,51 @@ export interface Installation {
    */
   eendraadAutoNamingSkipParentCircuits?: boolean
   /**
+   * How automatic labels are formatted (circuits, branches, domotica outputs, panel numbers).
+   * Missing means the classic scheme: A, B, C…, branches A1, outputs A1.1, panels B01.
+   */
+  labelScheme?: LabelScheme
+  /**
    * When true, panels are labeled B01, B02, … on the one-wire diagram (off by default).
    */
   panelNumberingEnabled?: boolean
   /** Show net / feed / earthing lines on panel headers (independent of panel numbering). */
   panelNetTypeLabelsEnabled?: boolean
+}
+
+/** Sequence used for circuit labels: A B C, a b c, 1 2 3 or 01 02 03. */
+export type LabelSequenceStyle = 'upper' | 'lower' | 'number' | 'number2'
+/** Sequence used for panel numbers: 1 2 3, 01 02 03 or A B C. */
+export type PanelNumberStyle = 'number' | 'number2' | 'upper'
+export type LabelSeparator = '.' | '-' | '/'
+
+/**
+ * Formatting rules for automatic labels. Wherever two numbers meet, the separator is always
+ * inserted, whatever the `join*` flags say, so `1` + `1` never becomes `11`.
+ */
+export interface LabelScheme {
+  version: 1
+  separator: LabelSeparator
+  panel: {
+    /** Text before the panel number, for example `B`. May be empty. */
+    prefix: string
+    style: PanelNumberStyle
+    /** Number of the first root panel (letters always start at A). */
+    start: 0 | 1
+    /** Sub-panels number under their parent (B1.1) instead of continuing the sequence (B2). */
+    nested: boolean
+  }
+  circuit: {
+    style: LabelSequenceStyle
+    /** Which part of the panel number starts each circuit label. Needs panel numbering. */
+    panelPart: 'none' | 'number' | 'full'
+    /** Write panel part and circuit sequence together (A1) rather than separated (A.1). */
+    joinPanel: boolean
+  }
+  branch: {
+    /** Write circuit and branch number together (A1) rather than separated (A.1). */
+    join: boolean
+  }
 }
 
 export interface FeedConnectorNode {

@@ -6,6 +6,7 @@ import type {
   SmokeDetectorType,
 } from '@/types/schema'
 import type { TrikNode } from '@/lib/import/trik/shared'
+import { generateId } from '@/utils/project'
 import {
   isTrikDraaischakelaarType,
   parseJaNeeBoolean,
@@ -367,10 +368,65 @@ export function mapCombiNodeToDomoticaNode(element: Element): TrikNode | null {
   }
 }
 
+const generatedTrikElementIds = new WeakMap<Element, string>()
+
+/** The element's TRiK `Id`, or one generated once per element so separate passes agree. */
+export function trikElementId(element: Element): string {
+  const own = element.getAttribute('Id')?.trim()
+  if (own) return own
+  let generated = generatedTrikElementIds.get(element)
+  if (!generated) {
+    generated = generateId()
+    generatedTrikElementIds.set(element, generated)
+  }
+  return generated
+}
+
+function enclosingTrikBoard(element: Element): { board: Element; viaCable: boolean } | undefined {
+  let viaCable = false
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (ancestor.tagName === 'Verdeelbord') return { board: ancestor, viaCable }
+    if (ancestor.tagName === 'Leiding') viaCable = true
+  }
+  return undefined
+}
+
+/**
+ * True for a `Verdeelbord` that is a board of its own. A board nested in another one is a
+ * separate board (Trikker 2.0 draws a sub-board behind its feeder circuit) when a cable runs
+ * between them or it carries its own board number; otherwise it is a sub-busbar whose
+ * breakers belong to the enclosing board.
+ */
+export function isVerdeelbordPanelRoot(board: Element): boolean {
+  let enclosing = enclosingTrikBoard(board)
+  if (!enclosing) return true
+  if (enclosing.viaCable) return true
+  const number = board.getAttribute('Nummer')?.trim()
+  while (enclosing && !enclosing.viaCable && !enclosing.board.getAttribute('Nummer')?.trim()) {
+    enclosing = enclosingTrikBoard(enclosing.board)
+  }
+  return !!number && number !== enclosing?.board.getAttribute('Nummer')?.trim()
+}
+
+/** The board that `element` belongs to: its nearest enclosing board of its own. */
+export function owningTrikBoard(element: Element): Element | undefined {
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (ancestor.tagName === 'Verdeelbord' && isVerdeelbordPanelRoot(ancestor)) return ancestor
+  }
+  return undefined
+}
+
 export function getTraversalChildren(current: Element): Element[] {
   const out: Element[] = []
   const childrenContainer = current.querySelector(':scope > Children')
-  if (childrenContainer) out.push(...Array.from(childrenContainer.children))
+  // A board fed from this circuit is a board of its own, not part of the circuit.
+  if (childrenContainer) {
+    out.push(
+      ...Array.from(childrenContainer.children).filter(
+        (child) => child.tagName !== 'Verdeelbord' || !isVerdeelbordPanelRoot(child),
+      ),
+    )
+  }
   for (const nodes of Array.from(current.querySelectorAll(':scope > Cells > CombiNodeCell > Nodes'))) {
     out.push(...Array.from(nodes.children))
   }

@@ -1,5 +1,6 @@
 import {
   selectProjectBuildingFloors,
+  selectProjectFloorPlan,
   type ProjectWithOptionalV2Building,
 } from '@/lib/projectV2/buildingFloors'
 import {
@@ -8,6 +9,7 @@ import {
 } from '@/lib/projectV2/electrical'
 import { collectPlacementsOnFloor } from '@/utils/project'
 import type { Endpoint, Floor, Panel } from '@/types/schema'
+import type { FloorV2 } from '@/types/projectV2'
 import { endpointSymbolVisibleOnSitplan } from '@/lib/plan/planSymbolVisibility'
 
 type SitplanExportProject = ProjectWithOptionalV2Building & ProjectWithOptionalV2Electrical
@@ -19,9 +21,19 @@ export interface SitplanExportTarget {
   title: string | null
 }
 
-function hasFloorPlanContent(floor: Floor): boolean {
-  if (floor.planAsset || floor.planImportAsset) return true
-  const floorPlan = floor.floorPlan
+function hasFloorPlanContent(
+  project: SitplanExportProject,
+  floor: Floor | FloorV2,
+): boolean {
+  const hasBackground =
+    ('planAssetId' in floor && Boolean(floor.planAssetId)) ||
+    ('processedPlanAssetId' in floor && Boolean(floor.processedPlanAssetId)) ||
+    ('planAsset' in floor && Boolean(floor.planAsset)) ||
+    ('planAssetProcessed' in floor && Boolean(floor.planAssetProcessed)) ||
+    ('planImportAsset' in floor && Boolean(floor.planImportAsset))
+  if (hasBackground) return true
+  const floorPlan = selectProjectFloorPlan(project, floor.id) ??
+    ('floorPlan' in floor ? floor.floorPlan : undefined)
   if (!floorPlan) return false
   return Boolean(
     floorPlan.walls.length > 0 ||
@@ -34,9 +46,17 @@ function hasFloorPlanContent(floor: Floor): boolean {
 
 function hasSitplanExportContent(
   project: SitplanExportProject,
-  floor: Floor,
+  floor: Floor | FloorV2,
 ): boolean {
-  return hasFloorPlanContent(floor) || collectPlacementsOnFloor(project, floor.id).length > 0
+  return hasFloorPlanContent(project, floor) || collectPlacementsOnFloor(project, floor.id).length > 0
+}
+
+function getHiddenSitplanElementIds(floor: Floor | FloorV2): string[] {
+  return 'hiddenSitplanElementIds' in floor
+    ? floor.hiddenSitplanElementIds ?? []
+    : 'hiddenSitplanPlacementIds' in floor
+      ? floor.hiddenSitplanPlacementIds ?? []
+      : []
 }
 
 interface SitplanPlacementRecord {
@@ -100,32 +120,33 @@ function shouldCountEndpointForPanelContent(endpoint: Endpoint): boolean {
 
 function collectSitplanPlacements(project: SitplanExportProject): SitplanPlacementRecord[] {
   const placements: SitplanPlacementRecord[] = []
+  const hiddenPlacementIdsByFloor = new Map(
+    selectProjectBuildingFloors(project).map(
+      (floor) => [floor.id, new Set(getHiddenSitplanElementIds(floor))] as const,
+    ),
+  )
+  const addEndpointPlacements = (endpoint: Endpoint, panelId: string) => {
+    if (!shouldCountEndpointForPanelContent(endpoint)) return
+    for (const placement of endpoint.placements) {
+      if (hiddenPlacementIdsByFloor.get(placement.floorId)?.has(placement.id)) continue
+      placements.push({
+        floorId: placement.floorId,
+        panelId,
+        label: endpoint.label,
+        symbol: endpoint.symbol,
+      })
+    }
+  }
   const visitPanel = (panel: Panel) => {
     for (const circuit of panel.circuits) {
       for (const endpoint of circuit.endpoints) {
-        if (!shouldCountEndpointForPanelContent(endpoint)) continue
-        for (const placement of endpoint.placements) {
-          placements.push({
-            floorId: placement.floorId,
-            panelId: panel.id,
-            label: endpoint.label,
-            symbol: endpoint.symbol,
-          })
-        }
+        addEndpointPlacements(endpoint, panel.id)
       }
     }
     for (const protection of panel.protections) {
       for (const circuit of protection.circuits ?? []) {
         for (const endpoint of circuit.endpoints) {
-          if (!shouldCountEndpointForPanelContent(endpoint)) continue
-          for (const placement of endpoint.placements) {
-            placements.push({
-              floorId: placement.floorId,
-              panelId: panel.id,
-              label: endpoint.label,
-              symbol: endpoint.symbol,
-            })
-          }
+          addEndpointPlacements(endpoint, panel.id)
         }
       }
     }
@@ -224,10 +245,20 @@ export function buildSitplanExportTargets(
   const targets: SitplanExportTarget[] = []
 
   for (const floor of floors) {
+    const floorPlacements = placements.filter((placement) => placement.floorId === floor.id)
+    if (floorPlacements.length === 0) {
+      if (!hasFloorPlanContent(project, floor)) continue
+      targets.push({
+        id: `sitplan-${floor.id}`,
+        floorId: floor.id,
+        panelId: null,
+        title: floor.name?.trim() || null,
+      })
+      continue
+    }
+
     for (const panel of panels) {
-      const hasContent = placements.some(
-        (placement) => placement.floorId === floor.id && placement.panelId === panel.id,
-      )
+      const hasContent = floorPlacements.some((placement) => placement.panelId === panel.id)
       if (!hasContent) continue
       targets.push({
         id: `sitplan-${floor.id}-${panel.id}`,

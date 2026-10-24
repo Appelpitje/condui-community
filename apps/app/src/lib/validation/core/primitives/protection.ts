@@ -1,6 +1,7 @@
 import { getDerivedWiresForValidation } from '@/lib/validation/derivedWiresForValidation'
 import { registerPrimitive } from './registry'
 import { logger } from '@/lib/logger'
+import { resolvePanelSupplyLinksForProtectionInPanels } from '@/lib/eendraad/panelSupplyLink'
 import type {
   CheckContext,
   CheckResult,
@@ -12,6 +13,8 @@ import type {
   ProtectionDevice,
 } from './common'
 import { isHouseholdInstallation } from '@/lib/installationProfile'
+import { getPanelBusSectionFeedProjection } from '@/lib/feedTopology'
+import { getPrimaryPanelBusSectionId } from '@/lib/panel/panelBusSections'
 import {
   isIntermediateProtectionDevice,
   isOvercurrentProtectionType,
@@ -27,6 +30,7 @@ import {
   projectInstallation,
   validationCircuitCode,
   validationProtectionLabel,
+  isPanelPlacementCarrierCircuit,
 } from './common'
 
 /**
@@ -48,8 +52,13 @@ function cascadeProtectionRatings(
     if (!rootPanel) return { passed: true }
 
     const offenders: Offender[] = []
+    const visitedPanelLimits = new Map<string, number>()
 
     const walkPanels = (panel: Panel, upstreamRatingA?: number) => {
+      const limit = upstreamRatingA ?? Infinity
+      if ((visitedPanelLimits.get(panel.id) ?? Infinity) < limit ||
+        (visitedPanelLimits.has(panel.id) && visitedPanelLimits.get(panel.id) === limit)) return
+      visitedPanelLimits.set(panel.id, limit)
       for (const protection of panel.protections) {
         const thisRating = protection.ratingA
         const isOvercurrent = isOvercurrentProtectionType(protection.type)
@@ -62,7 +71,7 @@ function cascadeProtectionRatings(
           upstreamRatingA != null &&
           thisRating > upstreamRatingA
         ) {
-          offenders.push({
+          if (!offenders.some((offender) => offender.id === protection.id)) offenders.push({
             kind: 'protection',
             id: protection.id,
             viewHint: 'eendraad',
@@ -70,17 +79,15 @@ function cascadeProtectionRatings(
         }
 
         // If this protection feeds a sub-panel, recurse into that panel with this as upstream
-        if (protection.subPanelId) {
-          const subPanel = query.getPanelById(protection.subPanelId)
-          if (subPanel) {
-            const nextUpstreamRatingA =
-              isOvercurrent && thisRating != null
-                ? upstreamRatingA == null
-                  ? thisRating
-                  : Math.min(upstreamRatingA, thisRating)
-                : upstreamRatingA
-            walkPanels(subPanel, nextUpstreamRatingA)
-          }
+        for (const link of resolvePanelSupplyLinksForProtectionInPanels(projectPanels(context.project), panel, protection)) {
+          const subPanel = link.targetPanel
+          const nextUpstreamRatingA =
+            isOvercurrent && thisRating != null
+              ? upstreamRatingA == null
+                ? thisRating
+                : Math.min(upstreamRatingA, thisRating)
+              : upstreamRatingA
+          walkPanels(subPanel, nextUpstreamRatingA)
         }
       }
 
@@ -113,7 +120,8 @@ function cascadeProtectionRatings(
     if (!circuit) return { passed: true }
 
     const upstream = query.getProtectionForCircuit(scope.id)
-    let effectiveUpstreamRatingA = upstream?.ratingA
+    let effectiveUpstreamRatingA = upstream && isOvercurrentProtectionType(upstream.type)
+      ? upstream.ratingA : undefined
 
     const offenders: Offender[] = []
 
@@ -434,10 +442,10 @@ function electricalDomainConsistency(
 }
 
 /**
- * Enforce AREI-style main RCD presence and sizing on the supply trunk.
+ * Enforce AREI-style main RCD presence and sizing on every origin path.
  *
  * Approximates for Belgian residential-style installations:
- * - A main RCD or RCBO on the main supply
+ * - A main RCD or RCBO on the common supply or each parallel origin departure
  * - Sensitivity at most 300 mA
  * - Nominal current at least 40 A
  * - Residual current type at least type A (no pure AC-only devices)
@@ -461,24 +469,66 @@ function mainRcdCompliance(
     return { passed: true }
   }
 
-  const projection = installation
-    ? getPanelFeedProjection(installation, projectPanels(project), panel)
-    : null
-  const supplyDevices =
-    ((projection?.rootFeed?.trunkDevices?.length ?? 0) > 0
-      ? projection?.rootFeed?.trunkDevices
-      : projection?.sharedFeed.trunkDevices
-    )?.filter((td: TrunkDevice) => trunkDeviceCountsAsProtection(td)) ??
-    query.getMainSupplyProtections().filter((td: TrunkDevice) => trunkDeviceCountsAsProtection(td))
-  const mainRcdCandidates = supplyDevices.filter(
-    (td: TrunkDevice) => td.protectionType === 'RCD' || td.protectionType === 'RCBO'
-  )
+  type MainRcd = { device: ProtectionDevice | TrunkDevice; kind: 'protection' | 'device' }
+  const mainRcdCandidates = new Map<string, MainRcd>()
+  const panels = projectPanels(project)
+  const primarySectionId = getPrimaryPanelBusSectionId(panel)
+  const supplyBySection = new Map<string, TrunkDevice[]>()
+  const supplyRcds = (sectionId: string) => {
+    let candidates = supplyBySection.get(sectionId)
+    if (!candidates) {
+      const projection = installation
+        ? getPanelBusSectionFeedProjection(installation, panels, panel, sectionId)
+        : null
+      candidates = (projection?.devices ?? query.getMainSupplyProtections()).filter(
+        (device) => trunkDeviceCountsAsProtection(device) &&
+          (device.protectionType === 'RCD' || device.protectionType === 'RCBO')
+      )
+      supplyBySection.set(sectionId, candidates)
+    }
+    return candidates
+  }
+  const circuits = query.getCircuits(panel.id)
+  const nestedIds = new Set(circuits.flatMap((circuit) => circuit.subCircuitIds ?? []))
+  const ownedIds = new Set(panel.protections.flatMap((device) => device.circuits?.map(({ id }) => id) ?? []))
+  const unprotectedPaths: Offender[] = []
+  let outgoingPaths = 0
+  const checkOriginPath = (sectionId: string, offender?: Offender, protection?: ProtectionDevice) => {
+    outgoingPaths += 1
+    const supply = supplyRcds(sectionId)
+    for (const device of supply) mainRcdCandidates.set(device.id, { device, kind: 'device' })
+    if (supply.length > 0) return
+    // A board-root RCD can be one of several parallel main devices. A later
+    // circuit-trunk RCD or a device in another board cannot protect this departure.
+    if (protection && !protection.directPanelFeeder && !protection.directDcBusFeeder &&
+      (protection.type === 'RCD' || protection.type === 'RCBO')) {
+      mainRcdCandidates.set(protection.id, { device: protection, kind: 'protection' })
+    } else {
+      unprotectedPaths.push(offender ?? { kind: 'board', id: panel.id, viewHint: 'eendraad' })
+    }
+  }
+  for (const protection of panel.protections) {
+    if (protection.dcBusId != null || protection.directDcBusFeeder) continue
+    // Leaves stored under their own MCB are still downstream of an RCD container.
+    if (protection.circuits?.length && protection.circuits.every((circuit) => nestedIds.has(circuit.id))) continue
+    checkOriginPath(protection.busSectionId ?? primarySectionId,
+      { kind: 'protection', id: protection.id, viewHint: 'eendraad' }, protection)
+  }
+  for (const circuit of circuits) {
+    if (ownedIds.has(circuit.id) || nestedIds.has(circuit.id) || circuit.dcBusSource ||
+      isPanelPlacementCarrierCircuit(query, circuit.id)) continue
+    checkOriginPath(circuit.busSectionId ?? primarySectionId,
+      { kind: 'circuit', id: circuit.id, viewHint: 'eendraad' })
+  }
+  if (outgoingPaths === 0) checkOriginPath(primarySectionId)
+
+  const issues: Issue[] = []
   // Device presence and evidence of its performance are separate: an entered
   // RCD with unknown sensitivity needs its specifications, not a second device.
-  if (mainRcdCandidates.length === 0) {
-    return {
+  if (unprotectedPaths.length > 0) {
+    const missing: CheckResult = {
       passed: false,
-      offenders: [],
+      offenders: unprotectedPaths,
       message: i18n.t('validation.primitives.mainRcdCompliance.missing.message', {
         defaultValue: 'Main supply has no upstream RCD or RCBO',
       }),
@@ -487,11 +537,16 @@ function mainRcdCompliance(
           'Belgian AREI Book 1 requires a main residual current device at the origin of the installation. Add a main RCD or RCBO on the supply trunk upstream of the main panel.',
       }),
     }
+    if (mainRcdCandidates.size === 0) return missing
+    issues.push({
+      id: `main-rcd-missing:${panel.id}`,
+      ruleId: 'be.areibook1.2025.main-rcd', severity: 'warning', jurisdiction: 'BE',
+      rulesetVersion: '2025', scope, offenders: unprotectedPaths,
+      message: missing.message!, details: missing.details, citations: [],
+    })
   }
 
-  const issues: Issue[] = []
-
-  for (const td of mainRcdCandidates) {
+  for (const { device: td, kind } of mainRcdCandidates.values()) {
     const ratingA = td.ratingA
     const sensitivityMa = td.sensitivityMa
 
@@ -503,7 +558,7 @@ function mainRcdCompliance(
         jurisdiction: 'BE',
         rulesetVersion: '2025',
         scope,
-        offenders: [{ kind: 'device', id: td.id, viewHint: 'eendraad' }],
+        offenders: [{ kind, id: td.id, viewHint: 'eendraad' }],
         message: i18n.t('validation.primitives.mainRcdCompliance.sensitivityMissing.message', {
           defaultValue: 'Main RCD/RCBO sensitivity is unknown',
         }),
@@ -524,7 +579,7 @@ function mainRcdCompliance(
         jurisdiction: 'BE',
         rulesetVersion: '2025',
         scope,
-        offenders: [{ kind: 'device', id: td.id, viewHint: 'eendraad' }],
+        offenders: [{ kind, id: td.id, viewHint: 'eendraad' }],
         message: i18n.t('validation.primitives.mainRcdCompliance.rating.message', {
           ratingA,
           defaultValue: `Main RCD/RCBO has rating ${ratingA}A, below the recommended 40A minimum for residential main devices`,
@@ -546,7 +601,7 @@ function mainRcdCompliance(
         jurisdiction: 'BE',
         rulesetVersion: '2025',
         scope,
-        offenders: [{ kind: 'device', id: td.id, viewHint: 'eendraad' }],
+        offenders: [{ kind, id: td.id, viewHint: 'eendraad' }],
         message: i18n.t('validation.primitives.mainRcdCompliance.sensitivity.message', {
           sensitivityMa,
           defaultValue: `Main RCD/RCBO sensitivity ${sensitivityMa} mA exceeds 300 mA maximum`,
@@ -560,8 +615,8 @@ function mainRcdCompliance(
       })
     }
 
-    // Temporarily disabled: enforcing "main RCD type must be at least A"
-    // while we align upstream device defaults and migration behavior.
+    // Waveform suitability of every RCD, including the main device, is checked
+    // by householdRcdWaveform rather than only checking the origin device.
   }
 
   if (issues.length > 0) return issues

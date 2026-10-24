@@ -345,7 +345,18 @@ export function getPanelGridPlacements(
         return
       }
     }
-    place(ref, terminalStripMemberRefs, 0, overflowStartCol, w, true)
+    // Once the first overflow band is full, extend it to the right instead of
+    // stacking modules on its first slot. Keep using the existing cabinet rows
+    // and respect authored overflow positions reserved above.
+    let next = {
+      row: 0,
+      col: findFree('main', 0, overflowStartCol, w, Infinity) ?? overflowStartCol,
+    }
+    for (let r = 1; r < rows; r++) {
+      const c = findFree('main', r, overflowStartCol, w, Infinity)
+      if (c != null && c < next.col) next = { row: r, col: c }
+    }
+    place(ref, terminalStripMemberRefs, next.row, next.col, w, true)
   }
 
   const widthOf = (

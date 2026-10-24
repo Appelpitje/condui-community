@@ -1,5 +1,5 @@
 import { registerPrimitive } from './registry'
-import type { CheckContext, CheckResult, Offender, ProtectionDevice, TrunkDevice } from './common'
+import type { CheckContext, CheckResult, Offender, Panel, ProtectionDevice, TrunkDevice } from './common'
 import {
   getPanelFeedProjection,
   i18n,
@@ -11,6 +11,7 @@ import {
 } from './common'
 import { defaultVoltagesForSystem, normalizeNominalVoltageSystem } from '@/constants/nominalVoltage'
 import { isHouseholdInstallation } from '@/lib/installationProfile'
+import { getInstallationSupplyTransformers } from '@/lib/electrical/supplyTransformer'
 import { isOvercurrentProtectionType } from '@/lib/protectionKind'
 import { isSpecialistProtectionCurve } from '@/lib/protectionCurves'
 import {
@@ -311,7 +312,178 @@ function circuitWithinMaximumProtectedLength(context: CheckContext): CheckResult
   }
 }
 
+type BreakingCapacityDevice = {
+  id: string
+  label?: string
+  breakingCapacityKa?: number
+  offenderKind: 'protection' | 'device'
+}
+
+/**
+ * Overcurrent devices whose breaking capacity applies at this board: the board's own AC
+ * devices and, for a main board, the supply devices after the meter (before it is the
+ * network operator's connection device).
+ */
+function boardOvercurrentDevices(context: CheckContext, panel: Panel): BreakingCapacityDevice[] {
+  const devices: BreakingCapacityDevice[] = panel.protections
+    .filter(
+      (protection) =>
+        !isStructuralCarrier(protection) &&
+        protection.dcBusId == null &&
+        isOvercurrentProtectionType(protection.type)
+    )
+    .map((protection) => ({
+      id: protection.id,
+      label: protection.label,
+      breakingCapacityKa: protection.breakingCapacityKa,
+      offenderKind: 'protection' as const,
+    }))
+  const installation = projectInstallation(context.project)
+  if (!panel.isMain || !installation) return devices
+  const trunk = getPanelFeedProjection(installation, projectPanels(context.project), panel)?.devices ?? []
+  const meterIndex = trunk.findIndex((device) => device.type === 'energy_meter')
+  trunk.forEach((device: TrunkDevice, index) => {
+    if (index < meterIndex) return
+    if (device.type !== 'protection' || !isOvercurrentProtectionType(device.protectionType)) return
+    devices.push({
+      id: device.id,
+      label: device.label,
+      breakingCapacityKa: device.breakingCapacityKa,
+      offenderKind: 'device',
+    })
+  })
+  return devices
+}
+
+function nonHouseholdBoard(context: CheckContext): Panel | undefined {
+  const { scope, query, project } = context
+  if (scope.type !== 'board') return undefined
+  const installation = projectInstallation(project)
+  if (!installation || isHouseholdInstallation(installation)) return undefined
+  const country = installation.address?.country
+  if (country && country !== 'BE') return undefined
+  return query.getPanelById(scope.id) ?? undefined
+}
+
+function formatKa(ka: number): string {
+  return String(Math.round(ka * 100) / 100)
+}
+
+/** AREI 3.1.2.2(b), 3.1.3.3(b): non-household boards state their expected maximum short-circuit current. */
+function nonHouseholdBoardShortCircuitStated(context: CheckContext): CheckResult {
+  const panel = nonHouseholdBoard(context)
+  if (!panel) return { passed: true }
+  if (panel.expectedShortCircuitKa != null && panel.expectedShortCircuitKa > 0) {
+    return { passed: true }
+  }
+  return {
+    passed: false,
+    offenders: [{ kind: 'board', id: panel.id, viewHint: 'eendraad' }],
+    coverage: {
+      status: 'missing-information',
+      reason: 'expected-short-circuit-current-not-entered',
+      missingFacts: ['expected maximum short-circuit current at the board'],
+    },
+    message: i18n.t('validation.primitives.nonHouseholdBoardShortCircuitStated.message', {
+      panelName: panel.name,
+      defaultValue: `Board ${panel.name} has no expected short-circuit current`,
+    }),
+    details: i18n.t('validation.primitives.nonHouseholdBoardShortCircuitStated.details', {
+      defaultValue:
+        'Non-domestic diagrams and board markings state the expected maximum short-circuit current when it exceeds 3000 A. It is also needed to verify breaking capacities.',
+    }),
+  }
+}
+
+/** AREI 4.4.2.1, 5.3.5.5(e): breaking capacity at least the expected short-circuit current. */
+function nonHouseholdBreakingCapacity(context: CheckContext): CheckResult {
+  const panel = nonHouseholdBoard(context)
+  if (!panel) return { passed: true }
+  const expectedKa = panel.expectedShortCircuitKa
+  if (expectedKa == null || expectedKa <= 0) {
+    return {
+      passed: true,
+      coverage: {
+        status: 'missing-information',
+        reason: 'expected-short-circuit-current-not-entered',
+        missingFacts: ['expected maximum short-circuit current at the board'],
+      },
+    }
+  }
+  const low = boardOvercurrentDevices(context, panel).filter(
+    (device) => device.breakingCapacityKa != null && device.breakingCapacityKa < expectedKa
+  )
+  if (low.length === 0) return { passed: true, coverage: { status: 'passed' } }
+  const labels = low.map((device) => validationProtectionLabel(device.label)).join(', ')
+  const ka = formatKa(expectedKa)
+  return {
+    passed: false,
+    offenders: low.map((device) => ({ kind: device.offenderKind, id: device.id, viewHint: 'eendraad' as const })),
+    message: i18n.t('validation.primitives.nonHouseholdBreakingCapacity.message', {
+      labels,
+      ka,
+      defaultValue: `Breaking capacity below ${ka} kA: ${labels}`,
+    }),
+    details: i18n.t('validation.primitives.nonHouseholdBreakingCapacity.details', {
+      ka,
+      defaultValue: `The expected short-circuit current at this board is ${ka} kA. Each overcurrent device needs at least that breaking capacity, unless an upstream device covers it by cascading (filiation) according to the manufacturer's tables.`,
+    }),
+  }
+}
+
+/** AREI 3.1.2.2(b): non-household diagrams show each protective device's breaking capacity. */
+function nonHouseholdBreakingCapacityShown(context: CheckContext): CheckResult {
+  const panel = nonHouseholdBoard(context)
+  if (!panel) return { passed: true }
+  const missing = boardOvercurrentDevices(context, panel).filter(
+    (device) => device.breakingCapacityKa == null
+  )
+  if (missing.length === 0) return { passed: true }
+  const labels = missing.map((device) => validationProtectionLabel(device.label)).join(', ')
+  return {
+    passed: false,
+    offenders: missing.map((device) => ({ kind: device.offenderKind, id: device.id, viewHint: 'eendraad' as const })),
+    message: i18n.t('validation.primitives.nonHouseholdBreakingCapacityShown.message', {
+      labels,
+      defaultValue: `Breaking capacity not entered: ${labels}`,
+    }),
+    details: i18n.t('validation.primitives.nonHouseholdBreakingCapacityShown.details', {
+      defaultValue: 'Non-domestic circuit diagrams state the breaking capacity of every protective device.',
+    }),
+  }
+}
+
+/** AREI 3.1.2.2(b): an own supply transformer documents its apparent power and impedance. */
+function nonHouseholdSupplyTransformerDocumented(context: CheckContext): CheckResult {
+  const panel = nonHouseholdBoard(context)
+  if (!panel?.isMain) return { passed: true }
+  const installation = projectInstallation(context.project)
+  if (!installation) return { passed: true }
+  const incomplete = getInstallationSupplyTransformers(installation).filter((device) => {
+    if (device.conversionProps?.transformerRole !== 'supply') return false
+    const props = device.conversionProps
+    return !(props?.transformerRatedPowerKva && props.transformerRatedPowerKva > 0) ||
+      !(props?.transformerShortCircuitVoltagePercent && props.transformerShortCircuitVoltagePercent > 0)
+  })
+  if (incomplete.length === 0) return { passed: true }
+  return {
+    passed: false,
+    offenders: incomplete.map((device) => ({ kind: 'device' as const, id: device.id, viewHint: 'eendraad' as const })),
+    message: i18n.t('validation.primitives.nonHouseholdSupplyTransformerDocumented.message', {
+      defaultValue: 'Supply transformer power or short-circuit voltage is missing',
+    }),
+    details: i18n.t('validation.primitives.nonHouseholdSupplyTransformerDocumented.details', {
+      defaultValue:
+        'Non-domestic diagrams state the characteristics of the sources, including the apparent power and impedance of a supply transformer.',
+    }),
+  }
+}
+
 registerPrimitive('householdBoardBreakingCapacity', householdBoardBreakingCapacity)
+registerPrimitive('nonHouseholdBoardShortCircuitStated', nonHouseholdBoardShortCircuitStated)
+registerPrimitive('nonHouseholdBreakingCapacity', nonHouseholdBreakingCapacity)
+registerPrimitive('nonHouseholdBreakingCapacityShown', nonHouseholdBreakingCapacityShown)
+registerPrimitive('nonHouseholdSupplyTransformerDocumented', nonHouseholdSupplyTransformerDocumented)
 registerPrimitive('householdSupplyBreakingCapacity', householdSupplyBreakingCapacity)
 registerPrimitive('circuitWithinMaximumProtectedLength', circuitWithinMaximumProtectedLength)
 registerPrimitive('circuitShortCircuitProtectionVerifiable', circuitShortCircuitProtectionVerifiable)

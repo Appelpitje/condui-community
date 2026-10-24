@@ -103,7 +103,7 @@ export function createSlicedExportPage(
       },
       contentClipRect: overlapPx > 0 ? contentRect : undefined,
       metadata: { circuitIds: slice.circuitIds.join(',') },
-      eendraadSlice: { globalScale, mainBusY },
+      eendraadSlice: { globalScale, mainBusY, schematicTopMm: slice.schematicTopMm },
     }
   }, () => fullScene.rootNode.destroy())
 }

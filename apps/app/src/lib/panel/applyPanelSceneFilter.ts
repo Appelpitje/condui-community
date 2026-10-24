@@ -12,6 +12,7 @@ import {
   type PanelSceneSurface,
   type PanelSceneConnector,
   routePanelSceneConnector,
+  getPanelSceneSurfaceLayoutWidth,
 } from '@/lib/panel/panelScene'
 import { findPanelById } from '@/lib/panel/panelTree'
 
@@ -246,7 +247,7 @@ export function applyPanelSceneFilter(
   }
 
   const { surfaces, connectors } = relayoutStackedScene(picked, hierarchyFeedFromTop, rootPanels)
-  const maxRight = Math.max(0, ...surfaces.map((surface) => surface.x + surface.width))
+  const maxRight = Math.max(0, ...surfaces.map((surface) => surface.x + getPanelSceneSurfaceLayoutWidth(surface)))
   const maxBottom = Math.max(0, ...surfaces.map((surface) => surface.y + surface.height))
 
   return {

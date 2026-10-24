@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore, type ReactNode } from 'react'
+import { useId, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight } from 'lucide-react'
 import { DebouncedTextInput } from '@/components/forms'
@@ -11,14 +11,19 @@ import {
   type ControlDeviceFields,
   type ControlSystem,
   type DomoticaDeviceProps,
+  type DomoticaOutputWireProps,
   type Endpoint,
 } from '@/types/schema'
 import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
+import { editProperties } from '@/handlers/properties/editProperties'
+import { getDomoticaBusContext, getDomoticaBusLabel } from '@/lib/controlLink/domoticaBus'
 import {
   buildControlDeviceIndex,
+  canLinkControlDevice,
   collectControlLinkEntries,
   CONTROL_LINK_NOTE_SEPARATOR,
   getConnectionDirection,
+  rebindControlLink,
   getChannelCapacity,
   getNextFreeChannel,
   issuesForConnection,
@@ -28,6 +33,11 @@ import {
   type ControlDeviceEntry,
   type ControlDeviceIssue,
 } from '@/lib/controlLink/controlLink'
+import {
+  getControlButtonAddress,
+  getControlButtonCount,
+  setControlButtonAddress,
+} from '@/lib/controlLink/buttonAddressing'
 import { getOutputChannelOptions } from '@/lib/controlLink/controlDevicePicker'
 import {
   cancelControlDevicePick,
@@ -192,7 +202,7 @@ function ChannelChips({
   if (!options) return null
   const usedBy = new Map<string, string>()
   for (const entry of device.connections) {
-    if (entry.direction !== 'output' || entry.endpoint.id === endpointId || entry.channel == null) continue
+    if (entry.bus || entry.direction !== 'output' || entry.endpoint.id === endpointId || entry.channel == null) continue
     usedBy.set(addressKey(entry.channel), entry.endpoint.label.trim() || '?')
   }
   const current = channel != null ? addressKey(channel) : undefined
@@ -229,32 +239,40 @@ function ChannelChips({
 
 function ControlAddressingInputs({
   endpointId,
+  resetKey = endpointId,
   device,
   chipsDevice,
   addressing,
   issues,
   onChange,
+  bus = false,
 }: {
   endpointId: string
+  resetKey?: string
   device: ControlDeviceFields | undefined
   /** Device whose free output channels are offered as chips. */
   chipsDevice?: ControlDeviceEntry
   addressing: ControlAddressing
   issues: ControlDeviceIssue[]
   onChange: (next: ControlAddressing) => void
+  bus?: boolean
 }) {
   const { t } = useTranslation()
-  const showGroups = deviceUsesGroups(device) || normalizeGroups(addressing.groups).length > 0
+  const channelId = useId()
+  const groupsId = useId()
+  const showGroups = bus || deviceUsesGroups(device) || normalizeGroups(addressing.groups).length > 0
+  const namedFunctions = bus && device?.system !== 'knx' && device?.system !== 'dali'
   return (
     <div className="space-y-2">
       <div>
-        <label className={labelClass}>{t('endpoints.controlLink.channel', 'Channel')}</label>
+        <label htmlFor={channelId} className={labelClass}>{t('endpoints.controlLink.channel', 'Channel')}</label>
         <DebouncedTextInput
+          id={channelId}
           type="text"
           className={inputClass}
           placeholder={t('endpoints.controlLink.channelPlaceholder', '3, C, Q7')}
           value={normalizeChannel(addressing.channel) ?? ''}
-          resetKey={endpointId}
+          resetKey={resetKey}
           onCommit={(value) =>
             onChange({ ...addressing, channel: value.trim() === '' ? undefined : value.trim() })
           }
@@ -270,15 +288,18 @@ function ControlAddressingInputs({
       </div>
       {showGroups && (
         <div>
-          <label className={labelClass}>{t('endpoints.controlLink.groups', 'Groups')}</label>
+          <label htmlFor={groupsId} className={labelClass}>{namedFunctions
+            ? t('endpoints.controlLink.functions', 'Functions')
+            : t('endpoints.controlLink.groups', 'Groups')}</label>
           <DebouncedTextInput
+            id={groupsId}
             type="text"
             className={inputClass}
-            placeholder={t('endpoints.controlLink.groupsPlaceholder', '1/1/3, 1/4/3')}
+            placeholder={namedFunctions ? undefined : t('endpoints.controlLink.groupsPlaceholder', '1/1/3, 1/4/3')}
             value={formatGroups(addressing.groups)}
-            resetKey={endpointId}
+            resetKey={resetKey}
             onCommit={(value) => {
-              const groups = parseGroupsInput(value)
+              const groups = namedFunctions ? normalizeGroups(value.split(/[,;\n]+/)) : parseGroupsInput(value)
               if (!sameGroups(groups, addressing.groups)) onChange({ ...addressing, groups })
             }}
           />
@@ -287,6 +308,158 @@ function ControlAddressingInputs({
       <ConnectionWarnings issues={issues} system={getChannelSystem(device)} />
     </div>
   )
+}
+
+/** Advanced per-button fields stay folded away unless the user needs addressing. */
+function ControlConnectionAddressFields({
+  endpoint,
+  endpointId,
+  device,
+  chipsDevice,
+  addressing,
+  issues,
+  onChange,
+  bus = false,
+}: {
+  endpoint: Endpoint
+  endpointId: string
+  device: ControlDeviceFields | undefined
+  chipsDevice?: ControlDeviceEntry
+  addressing: ControlAddressing
+  issues: ControlDeviceIssue[]
+  onChange: (next: ControlAddressing) => void
+  bus?: boolean
+}) {
+  const { t } = useTranslation()
+  const [page, setPage] = useState(0)
+  const count = getControlButtonCount(endpoint)
+  const isInput = getConnectionDirection(endpoint) === 'input'
+  if (!isInput) {
+    const inputs = <ControlAddressingInputs {...{ endpointId, device, chipsDevice, addressing, issues, onChange, bus }} />
+    return bus ? <details className="rounded-md border border-gray-200 p-2 dark:border-gray-700">
+      <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-200">{t('endpoints.controlLink.functions', 'Functions')}</summary>
+      <div className="mt-2">{inputs}</div>
+    </details> : inputs
+  }
+  const perButton = count > 1 || !!addressing.buttonAddresses?.length
+  const renderButton = (buttonIndex: number) => {
+    const value = getControlButtonAddress(addressing, buttonIndex)
+    return (
+      <ControlAddressingInputs
+        endpointId={endpointId}
+        resetKey={`${endpointId}:button:${buttonIndex}`}
+        device={device}
+        bus={bus}
+        addressing={value}
+        issues={issuesForConnection(issues, endpointId, buttonIndex)}
+        onChange={({ channel, groups }) => onChange(perButton
+          ? setControlButtonAddress(addressing, buttonIndex, { channel, groups })
+          : { ...addressing, channel, groups })}
+      />
+    )
+  }
+  if (count === 1 && !bus) return renderButton(0)
+  const pageSize = 20
+  const pageStart = Math.min(page * pageSize, Math.floor((count - 1) / pageSize) * pageSize)
+  const shown = Math.min(pageSize, count - pageStart)
+  return (
+    <details key={endpointId} className="rounded-md border border-gray-200 p-2 dark:border-gray-700">
+      <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-200">
+        {t('endpoints.controlLink.buttonAddresses', 'Button addresses')}
+      </summary>
+      <div className="mt-2 space-y-3">
+        {Array.from({ length: shown }, (_, offset) => {
+          const index = pageStart + offset
+          return (
+            <fieldset key={index} className="min-w-0">
+              <legend className="mb-1 text-xs font-medium text-gray-600 dark:text-gray-400">
+                {t('endpoints.controlLink.buttonNumber', 'Button {{number}}', { number: index + 1 })}
+              </legend>
+              {renderButton(index)}
+            </fieldset>
+          )
+        })}
+        {count > pageSize && (
+          <div className="flex items-center justify-between gap-2 text-xs text-gray-600 dark:text-gray-400">
+            <button type="button" disabled={pageStart === 0} onClick={() => setPage(pageStart / pageSize - 1)} className="disabled:opacity-40">
+              {t('endpoints.controlLink.previousButtons', 'Previous')}
+            </button>
+            <span>{pageStart + 1}–{pageStart + shown} / {count}</span>
+            <button type="button" disabled={pageStart + shown >= count} onClick={() => setPage(pageStart / pageSize + 1)} className="disabled:opacity-40">
+              {t('endpoints.controlLink.nextButtons', 'Next')}
+            </button>
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
+/** The existing output string remains standard until its connection is explicitly marked bus. */
+function DomoticaStringConnectionFields({
+  parent, wire, onChange,
+}: {
+  parent: Endpoint
+  wire: DomoticaOutputWireProps
+  onChange: (patch: Partial<DomoticaOutputWireProps>) => void
+}) {
+  const { t } = useTranslation()
+  const systemLabel = useSystemLabel()
+  const connectionId = useId()
+  const nameId = useId()
+  const systemId = useId()
+  const bus = wire.connectionType === 'bus'
+  const inherited = systemLabel(parent.domoticaProps?.system)
+  return <div className="space-y-2">
+    <div>
+      <label htmlFor={connectionId} className={labelClass}>{t('endpoints.controlLink.connection', 'Connection')}</label>
+      <CustomDropdown id={connectionId} ariaLabel={t('endpoints.controlLink.connection', 'Connection')}
+        value={bus ? 'bus' : 'standard'}
+        onChange={(value) => onChange({ connectionType: value === 'bus' ? 'bus' : undefined })}
+        options={[
+          { value: 'standard', label: t('endpoints.controlLink.standard', 'Standard') },
+          { value: 'bus', label: t('endpoints.controlLink.bus', 'Bus') },
+        ]} />
+    </div>
+    {bus && <>
+      <div>
+        <label htmlFor={nameId} className={labelClass}>{t('endpoints.controlLink.busName', 'Bus name')}</label>
+        <DebouncedTextInput id={nameId} className={inputClass} value={wire.busName ?? ''}
+          resetKey={nameId} onCommit={(value) => onChange({ busName: value.trim() || undefined })} />
+      </div>
+      <div>
+        <label htmlFor={systemId} className={labelClass}>{t('endpoints.domotica.system', 'System')}</label>
+        <CustomDropdown id={systemId} ariaLabel={t('endpoints.controlLink.busSystem', 'Bus system')}
+          value={wire.busSystem ?? ''} onChange={(value) => onChange({ busSystem: (value || undefined) as ControlSystem | undefined })}
+          options={[
+            { value: '', label: [t('endpoints.controlLink.moduleSystem', 'Module system'), inherited].filter(Boolean).join(' · ') },
+            ...CONTROL_SYSTEMS.map((system) => ({ value: system, label: systemLabel(system) })),
+          ]} />
+      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+        <input type="checkbox" checked={wire.showBusLabel !== false} onChange={(event) => onChange({ showBusLabel: event.target.checked })} />
+        {t('endpoints.controlLink.showBusLabel', 'Show bus label')}
+      </label>
+    </>}
+  </div>
+}
+
+/** Shared with selected wire properties; changes reuse properties.edit and its palette entry. */
+export function DomoticaOutputConnectionFields({
+  parent, outputGroup, outputIndex,
+}: {
+  parent: Endpoint
+  outputGroup: 'control' | 'endpoint'
+  outputIndex: number
+}) {
+  const { t } = useTranslation()
+  const wire = (outputGroup === 'control' ? parent.domoticaProps?.controlOutputWires : parent.domoticaProps?.endpointOutputWires)?.[outputIndex] ?? {}
+  return <DomoticaGroup title={t('endpoints.controlLink.section', 'Domotics')}
+    summary={wire.connectionType === 'bus' ? t('endpoints.controlLink.bus', 'Bus') : undefined}>
+    <DomoticaStringConnectionFields key={`${parent.id}:${outputGroup}:${outputIndex}`} parent={parent} wire={wire} onChange={(set) => {
+      editProperties({ edits: [{ kind: 'domoticaOutputWire', ids: [parent.id], outputGroup, outputIndex, set }] })
+    }} />
+  </DomoticaGroup>
 }
 
 /** Channel and groups for an endpoint wired to a domotica module. */
@@ -300,26 +473,57 @@ export function DomoticaChildAddressFields({
   onUpdate: (id: string, updates: Partial<Endpoint>) => void
 }) {
   const { t } = useTranslation()
-  const { index, issues } = useControlDeviceState()
+  const { panels, index, issues } = useControlDeviceState()
+  const identityId = useId()
   const child = endpoint.domoticaChildProps
   if (!child) return null
   const device = index.devices.get(child.parentEndpointId)
+  const bus = getDomoticaBusContext(panels, endpoint)
+  const parent = device?.endpoint ?? collectControlLinkEntries(panels).find(({ endpoint: candidate }) => candidate.id === child.parentEndpointId)?.endpoint
+  const wire = (child.outputGroup === 'control' ? parent?.domoticaProps?.controlOutputWires : parent?.domoticaProps?.endpointOutputWires)?.[child.outputIndex] ?? {}
+  const identityIssues = issues.filter((issue) => (issue.kind === 'invalid-bus-device-address' && issue.endpointId === endpointId) ||
+    (issue.kind === 'duplicate-bus-device-address' && issue.endpointIds.includes(endpointId)))
   const connectionIssues = issuesForConnection(issues, endpointId)
   const isOutput = getConnectionDirection(endpoint, 'wired') === 'output'
   return (
     <DomoticaGroup
       title={t('endpoints.controlLink.section', 'Domotics')}
-      summary={normalizeChannel(child.channel)}
+      summary={bus ? getDomoticaBusLabel(bus) || t('endpoints.controlLink.bus', 'Bus') : getConnectionDirection(endpoint) === 'input'
+        ? getControlButtonAddress(child, 0).channel
+        : normalizeChannel(child.channel)}
       warning={connectionIssues.length > 0}
     >
-      <ControlAddressingInputs
+      {parent && <DomoticaStringConnectionFields key={`${parent.id}:${child.outputGroup}:${child.outputIndex}`} parent={parent} wire={wire} onChange={(set) => {
+        editProperties({ edits: [{ kind: 'domoticaOutputWire', ids: [parent.id], outputGroup: child.outputGroup, outputIndex: child.outputIndex, set }] })
+      }} />}
+      {bus && <div className="space-y-2 border-t border-gray-200 pt-2 dark:border-gray-700">
+        <div className="text-xs text-gray-500 dark:text-gray-400">
+          {t('endpoints.controlLink.connectedTo', 'Connected to')} · {parent?.label} · {wire.busName?.trim() || t('endpoints.controlLink.bus', 'Bus')}
+        </div>
+        <div>
+          <label htmlFor={identityId} className={labelClass}>{bus.system === 'qbus' || bus.system === 'loxone'
+            ? t('endpoints.controlLink.serialNumber', 'Serial number')
+            : t('endpoints.domotica.deviceAddress', 'Device address')}</label>
+          <DebouncedTextInput id={identityId} className={inputClass} value={endpoint.busDeviceProps?.deviceAddress ?? ''}
+            resetKey={endpointId} onCommit={(value) => onUpdate(endpointId, { busDeviceProps: { ...endpoint.busDeviceProps, deviceAddress: value.trim() || undefined } })} />
+          {identityIssues.map((issue) => <p key={issue.kind} className={warningClass}>
+            {issue.kind === 'duplicate-bus-device-address'
+              ? t('endpoints.controlLink.duplicateDeviceAddress', 'Device address already used on this bus')
+              : t('endpoints.domotica.invalidDeviceAddress', 'Address does not match the {{system}} format', { system: bus.system?.toUpperCase() ?? '' })}
+          </p>)}
+        </div>
+      </div>}
+      <ControlConnectionAddressFields
+        key={endpointId}
+        endpoint={endpoint}
         endpointId={endpointId}
-        device={device?.fields}
-        chipsDevice={isOutput ? device : undefined}
+        device={bus ? { system: bus.system } : device?.fields}
+        chipsDevice={isOutput && !bus ? device : undefined}
+        bus={!!bus}
         addressing={child}
         issues={connectionIssues}
-        onChange={({ channel, groups }) =>
-          onUpdate(endpointId, { domoticaChildProps: { ...child, channel, groups } })
+        onChange={(addressing) =>
+          onUpdate(endpointId, { domoticaChildProps: { ...child, ...addressing } })
         }
       />
     </DomoticaGroup>
@@ -344,7 +548,9 @@ export function ControlLinkOperatedByFields({
   const pickTarget = useControlDevicePickTarget()
   const link = endpoint.controlLink
   const direction = getConnectionDirection(endpoint, 'linked')
-  const devices = useMemo(() => [...index.devices.values()], [index])
+  const devices = useMemo(() => [...index.devices.values()].filter((device) =>
+    canLinkControlDevice(panels, endpoint, device.endpoint.id)
+  ), [index, panels, endpoint])
   const linkedDevice = link ? index.devices.get(link.deviceId) : undefined
   const contextCircuitId = useMemo(
     () => collectControlLinkEntries(panels).find((entry) => entry.endpoint.id === endpointId)?.circuit.id,
@@ -353,7 +559,9 @@ export function ControlLinkOperatedByFields({
 
   const connectionIssues = issuesForConnection(issues, endpointId)
   const summary = linkedDevice
-    ? [linkedDevice.endpoint.label.trim() || '?', normalizeChannel(link?.channel)]
+    ? [linkedDevice.endpoint.label.trim() || '?', direction === 'input'
+      ? getControlButtonAddress(link, 0).channel
+      : normalizeChannel(link?.channel)]
         .filter(Boolean)
         .join(CONTROL_LINK_NOTE_SEPARATOR)
     : undefined
@@ -378,9 +586,8 @@ export function ControlLinkOperatedByFields({
           missing={link != null && !linkedDevice}
           onChange={(deviceId) =>
             onUpdate(endpointId, {
-              controlLink: deviceId
-                ? { deviceId, channel: getNextFreeChannel(panels, deviceId, endpointId, direction) || undefined }
-                : undefined,
+              controlLink: rebindControlLink(endpoint, deviceId,
+                deviceId ? getNextFreeChannel(panels, deviceId, endpointId, direction) || undefined : undefined),
             })
           }
           onPickOnCanvas={() => startControlDevicePick(endpointId)}
@@ -399,17 +606,20 @@ export function ControlLinkOperatedByFields({
         )}
       </div>
       {link && (
-        <ControlAddressingInputs
+        <ControlConnectionAddressFields
+          key={endpointId}
+          endpoint={endpoint}
           endpointId={endpointId}
           device={linkedDevice?.fields}
           chipsDevice={direction === 'output' ? linkedDevice : undefined}
           addressing={link}
           issues={connectionIssues}
-          onChange={({ channel, groups }) =>
-            onUpdate(endpointId, { controlLink: { deviceId: link.deviceId, channel, groups } })
+          onChange={(addressing) =>
+            onUpdate(endpointId, { controlLink: { ...link, ...addressing } })
           }
         />
       )}
+      {endpoint.symbol === 'relay' && <RelayOperatedContactsFields endpointId={endpointId} withinGroup />}
     </DomoticaGroup>
   )
 }
@@ -536,19 +746,15 @@ export function ControlDeviceAddressingFields({
 }
 
 /** Connections of a relay: contacts it operates on other circuits and the switches that signal it. */
-export function RelayOperatedContactsFields({ endpointId }: { endpointId: string }) {
+export function RelayOperatedContactsFields({ endpointId, withinGroup = false }: { endpointId: string; withinGroup?: boolean }) {
   const { t } = useTranslation()
   const { index, issues } = useControlDeviceState()
   const device = index.devices.get(endpointId)
   if (device?.kind !== 'relay' || device.connections.length === 0) return null
   const operated = device.connections.filter((entry) => entry.direction === 'output')
   const signalling = device.connections.filter((entry) => entry.direction === 'input')
-  return (
-    <DomoticaGroup
-      title={t('endpoints.controlLink.controlSection', 'Control')}
-      summary={String(device.connections.length)}
-      warning={device.connections.some((entry) => issuesForConnection(issues, entry.endpoint.id).length > 0)}
-    >
+  const body = (
+    <>
       {operated.length > 0 && (
         <ConnectionRows
           title={t('endpoints.controlLink.operates', 'Operates')}
@@ -565,7 +771,15 @@ export function RelayOperatedContactsFields({ endpointId }: { endpointId: string
           issues={issues}
         />
       )}
-    </DomoticaGroup>
+    </>
+  )
+  if (withinGroup) return body
+  return (
+    <DomoticaGroup
+      title={t('endpoints.controlLink.controlSection', 'Control')}
+      summary={String(device.connections.length)}
+      warning={device.connections.some((entry) => issuesForConnection(issues, entry.endpoint.id).length > 0)}
+    >{body}</DomoticaGroup>
   )
 }
 
@@ -581,6 +795,7 @@ function ConnectionRows({
   connections: ConnectedEndpointEntry[]
   issues: ControlDeviceIssue[]
 }) {
+  const { t } = useTranslation()
   const getCircuitIdentifier = useProjectStore((state: ProjectState) => state.getCircuitIdentifier)
   const setSelection = useUIStore((state) => state.setSelection)
   return (
@@ -590,10 +805,10 @@ function ConnectionRows({
         <span className="text-xs tabular-nums text-gray-500 dark:text-gray-400">{count}</span>
       </div>
       <ul className="space-y-1">
-        {connections.map(({ endpoint, circuit, channel, groups }) => {
-          const hasIssue = issuesForConnection(issues, endpoint.id).length > 0
+        {connections.map(({ endpoint, circuit, channel, groups, connectionId, buttonIndex, bus }) => {
+          const hasIssue = issuesForConnection(issues, endpoint.id, buttonIndex).length > 0
           return (
-            <li key={endpoint.id}>
+            <li key={connectionId}>
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -606,6 +821,10 @@ function ConnectionRows({
                 </span>
                 <span className="min-w-0 flex-1 truncate">
                   {endpoint.label.trim() || '?'}
+                  {bus?.deviceAddress && <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">{bus.deviceAddress}</span>}
+                  {buttonIndex != null && <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">
+                    {t('endpoints.controlLink.buttonNumber', 'Button {{number}}', { number: buttonIndex + 1 })}
+                  </span>}
                   {groups.length > 0 && (
                     <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
                       {formatGroups(groups)}
@@ -634,8 +853,9 @@ function ControlLinkConnectedList({ deviceId }: { deviceId: string }) {
   const device = index.devices.get(deviceId)
   if (!device || device.connections.length === 0) return null
   const capacity = getChannelCapacity(device)
-  const outputs = device.connections.filter((entry) => entry.direction === 'output')
-  const inputs = device.connections.filter((entry) => entry.direction === 'input')
+  const outputs = device.connections.filter((entry) => !entry.bus && entry.direction === 'output')
+  const inputs = device.connections.filter((entry) => !entry.bus && entry.direction === 'input')
+  const busDevices = device.connections.filter((entry) => entry.bus)
 
   return (
     <>
@@ -655,6 +875,11 @@ function ControlLinkConnectedList({ deviceId }: { deviceId: string }) {
           issues={issues}
         />
       )}
+      {busDevices.length > 0 && <ConnectionRows
+        title={t('endpoints.controlLink.busDevices', 'Bus devices')}
+        count={String(new Set(busDevices.map((entry) => entry.endpoint.id)).size)}
+        connections={busDevices} issues={issues}
+      />}
     </>
   )
 }

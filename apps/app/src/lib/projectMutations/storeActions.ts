@@ -3,6 +3,7 @@
  * project command, ADR 0003). The store slices call these and keep only their bookkeeping.
  */
 import { projectMutationNow } from './mutationTime'
+import { suggestRotationForPlacement } from '@/utils/planAutoOrient'
 import { normalizeProtectionCapacityUpdates } from '@/lib/protectionDefaults'
 import { addOneWireNoteInProject } from './annotationMutations'
 import { syncSequentialEndpointBranchLabelsToCircuit } from '@/lib/eendraad/automaticEndpointBranchNaming'
@@ -12,6 +13,9 @@ import {
 } from '@/lib/eendraad/automaticMainBusNaming'
 import { moveCircuitToCircuitContentPosition } from '@/lib/eendraad/circuitContentInsertion'
 import { renameCircuitCodeKeepingEndpoints } from '@/lib/eendraad/circuitEndpointLabels'
+import { resolveLabelScheme } from '@/lib/eendraad/labelScheme'
+import { withLabelScheme } from '@/lib/eendraad/labelSchemeContext'
+import { isDomoticaPanelFeedEndpoint } from '@/lib/eendraad/panelSupplyLink'
 import { applyDomoticaRowLabelEdit } from '@/lib/eendraad/domoticaRowLabel'
 import { syncDerivedEndpointFlags } from '@/lib/eendraad/endpointInsertAfter'
 import { findParentCircuitInfo } from '@/lib/eendraad/findParentCircuitInfo'
@@ -81,6 +85,7 @@ import {
   commitBuildingFloorView,
   mutateBuildingFloorViews,
   readLegacyCompatibilityFloors,
+  selectProjectFloorPlan,
   selectProjectPlanScale,
   setPlanScaleForProject,
 } from '@/lib/projectV2/buildingFloors'
@@ -632,10 +637,14 @@ export function updateProtectionInProject(
 
         // If the protection label changed, update circuit codes to match, including clears.
         if (newLabel !== null && newLabel !== oldLabel) {
-          if (protection.circuits?.length) {
-            for (const circuit of protection.circuits) {
-              renameCircuitCodeKeepingEndpoints(circuit, newLabel)
-            }
+          const circuits = protection.circuits
+          if (circuits?.length) {
+            const scheme = resolveLabelScheme(getEditableProjectElectricalInstallation(project)?.labelScheme)
+            withLabelScheme(scheme, () => {
+              for (const circuit of circuits) {
+                renameCircuitCodeKeepingEndpoints(circuit, newLabel)
+              }
+            })
           }
         }
 
@@ -859,8 +868,13 @@ export function deleteProtectionInProject(
     if (!protectionToDelete) {
       return __result()
     }
+    const linkedPanelIds = new Set([
+      ...(protectionToDelete.subPanelId ? [protectionToDelete.subPanelId] : []),
+      ...(protectionToDelete.circuits ?? []).flatMap((circuit) =>
+        circuit.endpoints.filter(isDomoticaPanelFeedEndpoint).map((endpoint) => endpoint.panelId)),
+    ])
 
-    if (protectionToDelete.subPanelId && options?.preserveLinkedPanels) {
+    if (linkedPanelIds.size && options?.preserveLinkedPanels) {
       // A preserved secondary-panel feeder is intentionally reattached to the
       // surviving parent protection, including its panel link.
       migrateSubCircuitContentToParent(protectionToDelete, panels)
@@ -893,8 +907,8 @@ export function deleteProtectionInProject(
     for (const panel of panels) {
       if (removeProtection(panel)) {
         __changed = true
-        if (linkedSubPanelId && !options?.preserveLinkedPanels) {
-          deleteLinkedSubPanelsIfOrphaned(project, [linkedSubPanelId])
+        if (linkedPanelIds.size && !options?.preserveLinkedPanels) {
+          deleteLinkedSubPanelsIfOrphaned(project, linkedPanelIds)
         }
         if (affectedPanelId) {
           maybeApplyAutomaticEendraadNamingForPanel(project, affectedPanelId)
@@ -1159,6 +1173,7 @@ export function updateEndpointInProject(
           return __result()
         }
         const previousCircuit = result.circuit
+        const wasWallLight = result.endpoint.symbol === 'light_point' && result.endpoint.lightPointProps?.onWall
         // If circuit is changing, we need to move the endpoint
         if (updates.circuitId && updates.circuitId !== result.circuit.id) {
           const newCircuitResult = findCircuitById(panel, updates.circuitId)
@@ -1277,6 +1292,14 @@ export function updateEndpointInProject(
             if (destOwner && destOwner.panel.id !== owner?.panel.id) {
               maybeApplyAutomaticEendraadNamingForPanel(project, destOwner.panel.id)
             }
+          }
+        }
+        if (!wasWallLight && result.endpoint.symbol === 'light_point' && result.endpoint.lightPointProps?.onWall) {
+          for (const placement of result.endpoint.placements) {
+            if (placement.rotationMode === 'explicit') continue
+            const walls = selectProjectFloorPlan(project, placement.floorId)?.walls ?? []
+            const rotation = suggestRotationForPlacement(placement, { walls }, 'right')
+            if (rotation != null) placement.rotationDeg = rotation
           }
         }
         __circuitId =

@@ -19,6 +19,7 @@ import {
 } from '@/lib/supplyAssembly/electricalTopology'
 import { ELECTRICAL_STRUCTURE_INFERENCE_RULES as RULES } from './inferenceRules'
 import { indexPhysicalEnclosures } from '@/lib/panel/physicalEnclosureIndex'
+import { isDomoticaPanelFeedEndpoint } from '@/lib/eendraad/panelSupplyLink'
 import type {
   ElectricalStructureDiagnostic,
   ElectricalStructureNode,
@@ -363,6 +364,10 @@ export function buildElectricalStructureSnapshot(project: ProjectV2): Electrical
           missing('panel', endpoint.panelId, source('endpoint', endpoint.id, container, 'panelId')),
         source('endpoint', endpoint.id, container, 'panelId')
       )
+      if (representedPanel && isDomoticaPanelFeedEndpoint(endpoint)) {
+        edge('panel-feed', endpointId, representedPanel,
+          source('endpoint', endpoint.id, container, 'panelId'))
+      }
     }
     for (const placement of endpoint.placements ?? [])
       projectPlacement(placement, endpointId, `${container}.placements`, panelId, circuitId)
@@ -852,7 +857,9 @@ export function buildElectricalStructureSnapshot(project: ProjectV2): Electrical
         nestedCircuitIds
       )
     )
-    if (protection.subPanelId) {
+    if (protection.subPanelId && !(protection.circuits ?? []).some((circuit) =>
+      circuit.endpoints.some((endpoint) => isDomoticaPanelFeedEndpoint(endpoint) &&
+        endpoint.panelId === protection.subPanelId))) {
       const target =
         resolve('panel', protection.subPanelId) ??
         missing(

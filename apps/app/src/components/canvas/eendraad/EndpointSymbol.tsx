@@ -84,9 +84,18 @@ import { useProjectStore } from '@/stores/projectStore'
 import type { Point } from '@/types/ui'
 import { getVisibleCertificationLabelParts } from '@/lib/certificationLabels'
 import { getVisibleConversionLabelParts, getVisibleEndpointNoteText } from '@/lib/conversionLabels'
-import { useControlLinkNote } from '@/lib/controlLink/useControlLinkNote'
+import {
+  useBusDeviceAddress,
+  useControlLinkNote,
+  useDomoticaRowAddress,
+} from '@/lib/controlLink/useControlLinkNote'
 import { useCanvasDragImage } from '@/hooks/useCanvasDragImage'
 import { DOMOTICA_NOTE_FONT_SIZE, getDomoticaNoteOffsetFromSymbol } from '@/lib/eendraad/domoticaNotes'
+import { CONTROL_BUTTON_LABEL_FONT_SIZE, getControlButtonLabelLayout } from '@/lib/eendraad/controlButtonLabels'
+import {
+  TERMINAL_STRIP_IDENTITY_LABEL_FONT_SIZE,
+  getTerminalStripIdentityLabelOffset,
+} from '@/lib/terminalStrip/identityLabelLayout'
 import { useEendraadWireSegments } from '@/hooks/eendraad'
 import {
   CONVERTER_ARTWORK_PATHS,
@@ -469,6 +478,15 @@ export const EndpointSymbol = memo(function EndpointSymbol({
   const conversionLabelParts = getVisibleConversionLabelParts(endpoint)
   const certificationLabelParts = getVisibleCertificationLabelParts(endpoint)
   const endpointNoteText = getVisibleEndpointNoteText(endpoint, controlLinkNote)
+  const busDeviceAddress = useBusDeviceAddress(endpoint)
+  const domoticaRowAddress = useDomoticaRowAddress(endpoint)
+  const controlButtonLabel = getControlButtonLabelLayout(
+    endpoint,
+    SYMBOL_SIZE,
+    fontFamily,
+    busDeviceAddress,
+    domoticaRowAddress,
+  )
   const symbolSideLabelItems = useMemo(
     () => [
       ...conversionLabelParts,
@@ -1101,6 +1119,21 @@ export const EndpointSymbol = memo(function EndpointSymbol({
             )}
           />
         )}
+        {controlButtonLabel && !metadataLabelSuppressed && (
+          <Group name="control-button-addresses" x={DOMOTICA_BOX_WIDTH / 2}>
+            <SymbolTextLabels
+              items={controlButtonLabel.lines.map((text, index) => ({ key: `bus-device-${index}`, text }))}
+              config={{ position: 'bottom', layout: 'stack' }}
+              textColor={getSecondaryTextColor(theme?.mode === 'dark')}
+              fontFamily={fontFamily}
+              fontSize={CONTROL_BUTTON_LABEL_FONT_SIZE}
+              symbolWidth={DOMOTICA_BOX_WIDTH}
+              symbolHeight={domoticaHeight}
+              offsetFromSymbol={controlButtonLabel.offsetFromSymbol}
+              bottomMinimumLeftX={bottomLabelMinimumLeftX}
+            />
+          </Group>
+        )}
         {endpointNoteText && !metadataLabelSuppressed && (
           <Group x={DOMOTICA_BOX_WIDTH / 2}>
             <SymbolTextLabels
@@ -1111,7 +1144,7 @@ export const EndpointSymbol = memo(function EndpointSymbol({
               fontSize={DOMOTICA_NOTE_FONT_SIZE}
               symbolWidth={DOMOTICA_BOX_WIDTH}
               symbolHeight={domoticaHeight}
-              offsetFromSymbol={getDomoticaNoteOffsetFromSymbol(endpoint)}
+              offsetFromSymbol={controlButtonLabel?.ownNoteOffset ?? getDomoticaNoteOffsetFromSymbol(endpoint)}
               bottomMinimumLeftX={bottomLabelMinimumLeftX}
             />
           </Group>
@@ -1727,6 +1760,20 @@ export const EndpointSymbol = memo(function EndpointSymbol({
           metadataCallout={metadataCallout}
         />
       )}
+      {controlButtonLabel && !metadataLabelSuppressed && (
+        <Group name="control-button-addresses">
+          <SymbolTextLabels
+            items={controlButtonLabel.lines.map((text, index) => ({ key: `button-${index}`, text }))}
+            config={{ position: 'bottom', layout: 'stack' }}
+            textColor={getSecondaryTextColor(theme?.mode === 'dark')}
+            fontFamily={fontFamily}
+            fontSize={CONTROL_BUTTON_LABEL_FONT_SIZE}
+            symbolSize={SYMBOL_SIZE}
+            offsetFromSymbol={controlButtonLabel.offsetFromSymbol}
+            bottomMinimumLeftX={bottomLabelMinimumLeftXForGroup}
+          />
+        </Group>
+      )}
       {symbolSideLabelItems.length > 0 && !metadataCallout && !metadataLabelSuppressed && (
         <Group x={multiSocketLabelOffsetX}>
           <SymbolTextLabels
@@ -1737,6 +1784,7 @@ export const EndpointSymbol = memo(function EndpointSymbol({
             fontFamily={fontFamily}
             fontSize={8}
             symbolSize={SYMBOL_SIZE}
+            offsetFromSymbol={endpointLabelPosition === 'bottom' ? controlButtonLabel?.ownNoteOffset : undefined}
             bottomMinimumLeftX={
               endpointLabelPosition === 'bottom' ? bottomLabelMinimumLeftXForGroup : undefined
             }
@@ -1764,13 +1812,22 @@ export const EndpointSymbol = memo(function EndpointSymbol({
               },
             ]}
             config={{
-              position: endpoint.symbol === 'terminal_strip' ? 'bottom' : 'right',
+              position: endpoint.symbol === 'terminal_strip'
+                ? 'bottom'
+                : 'right',
               layout: 'stack',
             }}
             textColor={getSecondaryTextColor(theme?.mode === 'dark')}
             fontFamily={fontFamily}
-            fontSize={10}
+            fontSize={
+              endpoint.symbol === 'terminal_strip' ? TERMINAL_STRIP_IDENTITY_LABEL_FONT_SIZE : 10
+            }
             symbolSize={SYMBOL_SIZE}
+            offsetFromSymbol={
+              endpoint.symbol === 'terminal_strip'
+                ? getTerminalStripIdentityLabelOffset('bottom', SYMBOL_SIZE, SYMBOL_SIZE)
+                : 5
+            }
             bottomMinimumLeftX={
               endpoint.symbol === 'terminal_strip' ? bottomLabelMinimumLeftXForGroup : undefined
             }

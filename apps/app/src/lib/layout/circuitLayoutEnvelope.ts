@@ -10,9 +10,9 @@ import { getSupplyDeviceMultiplier } from '@/lib/supplyAssembly/inverterMultipli
 import { getMultiplierBadgeWidth } from '@/lib/eendraad/multiplierBadgeGeometry'
 import { DOMOTICA_BOX_WIDTH, DOMOTICA_CHILD_LABEL_GAP } from '@/lib/domoticaLayout'
 import { getDomoticaRowDisplayLabel } from '@/lib/eendraad/domoticaRowLabel'
+import { getDomoticaBusRowLabelMetrics } from '@/lib/eendraad/domoticaBusRowLabel'
+import { getControlButtonAnnotationBounds, getControlButtonLabelLayout } from '@/lib/eendraad/controlButtonLabels'
 import {
-  getCollisionSafeLabelWidth,
-  getCrowdedEndpointNoteLabelBounds,
   getEndpointNoteMinimumLeftX,
 } from '@/lib/eendraad/endpointNoteLabelCollision'
 import {
@@ -169,8 +169,7 @@ function getEndpointEnvelope(
   isBranchEnd: boolean,
   symbolSize: number,
   includeInlineMetadata = true,
-  bottomLabelMinimumLeftX?: number,
-  bottomLabelMaximumRightX?: number
+  bottomLabelMinimumLeftX?: number
 ): HorizontalEnvelope {
   const halfSymbol = symbolSize / 2
   const socketExtra =
@@ -195,6 +194,9 @@ function getEndpointEnvelope(
 
   if (!includeInlineMetadata) return envelope
 
+  const buttonAnnotation = getControlButtonAnnotationBounds(endpoint, anchorX, 0, 0)
+  if (buttonAnnotation) envelope = unionEnvelope(envelope, buttonAnnotation.left, buttonAnnotation.right)
+
   const labelLines = getEndpointLabelLines(endpoint)
 
   const usesRightLabel =
@@ -217,12 +219,7 @@ function getEndpointEnvelope(
       bottomLabelMinimumLeftX == null
         ? groupCenterX - lineWidth / 2
         : anchorX + Math.max(socketLabelOffset - lineWidth / 2, bottomLabelMinimumLeftX)
-    const renderedLineWidth = getCollisionSafeLabelWidth(
-      lineWidth,
-      lineLeft - anchorX - socketLabelOffset,
-      bottomLabelMaximumRightX == null ? undefined : bottomLabelMaximumRightX - socketLabelOffset
-    )
-    envelope = unionEnvelope(envelope, lineLeft, lineLeft + renderedLineWidth)
+    envelope = unionEnvelope(envelope, lineLeft, lineLeft + lineWidth)
   }
   return envelope
 }
@@ -446,17 +443,11 @@ function getBranchesEnvelope(circuit: Circuit, config: CircuitEnvelopeConfig): H
           (endpoint.symbol === 'solar_panel' ||
             endpoint.symbol === 'battery' ||
             endpoint.symbol === 'ev')
-        return endpoint.symbol !== 'domotica' && !isRightLabel && getVisibleEndpointNoteText(endpoint) ? [endpointIndex] : []
+        return endpoint.symbol !== 'domotica' && !isRightLabel && (getVisibleEndpointNoteText(endpoint) || getControlButtonLabelLayout(endpoint)) ? [endpointIndex] : []
       })
     )
     endpoints.forEach((endpoint, endpointIndex) => {
       const anchorX = offsets[endpointIndex] ?? config.branchLeadIn
-      const crowdedNoteLabelBounds = getCrowdedEndpointNoteLabelBounds(
-        endpointIndex,
-        offsets,
-        bottomNoteEndpointIndexes,
-        0
-      )
       const endpointEnvelope = getEndpointEnvelope(
         endpoint,
         anchorX,
@@ -466,9 +457,8 @@ function getBranchesEnvelope(circuit: Circuit, config: CircuitEnvelopeConfig): H
         endpoint.symbol === 'domotica' || (endpoints.length === 1 && endpoint.type !== 'switch')
           ? getEndpointNoteMinimumLeftX(anchorX, 0)
           : bottomNoteEndpointIndexes.has(endpointIndex)
-            ? (crowdedNoteLabelBounds?.minimumLeftX ?? getEndpointNoteMinimumLeftX(anchorX, 0))
+            ? getEndpointNoteMinimumLeftX(anchorX, 0)
             : undefined,
-        crowdedNoteLabelBounds?.maximumRightX
       )
       envelope = unionEnvelope(envelope, endpointEnvelope.left, endpointEnvelope.right)
 
@@ -492,7 +482,7 @@ function getBranchesEnvelope(circuit: Circuit, config: CircuitEnvelopeConfig): H
           envelope = unionEnvelope(
             envelope,
             labelLeft,
-            labelLeft + estimateCircuitLabelWidth(label) + LABEL_SAFETY
+            labelLeft + (getDomoticaBusRowLabelMetrics(endpoint)?.width ?? estimateCircuitLabelWidth(label) + LABEL_SAFETY)
           )
         }
       }

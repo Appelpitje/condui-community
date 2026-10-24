@@ -5,6 +5,7 @@ import {
 } from '@/handlers/properties/editProperties'
 import { findWireRunForAnchor, selectProjectWireRuns } from '@/lib/projectV2/wireRuns'
 import { CanonicalWireProperties } from './CanonicalWireProperties'
+import { DomoticaOutputConnectionFields } from './ControlLinkFields'
 import { sharedTrunkAnchors } from '@/lib/wires/editWireRun'
 import { Eye, EyeOff } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -188,6 +189,7 @@ function CanonicalSegmentProperties({
         domain={segment.domain}
         defaults={segment}
         sharedGeometry={sharedGeometry}
+        sharedGeometryAnchors={sharedGeometry ? segment.wireAnchors : undefined}
       />
     </div>
   )
@@ -631,6 +633,7 @@ function WireProperties({
           showPhaseAssignment
           t={panelStringT(t)}
         />
+        <DomoticaOutputConnectionFields parent={parentEndpoint} outputGroup="endpoint" outputIndex={outputIndex} />
       </div>
     )
   }

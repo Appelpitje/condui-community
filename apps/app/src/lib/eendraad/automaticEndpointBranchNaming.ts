@@ -1,3 +1,5 @@
+import { formatBranchLabel } from '@/lib/eendraad/labelScheme'
+import { getActiveLabelScheme } from '@/lib/eendraad/labelSchemeContext'
 import type { Circuit, Panel } from '@/types/schema'
 import { getCircuitPointSequence } from '@/lib/eendraad/circuitPointNumbering'
 
@@ -48,7 +50,8 @@ export function getEndpointBranchLabelPrefix(circuit: Circuit, panel?: Panel): s
 
   for (const branch of circuit.branches ?? []) {
     const match = (branch.label ?? '').trim().match(/^(.+?)(\d+)$/)
-    const prefix = match?.[1]?.trim()
+    // A separated branch label (`3.1`) leaves its separator on the prefix; drop it again.
+    const prefix = match?.[1]?.trim().replace(/[.\-/]$/, '')
     if (prefix) return prefix
   }
 
@@ -80,7 +83,7 @@ export function endpointBranchLabelsWouldChange(
     if ((branch.label ?? '').trim() !== expected) return true
     for (const id of branch.endpointIds) {
       const ep = circuit.endpoints.find((e) => e.id === id)
-      if (ep && (ep.label ?? '').trim() !== expected) return true
+      if (ep && ep.symbol !== 'panel_distribution' && (ep.label ?? '').trim() !== expected) return true
     }
   }
   return false
@@ -99,11 +102,11 @@ export function getExpectedBranchLabel(
     ? branchIndex === 0
       ? code
       : `${code}.${branchIndex + 1}`
-    : `${code}${branchIndex + 1}`
+    : formatBranchLabel(getActiveLabelScheme(), code, branchIndex + 1)
 }
 
 /**
- * Assign branch + endpoint labels `{prefix}1`…`{prefix}n` in stored branch order, numbering
+ * Assign branch + endpoint labels `{prefix}1`…`{prefix}n` (per the active label scheme) in stored branch order, numbering
  * plain trunk switches in place along the trunk (`getCircuitPointSequence`). A nested circuit
  * with no own code inherits the nearest labeled parent when panel context is available.
  * Always run after branch topology changes (delete, reorder, merge). Not gated on
@@ -130,7 +133,7 @@ export function syncSequentialEndpointBranchLabelsToCircuit(circuit: Circuit, pa
     branch.label = label
     for (const id of branch.endpointIds) {
       const ep = circuit.endpoints.find((e) => e.id === id)
-      if (!ep || ep.domoticaChildProps) continue
+      if (!ep || ep.domoticaChildProps || ep.symbol === 'panel_distribution') continue
       ep.label = label
     }
   }

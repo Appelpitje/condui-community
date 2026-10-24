@@ -116,6 +116,16 @@ export interface PanelSceneSurface {
   converterBackupSourceFeed?: ConverterBackupPanelFeed | null
 }
 
+/** Space occupied by the cabinet and its loose modules, without resizing the cabinet. */
+export function getPanelSceneSurfaceLayoutWidth(
+  surface: Pick<PanelSceneSurface, 'width' | 'placements'>
+): number {
+  return surface.placements.reduce(
+    (width, placement) => Math.max(width, placement.x + placement.width + PANEL_SCENE_FRAME_MARGIN),
+    surface.width
+  )
+}
+
 /**
  * Sub-panel id -> junction panel identity its feeder passes through.
  * With several junction panels on one feeder, the one nearest the sub-panel wins.
@@ -404,6 +414,10 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
   const baseRootContentWidth = baseRootCols * CELL_W
   const sharedContentWidth = baseRootContentWidth
   const sharedWidth = sharedContentWidth + PANEL_SCENE_FRAME_MARGIN * 2
+  const sharedLayoutWidth = Math.max(
+    sharedWidth,
+    ...sharedPlacements.map((placement) => placement.x + placement.width + PANEL_SCENE_FRAME_MARGIN * 2)
+  )
   const sharedVisible = sharedRefs.length > 0 ||
     rootPanels.find((panel) => panel.isMain)?.gridView?.supplyPanelVisible !== false
   const sharedHeight = sharedVisible ? CELL_H + PANEL_SCENE_FRAME_MARGIN * 2 : 0
@@ -751,10 +765,15 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
   }
   if (includeDescendants) for (const option of rootOptions) collectFedPanels(option.panel)
 
-  const getBlockWidth = (surface: { width: number }, sides: PanelSceneSurface[]) =>
-    sides.reduce((width, side) => width + siblingGap + side.width, surface.width)
+  const getBlockWidth = (
+    surface: Pick<PanelSceneSurface, 'width' | 'placements'>,
+    sides: PanelSceneSurface[]
+  ) => sides.reduce(
+    (width, side) => width + siblingGap + getPanelSceneSurfaceLayoutWidth(side),
+    getPanelSceneSurfaceLayoutWidth(surface)
+  )
   const measureGroup = (
-    surface: { width: number; height: number },
+    surface: Pick<PanelSceneSurface, 'width' | 'height' | 'placements'>,
     children: TreeNode[],
     sides: PanelSceneSurface[] = []
   ) => {
@@ -801,11 +820,11 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
   const layoutNode = (node: TreeNode, x: number, y: number): void => {
     node.x = x + (node.subtreeWidth - getBlockWidth(node.surface, node.sides)) / 2
     node.y = y
-    let sideX = node.x + node.surface.width + siblingGap
+    let sideX = node.x + getPanelSceneSurfaceLayoutWidth(node.surface) + siblingGap
     for (const side of node.sides) {
       side.x = sideX
       side.y = y
-      sideX += side.width + siblingGap
+      sideX += getPanelSceneSurfaceLayoutWidth(side) + siblingGap
     }
     if (node.children.length === 0) return
     const childrenX = x + (node.subtreeWidth - node.packing.width) / 2
@@ -837,7 +856,7 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
   for (const surface of bandAuxiliarySurfaces) {
     const preferredX = (surface.enclosure?.panelViewPosition?.x ?? surface.x) - minimumPreferredX
     surface.x = Math.max(preferredX, auxiliaryCursorX)
-    auxiliaryCursorX = surface.x + surface.width + auxiliaryGap
+    auxiliaryCursorX = surface.x + getPanelSceneSurfaceLayoutWidth(surface) + auxiliaryGap
   }
   const auxiliaryWidth = Math.max(0, auxiliaryCursorX - auxiliaryGap)
   // Junction panels without a board in this scene (supply or installation ground occurrences
@@ -848,7 +867,7 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
   let junctionCursorX = 0
   for (const surface of unownedJunctionSurfaces) {
     surface.x = junctionCursorX
-    junctionCursorX += surface.width + auxiliaryGap
+    junctionCursorX += getPanelSceneSurfaceLayoutWidth(surface) + auxiliaryGap
   }
   const junctionWidth = Math.max(0, junctionCursorX - auxiliaryGap)
   const rootNodes = rootOptions.map((option) => measureNode(option.panel))
@@ -858,8 +877,8 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
     levelGap
   )
   const rootsWidth = rootPacking.width
-  const totalSceneWidth = Math.max(sharedWidth, rootsWidth, auxiliaryWidth, junctionWidth)
-  const sharedX = (totalSceneWidth - sharedWidth) / 2
+  const totalSceneWidth = Math.max(sharedLayoutWidth, rootsWidth, auxiliaryWidth, junctionWidth)
+  const sharedX = (totalSceneWidth - sharedLayoutWidth) / 2
   const auxiliaryOffsetX = (totalSceneWidth - auxiliaryWidth) / 2
   for (const surface of bandAuxiliarySurfaces) surface.x += auxiliaryOffsetX
   const rootStartX = (totalSceneWidth - rootsWidth) / 2
@@ -1075,7 +1094,7 @@ export function buildFullPanelScene(params: BuildPanelSceneParams): BuiltPanelSc
     }
   }
 
-  const maxRight = Math.max(...surfaces.map((surface) => surface.x + surface.width))
+  const maxRight = Math.max(...surfaces.map((surface) => surface.x + getPanelSceneSurfaceLayoutWidth(surface)))
   return {
     width: maxRight,
     height: maxBottom,

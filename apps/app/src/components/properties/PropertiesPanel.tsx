@@ -25,7 +25,6 @@ import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { WallProperties } from './WallProperties'
 import { OpeningProperties } from './OpeningProperties'
 import { StairProperties } from './StairProperties'
-import { usePropertiesPanelFieldBlurOnLeave } from '@/hooks/usePropertiesPanelFieldBlurOnLeave'
 import {
   getPropertiesPanelTitle,
   getSelectedGraphicElement,
@@ -171,9 +170,6 @@ export default function PropertiesPanel({
       }
     })
   )
-  const { blurActiveFieldOnPanelLeave, cancelBlurOnPanelEnter } =
-    usePropertiesPanelFieldBlurOnLeave()
-
   const stairOnlyPointSelection = React.useMemo(
     () => getStairOnlyPointSelection(selection),
     [selection]
@@ -513,8 +509,6 @@ export default function PropertiesPanel({
       allowReadOnlyInteraction={showProjectProperties}
       showSensitiveInfoNotice={showSensitiveInfoNotice}
       onToggle={() => togglePanel('properties')}
-      onMouseEnter={cancelBlurOnPanelEnter}
-      onMouseLeave={blurActiveFieldOnPanelLeave}
     >
       <div
         onFocusCapture={(event) => beginPropertiesFieldEdit(event.target as HTMLElement)}

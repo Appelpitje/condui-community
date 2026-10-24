@@ -362,6 +362,8 @@ export function ProtectionProperties({
         curve={protection.curve}
         sensitivityMa={protection.sensitivityMa}
         residualCurrentType={protection.residualCurrentType}
+        selective={protection.selective}
+        superImmunized={protection.superImmunized}
         breakingCapacityKa={protection.breakingCapacityKa}
         breakingCapacityOption={protection.breakingCapacityOption}
         surgeProtectionKind={protection.surgeProtectionKind}

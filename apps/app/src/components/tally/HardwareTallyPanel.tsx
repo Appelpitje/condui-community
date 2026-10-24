@@ -1,47 +1,16 @@
-import { useMemo, useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useUIStore } from '@/stores/uiStore'
-import { useProjectStore } from '@/stores/projectStore'
-import { buildHardwareTally, type TallyData, type TallyCategory, type TallyGroup, type TallyDetail } from '@/lib/tally/buildHardwareTally'
+import type { TallyCategory, TallyGroup, TallyDetail } from '@/lib/tally/buildHardwareTally'
 import { formatWireLengthMeters, type WireTranslateFn } from '@/lib/wires/wireFingerprint'
 import { useDraggableFloatingWindow } from '@/hooks/useDraggableFloatingWindow'
 import { DockablePanelShell } from '@/components/panels/DockablePanelShell'
 import { trackGoogleAnalyticsEvent } from '@/lib/analytics/googleAnalytics'
 import { useFocusSelectionOnCanvas } from '@/hooks/useFocusSelectionOnCanvas'
 import type { Selection } from '@/types/ui'
-import { useCableRouteEstimation } from '@/components/cableRouting/useCableRouteEstimation'
-import { isCableRoutesEnabled } from '@/lib/cableRouting/availability'
-
-function useTallyData(): TallyData {
-  const { t } = useTranslation()
-  const currentProject = useProjectStore((s) => s.currentProject)
-  const cableRoutes = useCableRouteEstimation(isCableRoutesEnabled())
-  const estimatedLengthByAnchor = useMemo(
-    () =>
-      cableRoutes
-        ? new Map(
-            cableRoutes.routes
-              .filter((route) => route.highM > 0)
-              .map((route) => [route.anchor, route.highM] as const)
-          )
-        : undefined,
-    [cableRoutes]
-  )
-  return useMemo(
-    () =>
-      buildHardwareTally(
-        currentProject,
-        (key, options) => {
-          if (typeof options === 'string') return t(key, options)
-          if (options) return t(key, options)
-          return t(key)
-        },
-        { estimatedLengthByAnchor }
-      ),
-    [currentProject, t, estimatedLengthByAnchor]
-  )
-}
+import { useHardwareTally } from '@/hooks/useHardwareTally'
+import { openMaterialListExport } from '@/handlers/commands/exportMaterialList'
 
 function CategoryHeader({
   category,
@@ -203,69 +172,11 @@ function GroupRow({
   )
 }
 
-function ExportCsvButton({ data }: { data: TallyData }) {
-  const { t } = useTranslation()
-  const download = useCallback(() => {
-    const totalDevices = data.reduce((sum, category) => sum + category.totalDevices, 0)
-    const totalTypes = data.reduce((sum, category) => sum + category.typeCount, 0)
-    trackGoogleAnalyticsEvent('hardware_tally_export_csv', {
-      category_count: data.length,
-      total_devices: totalDevices,
-      total_types: totalTypes,
-    })
-    const rows: string[][] = []
-    const escape = (s: string) => {
-      const hasComma = /[",\n]/.test(s)
-      return hasComma ? `"${s.replace(/"/g, '""')}"` : s
-    }
-    rows.push(
-      [t('tally.csvCategory'), t('tally.csvSummary'), t('tally.csvCount'), t('tally.csvPanel'), t('tally.csvPath'), t('tally.csvDetails')].map(
-        escape
-      )
-    )
-    for (const cat of data) {
-      const catLabel = t(cat.labelKey)
-      for (const g of cat.groups) {
-        for (const d of g.details) {
-          const detailStr = d.branchOrCircuit ? `${d.label} (${d.branchOrCircuit})` : d.label
-          rows.push(
-            [
-              catLabel,
-              g.summaryLabel,
-              String(g.count),
-              d.panelName ?? '',
-              d.subcircuitPath ?? '',
-              detailStr,
-            ].map(escape)
-          )
-        }
-      }
-    }
-    const csv = rows.map((r) => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `hardware-tally-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }, [data, t])
-  return (
-    <button
-      type="button"
-      onClick={download}
-      className="w-full py-2.5 px-3 text-sm font-medium rounded-md bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-    >
-      {t('tally.exportCsv')}
-    </button>
-  )
-}
-
 export function HardwareTallyPanelContent() {
   const focusSelectionOnCanvas = useFocusSelectionOnCanvas()
   const { t } = useTranslation()
   const setSelection = useUIStore((s) => s.setSelection)
-  const data = useTallyData()
+  const data = useHardwareTally()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const toggleCategory = useCallback((id: string) => {
@@ -330,7 +241,13 @@ export function HardwareTallyPanelContent() {
       </div>
       {data.length > 0 && (
         <div className="p-3 border-t border-gray-200 dark:border-gray-600 flex-shrink-0">
-          <ExportCsvButton data={data} />
+          <button
+            type="button"
+            onClick={(event) => openMaterialListExport(event.currentTarget.ownerDocument)}
+            className="w-full rounded-md bg-gray-200 px-3 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+          >
+            {t('materialListExport.export')}
+          </button>
         </div>
       )}
     </div>

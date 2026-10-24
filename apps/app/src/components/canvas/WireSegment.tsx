@@ -1,4 +1,3 @@
-import { selectProjectWireRuns, findWireRunForAnchor } from '@/lib/projectV2/wireRuns'
 import { logger } from '@/lib/logger'
 /**
  * Wire Segment Component
@@ -19,7 +18,6 @@ import { useIsPreviewSelected } from '@/contexts/SelectionPreviewContext'
 import {
   useCanvasFontFamily,
   useEffectiveCanvasZoom,
-  useIsWireSelected,
   useSetSelection,
 } from '@/editions/community/communityHooks'
 import type {
@@ -85,6 +83,7 @@ import {
 import { orderWireSegmentsForRendering } from './wireRenderOrder'
 import {
   isPrimaryWireSelection,
+  wireSegmentMatchesSelection,
   wireSegmentSelectsBusSection,
 } from '@/lib/wires/wireSelectionTarget'
 import {
@@ -299,14 +298,7 @@ export const WireSegmentComponent = memo(function WireSegmentComponent({
 }: WireSegmentProps) {
   const { t } = useTranslation()
   const setSelection = useSetSelection()
-  const selectedAnchor = useUIStore(s => s.selection.wireAnchor ?? (s.selection.type === 'wire' ? s.selection.wireMetadata?.[0]?.wireAnchor : undefined))
-  const selectedRunMember = useProjectStore(s => {
-    if (!selectedAnchor || !s.currentProject) return false
-    const run = findWireRunForAnchor(selectProjectWireRuns(s.currentProject), selectedAnchor)
-    return Boolean(run && wireSegment.wireAnchors?.some(anchor => run.members.includes(anchor)))
-  })
-  const selectedById = useIsWireSelected(wireSegment.id)
-  const isWireSelected = selectedById || selectedRunMember || Boolean(selectedAnchor && wireSegment.wireAnchors?.includes(selectedAnchor))
+  const isWireSelected = useUIStore((s) => wireSegmentMatchesSelection(wireSegment, s.selection))
   const selectedBusSection = useUIStore((state) => state.selection.busSectionMetadata)
   const canvasZoom = useEffectiveCanvasZoom(ZOOM_100, 'eendraad')
   const isExporting = useUIStore((s) => s.isExporting)
@@ -522,7 +514,13 @@ export const WireSegmentComponent = memo(function WireSegmentComponent({
           if (newIds.length === 0) {
             useUIStore.getState().clearSelection()
           } else {
-            setSelection({ type: 'wire', ids: newIds })
+            setSelection({
+              type: 'wire',
+              ids: newIds,
+              wireMetadata: selection.wireMetadata?.filter((metadata) =>
+                newIds.includes(metadata.id)
+              ),
+            })
           }
         }
       } else {
@@ -661,7 +659,7 @@ export const WireSegmentComponent = memo(function WireSegmentComponent({
     !!wireSegment.circuitId &&
     wireSegment.toElementType === 'protection'
   const protectionPhaseLabel =
-    isProtectionInputPhaseSegment && phaseSystem
+    isProtectionInputPhaseSegment && !incomingPanelPhaseLabel && phaseSystem
       ? getVisiblePhaseAssignmentLabel(
           wireSegment.phaseAssignment,
           phaseSystem,

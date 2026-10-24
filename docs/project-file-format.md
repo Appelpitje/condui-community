@@ -37,6 +37,27 @@ fill missing values when loading existing projects. Editing the connection setti
 also updates an existing serial utility-side MCB before the meter in the same
 transaction; it does not infer or resize downstream protection or conductors.
 
+`disciplines.electrical.installation.labelScheme` is an optional object that
+describes how automatic labels are formatted: `version` (`1`), `separator`
+(`"."`, `"-"` or `"/"`), `panel` (`prefix` text without spaces or digits, at most
+6 characters; `style` `"number"`, `"number2"` or `"upper"`; `start` `0` or `1`;
+`nested` boolean), `circuit` (`style` `"upper"`, `"lower"`, `"number"` or
+`"number2"`; `panelPart` `"none"`, `"number"` or `"full"`; `joinPanel` boolean)
+and `branch` (`join` boolean). Wherever two numbers meet, the separator is always
+written. Missing or invalid means the classic scheme (circuits `A, B, C`,
+branches `A1`, domotica outputs `A1.1`, panel numbers `B01`), and the classic
+scheme is saved by omitting the field. Labels themselves stay stored on circuits,
+protections, branches and endpoints; the scheme only decides how automatic naming
+rewrites them. `panelPart` takes effect only while `panelNumberingEnabled` is
+true. No schema bump is needed; readers without support keep producing classic
+labels.
+
+A panel may carry an optional `numberOverride` string (1–12 characters), a panel
+number typed by hand. While panel numbering is on it replaces that panel's
+automatic code (and the number part used in circuit labels, without the scheme
+prefix when it starts with it); the panel keeps its place in the automatic
+sequence, so other panels keep their numbers. Missing means automatic.
+
 Transformer devices may optionally persist positive finite nameplate values on
 `conversionProps` (trunk devices) or `energyConversionProps` (endpoints):
 `transformerPrimaryVoltageV` and `transformerSecondaryVoltageV` in volts
@@ -78,6 +99,14 @@ defaults. Legacy supply protections with only a known `breakingCapacityOption`
 or `breakingCapacityKa` may derive the matching representation. Explicit capacity
 clears remove both fields; clearing another rating omits that field. New device
 creation may still provide editable defaults. No schema version change is required.
+
+RCD and RCBO protection records (including supply and circuit trunk devices) may
+persist `selective: true` for selective, time-delayed S-type protection. Missing
+or `false` means ordinary protection. This is independent of the waveform class
+`residualCurrentType` (AC, A, F or B). Older projects remain valid without the
+optional boolean; no schema version change is required.
+The independent optional `superImmunized` boolean marks super-immunized protection
+with `SI`; missing or `false` leaves that designation off. Both flags can be set.
 
 `project.lastViewportLayout` may repeat the same canvas type in multiple slots.
 For the `grid` preset, optional integer `rows` and `columns` each range from 1 to 4;
@@ -141,6 +170,11 @@ earth-electrode stem on that board. The shared main-board electrode remains on
 `false` panel values mean that board has no local electrode. Older files without these
 panel fields remain valid.
 
+`disciplines.electrical.installation.earthResistanceOhm` may hold the earth-electrode
+resistance in ohm, and a panel may hold `expectedShortCircuitKa`, the expected maximum
+short-circuit current at that board in kA. Both are optional positive numbers; missing
+values mean unknown, and older files without them remain valid.
+
 An EV endpoint with `symbol: "ev"` may persist
 `evChargerProps.integratedDcResidualProtection: true` when the charger includes
 coordinated residual-DC protection or detection, such as 6 mA DC detection. Missing
@@ -155,26 +189,49 @@ and is limited to one or two outlets (two or four DIN modules). Missing or `fals
 means an ordinary wall socket.
 
 Control addressing records which channel of a building-control device (KNX, DALI,
-Loxone, Niko Home Control) feeds a load. It is descriptive only: addresses are labels for
+Loxone, Niko Home Control or Qbus) feeds a load. It is descriptive only: addresses are labels for
 the installer and integrator, never programming data. Every field below is optional;
 missing means unspecified, and older files remain valid.
 
-Both kinds of connection share one addressing shape, `{ channel?, groups? }`. `channel`
+Both kinds of connection share one addressing shape, `{ channel?, groups?, buttonAddresses? }`. `channel`
 is a free-text physical channel (`C`, `5`, `Q7`); readers accept a legacy JSON number and
 treat it as its decimal string, and compare channels trimmed and case-insensitively.
 `groups` is a list of free-text logical addresses (KNX group addresses `1/2/3`, DALI
 groups `G1`); readers trim entries, drop blanks and ignore case-insensitive duplicates.
 
-- An endpoint may persist `controlLink: { deviceId, channel?, groups? }` as a virtual
+`buttonAddresses` optionally holds sparse per-button overrides as
+`{ buttonIndex, channel?, groups? }` records. `buttonIndex` is a unique zero-based
+nonnegative integer. The drawn button count is the existing
+`switchProps.switchingCount` on `switch_impulse` endpoints (one when absent);
+other input symbols have one button. An override replaces both addressing fields
+for that button, so an explicit `{ buttonIndex: 0 }` clears the first button's
+address without deleting legacy scalar data. When no override exists for index 0,
+the scalar `channel` and `groups` remain that first button's address. Additional
+buttons never inherit that address. Unconfigured additional buttons do not create
+virtual address-table rows. Readers preserve overrides beyond the current count,
+but exclude them from drawing, channel claims and the address table until the
+count grows again. Input and output channel namespaces remain separate.
+Duplicating an endpoint clears physical channels on every stored button,
+including inactive ones, while preserving group addresses and the device link.
+No schema-version change is required; older projects without overrides keep
+their previous first-button addressing.
+
+- An endpoint may persist `controlLink: { deviceId, channel?, groups?, buttonAddresses? }` as a virtual
   "operated by" relation. `deviceId` is the id of a domotica module endpoint (an endpoint
   with `symbol: "domotica"` and no `domoticaChildProps`) or of a relay endpoint
   (`symbol: "relay"`, e.g. an impulse relay whose coil sits on a control circuit). The UI offers the link on
-  `contact` endpoints. The link carries no topology: it adds no wire and no panel module.
-  On the one-wire diagram a valid link replaces the endpoint's own notes (and
+  contacts, input switches and relay endpoints. A relay can receive a control link
+  while continuing to operate its contacts; self-links and cycles are rejected.
+  The link carries no topology: it adds no wire and no panel module.
+  On the one-wire diagram a valid output link replaces the endpoint's own notes (and
   `notesVisible`) with `<device label> · <channel>` (just the device label without a
   channel); a dangling link falls back to the endpoint's own notes.
-- An endpoint wired to a module (`domoticaChildProps`) may persist `channel` and `groups`
+- An endpoint wired to a module (`domoticaChildProps`) may persist `channel`, `groups` and `buttonAddresses`
   with the same meaning.
+  Input buttons show their configured addresses beneath their symbols. Linked
+  inputs retain their own notes; existing wired-child note visibility is unchanged.
+  A multiplied impulse switch keeps its count marker and shows
+  numbered addresses for the configured active buttons.
 - Output rows of a module are labelled `{module label}.{n}` by default. The root endpoint of a
   row (the id in the module's `domoticaProps.endpointChildEndpointIds`) may persist
   `domoticaRowLabel` as either `{ kind: "tail", tail }` (row label is the module-derived
@@ -183,14 +240,57 @@ groups `G1`); readers trim entries, drop blanks and ignore case-insensitive dupl
   Absent means the automatic label. Showing the row label on the diagram can be turned off
   with `symbolLabelDisplay.visibility.domoticaRowLabel = false` on the same root endpoint.
   Readers ignore an invalid override.
+- An output may feed another panel through a `panel_distribution` endpoint with
+  `panelId` referencing that panel and `domoticaChildProps` identifying the module
+  and output row. The receiving panel remains nested under the source panel.
+  Its endpoint label retains the panel name; the output reference is derived
+  independently from the module and row. Other loads may share that output.
+  This is not a whole-circuit feed: the upstream protection's `subPanelId` stays
+  absent. Existing endpoint fields carry the connection; no schema bump is required.
 - A domotica module (`domoticaProps`) may persist device fields: `system` and, for a
-  gateway, `outputSystem` (each one of `knx`, `niko_hc`, `dali`, `loxone`, `other`),
+  gateway, `outputSystem` (each one of `knx`, `niko_hc`, `dali`, `loxone`, `qbus`, `other`),
   `deviceAddress` (free text, e.g. the KNX physical address `1.1.12`), `line` (free text,
   e.g. a DALI line) and `channelCount` (positive integer physical output capacity,
   independent of the drawn `endpointCount`). Wired switches, pushbuttons and detectors
   are the module's inputs and linked endpoints and other wired children its outputs;
   inputs and outputs are numbered independently and inputs never count against
   `channelCount`.
+
+An existing domotica output row can optionally be a physical bus. Its record in
+`domoticaProps.endpointOutputWires` or `controlOutputWires` may persist
+`connectionType: "bus"`, `busName` (free text), `busSystem` (one of `knx`,
+`niko_hc`, `dali`, `loxone`, `qbus`, `other`) and `showBusLabel` (boolean).
+Absent `connectionType` retains the ordinary switched-output behavior; this does
+not rewrite the cable or create a second connection graph. All chained children
+with the same `parentEndpointId`, `outputGroup` and `outputIndex` share that bus.
+The effective protocol is `busSystem` when entered, otherwise the parent module's
+`system`, never its `outputSystem`. A bus name does not establish identity between
+different rows. `showBusLabel` defaults to true while bus mode is active and has
+no effect on a standard row. The displayed label combines an entered name with
+the protocol; absent both, it is `BUS`.
+
+A native device on that bus may persist its own
+`busDeviceProps: { deviceAddress? }` on the endpoint. The physical address is free
+text, is never inherited from the parent, and is independent of its existing
+`domoticaChildProps.channel`, `groups` and per-button overrides. Those channels
+are local to the device, so different devices on a bus can both use channel `T5`.
+Repeated channels on one device remain findings; repeated group addresses are
+allowed. A known KNX bus enables physical-device and group-address syntax
+warnings. Physical-device addresses must be unique only within that physical bus
+row, and one multiplied pushbutton is one physical device for that check. Native
+bus devices do not consume the host's switched-output channel capacity. A nested
+domotica module retains its own output rows and capacity while its physical
+identity belongs to the parent bus.
+Duplicating a native bus device clears its physical `busDeviceProps.deviceAddress`
+alongside its physical channel assignments. Bus-row configuration and logical
+groups/functions remain intact; a complete module copy applies the same rule to
+its copied child devices without changing the source objects.
+
+Removing bus mode preserves the optional metadata and native device identities
+but makes them inactive; the row resumes its ordinary output checks. Clearing an
+optional field omits it. `qbus` is also accepted in module `system` and
+`outputSystem`. These optional fields need no schema-version change; older files
+without them keep the existing behavior.
 
 The systems only select syntax warnings (KNX physical address, channel letter or number
 and group addresses; DALI short addresses and groups; Loxone I/O names; nothing for Niko
@@ -312,11 +412,15 @@ and trunk devices may contain an optional `labelNotes` string and optional `pane
 configuration with `top` and `bottom` cell sources and optional `left`, `center`, `right`, or
 `justify` alignment. Each cell retains a singular `source` for compatibility and may contain
 an ordered `sources` array; multiple sources render on separate lines. Each source is one of
-`label`, `notes`, `labelNotes`, or `technical`. Missing configuration defaults to Extra (`labelNotes`) in
+`label`, `notes`, `labelNotes`, `technical`, or `feeds`. The optional `feeds` source derives
+downstream circuit codes and descriptions from electrical topology; next to `label`, it
+uses compact code ranges. It stores no second copy of those circuits. Missing configuration defaults to Extra (`labelNotes`) in
 the top cell and combined `label` plus `notes` in the bottom cell; `labelNotes` is not inferred from other
 values. Editing a linked cell stores the edited text in `labelNotes` and changes that cell's
 source to `labelNotes`. The label export uses the bottom cell for single/on-row strips and
-exports the top and bottom cells separately for double-strip output.
+exports the top and bottom cells separately for double-strip output. An optional boolean
+`panelLabel.main` overrides whether the module is printed as its board's main protection;
+when it is missing, readers derive that from the electrical topology.
 
 Junction-panel trunk devices may persist `junctionPanelGridView`. It stores the shared
 panel-canvas rows, columns, feed direction, module slots (including manual widths), and optional top or bottom terminal rails
@@ -499,6 +603,15 @@ Equal identities on occurrences of the same symbol identify one shared physical
 junction while each occurrence retains its own electrical circuit position. Endpoint
 `label` remains branch-owned automatic naming and does not replace this identity.
 
+Junction-panel situation-plan locations are stored in the optional
+`disciplines.electrical.installation.junctionPanelPlacements` collection, matched by
+`label` to the panel's junction identity (ignoring case and surrounding whitespace).
+These records contain drawing locations, not electrical connections. The editor
+removes stale locations on opening a project and when deleting the last occurrence
+of a junction panel, including deletion of its containing circuit, protection or
+board. A location shared by surviving occurrences is preserved. This repair does
+not change the schema version.
+
 Hosted editions may also write `junctionAssetId` on these occurrences and the collections
 `disciplines.electrical.junctionAssets`, `terminalRails` and `terminalShapes`. They describe
 the physical junction behind the occurrences and its connections. Other readers treat them as
@@ -523,6 +636,13 @@ remain ordinary branches. Widened converters use separate terminal lanes and per
 output endpoints. These references identify the same output paths in the one-wire
 and derived electrical structure, and do not replace the endpoint's ordinary
 branch membership.
+
+An ordinary endpoint belongs to one circuit branch. When opening older projects,
+the editor repairs the historical inline-insertion defect where the same endpoint
+was referenced by the first branch and exactly one later branch: it removes the
+first-branch copy and retains the later branch's reference. If several later
+branches reference that endpoint, the editor preserves the ambiguous references
+for manual review. This repair does not change the schema version.
 
 A circuit trunk device with `type: "dc_bus"` and `symbol: "dc_bus"` represents a
 selectable DC distribution busbar. Optional `ratedCurrentA` and `ratedVoltageV` are
@@ -888,9 +1008,24 @@ membership and per-segment lengths. A circuit anchor whose stored domain no long
 device (a converter was added or removed upstream) is moved to the anchor with the current
 domain on opening, saving and editing, together with its run membership, per-segment lengths
 and length sources, core aliases, plan-trace `wireAnchor` and junction references, unless
-another run already holds that anchor. Repeated drawing pieces share an anchor, and a busbar run
-may contain several tap anchors. Editing its specification changes all members; editing
-`segmentLengths[anchor]` changes only that connection. Empty or unknown legacy wire owners
+another run already holds that anchor. Repeated drawing pieces share an anchor. Each connection
+ends at the next device, including inline contacts, terminal strips and motors. Editing one
+connection splits its anchor from an older multi-member run when needed, retaining the original
+specification for the remaining members and preserving conductor identities, core aliases and
+per-connection length data. Explicit edits of a drawn shared stem may group the incoming
+connections to the first device on each branch; devices farther along those branches stay
+independent. Busbar runs may contain several tap anchors, and a feeder drawn on two boards
+retains its shared specification. Editing `segmentLengths[anchor]` changes only that connection.
+Missing fire class, route and tube fields inherit from the preceding connection in the same
+circuit and electrical domain, then from the circuit defaults. A downstream run can override
+any of these fields independently; an unrelated cable-section edit does not remove inheritance.
+Clearing an optional field resumes inheritance. Branches inherit their upstream trunk, and
+module outputs inherit the module input rather than another output's overrides. Inheritance
+stops at domain changes and circuit boundaries. An AC-to-AC transformer retains these
+installation defaults; it does not make its secondary connection DC. Cable dimensions, conductor
+identity, lengths and run membership are not inherited or merged by this rule. The effective
+values are used consistently for properties, drawings, export and validation.
+Empty or unknown legacy wire owners
 remain default inputs until a run is authored. Drawing-only `wireAnchor`, `wireAnchors`, and
 `wireBusGroup` metadata are recomputed and are not required portable project data.
 
@@ -1036,6 +1171,13 @@ centimetres and store them here as well as in reference evidence. Cable estimate
 this per-placement value instead of the generic socket/switch/panel/device defaults;
 missing values preserve the previous behavior. Heights belong to placements because one
 device may have occurrences on different floors.
+
+A floor imported from a TRiK page may carry optional `trikPlanReference` (`version: 1`): a list of
+`anchors`, each a `key` (`figure:<image hash>` or `walls:<wall-shape hash>`) with the `center`,
+`width`, `height` and `rotationDeg` at which that page drew it, in plan coordinates. When a later
+TRiK file is added to the project, a page sharing an anchor key is recognised as the same floor and
+its symbols are moved and scaled onto that floor's plan. Readers may ignore it; floors without it
+fall back to matching by name.
 
 CAD-derived floor plans use imported-plan asset kind `cad-vector` (distinct from PDF vector imports). When present, `cadReference` stores versioned source-coordinate metadata: source units, uncropped asset size, per-floor crop in both asset and model space, import-session linkage for multi-floor splits, and the forward/inverse transform parameters captured at import. Legacy projects imported before this metadata existed do not carry `cadReference`.
 

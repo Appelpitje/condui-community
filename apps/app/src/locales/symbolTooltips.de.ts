@@ -25,6 +25,7 @@ export const symbolTooltipsDE = {
   "switch_cross": "Kreuzschalter für mehr als zwei Bedienstellen.",
   "switch_dimmer": "Dimmer zur Steuerung der Beleuchtung.",
   "switch_1p_changeover": "Umschalter, der zwischen zwei Stromkreisen wählt.",
+  switch_shutter: "Auf-/Absteuerung für Rollläden oder Jalousien.",
   "switch_1p_pull": "Zugschalter, oft an der Decke.",
   "contact": "Loser Kontakt, z. B. Eingangskontakt für die Hausautomation.",
   "switch_impulse": "Drucktaster oder Impulsschalter für Stromstoßschalter oder Hausautomation.",

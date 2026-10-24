@@ -276,6 +276,7 @@ function floorToV2(floor: Floor): FloorV2 {
     planImageOpacity: floor.planImageOpacity,
     sitplanSymbolSizeCm: floor.sitplanSymbolSizeCm,
     hiddenSitplanElementIds: floor.hiddenSitplanPlacementIds,
+    trikPlanReference: floor.trikPlanReference,
   }
 }
 

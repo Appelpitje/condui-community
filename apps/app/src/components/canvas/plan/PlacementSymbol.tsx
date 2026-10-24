@@ -621,7 +621,7 @@ function PlacementSymbolInner({
       .catch(() => setSwitchOverlayImage(null))
   }, [switchOverlayPath, theme.mode, colorOverride])
 
-  // Load light point overlays (safety, decentral, switch 1p) – sitplan: no onWall line
+  // Load light point overlays (safety, decentral, switch 1p).
   useEffect(() => {
     if (!isLightPoint || !lightPointProps) {
       setLightPointSafetyImage(null)
@@ -1460,7 +1460,22 @@ function PlacementSymbolInner({
               fontFamily={fontFamily}
             />
           )}
-          {/* Light point overlays (safety, switch 1p); no onWall on sitplan */}
+          {/* The right-side mounting line rotates with the light, toward the wall. */}
+          {isLightPoint && lightPointProps?.onWall && (
+            <Line
+              name="wall-light-mounting-line"
+              points={[
+                outlineWidth / 2 + 2 * outlineWidth / SYMBOL_SIZE,
+                -outlineHeight / 2 - outlineHeight / SYMBOL_SIZE,
+                outlineWidth / 2 + 2 * outlineWidth / SYMBOL_SIZE,
+                outlineHeight / 2 + outlineHeight / SYMBOL_SIZE,
+              ]}
+              stroke={symbolColor}
+              strokeWidth={outlineWidth / SYMBOL_SIZE}
+              listening={false}
+            />
+          )}
+          {/* Light point overlays (safety, switch 1p). */}
           {isLightPoint && lightPointSafetyImage && (
             <Image
               image={lightPointSafetyImage}

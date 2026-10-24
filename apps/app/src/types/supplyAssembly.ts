@@ -79,6 +79,8 @@ export type SupplyProtectionProperties = Pick<
   | 'curve'
   | 'sensitivityMa'
   | 'residualCurrentType'
+  | 'selective'
+  | 'superImmunized'
   | 'breakingCapacityKa'
   | 'breakingCapacityOption'
   | 'surgeProtectionKind'

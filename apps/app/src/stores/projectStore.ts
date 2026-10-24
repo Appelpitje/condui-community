@@ -10,7 +10,8 @@ import { createResetSlice } from './slices/resetSlice'
 import { createSelectorAnnotationSlice } from './slices/selectorAnnotationSlice'
 import { createSupplyAssemblySlice } from './slices/supplyAssemblySlice'
 import { logger } from '@/lib/logger'
-import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
+import { getProjectElectricalInstallation, getProjectElectricalPanels } from '@/lib/projectV2/electrical'
+import { registerActiveLabelSchemeResolver } from '@/lib/eendraad/labelSchemeContext'
 import { followWireAnchorDomains, wireAnchorDomainsNeedFollowing } from '@/lib/wires/followWireAnchorDomains'
 import {
   bindProjectStoreApi,
@@ -45,6 +46,11 @@ const createProjectState: StateCreator<
 
 export const useProjectStore = create<ProjectState>()(immer(createProjectState))
 bindProjectStoreApi(useProjectStore)
+// Branch and domotica relabelling after edits follows the open project's label scheme.
+registerActiveLabelSchemeResolver(() => {
+  const project = useProjectStore.getState().currentProject
+  return project ? getProjectElectricalInstallation(project)?.labelScheme : undefined
+})
 
 
 useProjectStore.subscribe((state: ProjectState, prevState: ProjectState) => {

@@ -31,6 +31,7 @@ import type { Point } from '@/types/ui'
 import { endpointSupportsMultiplier } from '@/utils/endpointMultipliers'
 import { generateId } from '@/utils/id'
 import { suggestRotationForPlacement } from '@/utils/planAutoOrient'
+import { getEndpointPlanWallFacingSide } from './planWallOrientation'
 import { findCircuitForEndpointInPanel } from '@/utils/project'
 
 const MULTIPLIER_PLACEMENT_OFFSET = 24
@@ -316,9 +317,8 @@ function reorientDuplicates(
     const owner = findMutablePlacementOwner(project, placementId)
     if (!owner?.endpointId) continue
     const endpoint = getEndpoint(project, owner.endpointId)
-    if (!endpoint || (endpoint.type !== 'socket' && endpoint.symbol !== 'panel_distribution')) {
-      continue
-    }
+    const wallFacingSide = endpoint && getEndpointPlanWallFacingSide(endpoint)
+    if (!endpoint || !wallFacingSide) continue
     if (owner.placement.rotationMode === 'explicit') continue
     const floor = readLegacyCompatibilityFloors(project).find(
       (candidate) => candidate.id === owner.placement.floorId
@@ -332,7 +332,7 @@ function reorientDuplicates(
           ? { socketCount: endpoint.socketProps?.socketCount ?? 1 }
           : {}),
       },
-      endpoint.symbol === 'panel_distribution' ? 'top' : 'left'
+      wallFacingSide
     )
     updatePlacementInProject(project, placementId, { rotationDeg: suggested ?? 0 })
   }

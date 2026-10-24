@@ -1,4 +1,6 @@
-import { Circle, Text } from 'react-konva'
+import { LabelPreviewText } from './LabelPreviewText'
+import type { LabelPreviewSection } from './labelPreviewContext'
+import { Circle } from 'react-konva'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useCanvasFontFamily } from '@/editions/community/communityHooks'
@@ -19,8 +21,10 @@ interface CircuitLabelProps {
    * - 'right': x is right edge of box
    */
   align?: 'left' | 'center' | 'right'
+  previewSection?: LabelPreviewSection
   custom?: boolean
   protectionId?: string
+  unwrappedWidth?: number
 }
 
 export function CircuitLabel({
@@ -29,7 +33,9 @@ export function CircuitLabel({
   label,
   align = 'center',
   custom = false,
+  previewSection,
   protectionId,
+  unwrappedWidth,
 }: CircuitLabelProps) {
   const theme = useSettingsStore((state) => state.theme)
   const showCustomMarker = useUIStore(
@@ -47,14 +53,15 @@ export function CircuitLabel({
   const isRight = align === 'right'
 
   const measuredWidth = estimateProtectionNameLabelWidth(label)
-  const boxWidth = Math.max(
+  const boxWidth = unwrappedWidth ?? Math.max(
     isLeft || isRight ? PROTECTION_LABEL_DEFAULT_BOX_WIDTH : 24,
     measuredWidth
   )
   const boxX = isLeft ? x : isRight ? x - boxWidth : x - boxWidth / 2
   return (
     <>
-      <Text
+      <LabelPreviewText
+        section={previewSection}
         x={boxX}
         y={y - 7}
         width={boxWidth}
@@ -64,6 +71,7 @@ export function CircuitLabel({
         fill={textColor}
         align={isLeft ? 'left' : isRight ? 'right' : 'center'}
         listening={false}
+        {...(unwrappedWidth != null ? { wrap: 'none' } : {})}
       />
       {showCustomMarker ? (
         <Circle

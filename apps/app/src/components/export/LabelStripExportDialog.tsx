@@ -69,6 +69,7 @@ interface RetainedDialogSettings {
   includeNonProtection: boolean
   includeTerminalStrips: boolean
   includeDomotics: boolean
+  includeBoardLabels: boolean
   skipEmptyRows: boolean
   selectedSourceKeys: string[] | null
 }
@@ -226,6 +227,9 @@ export function LabelStripExportDialog({
   const [includeDomotics, setIncludeDomotics] = useState(
     retainedDialogSettings?.includeDomotics ?? true
   )
+  const [includeBoardLabels, setIncludeBoardLabels] = useState(
+    retainedDialogSettings?.includeBoardLabels ?? false
+  )
   const [skipEmptyRows, setSkipEmptyRows] = useState(retainedDialogSettings?.skipEmptyRows ?? true)
   const [selectedSourceKeys, setSelectedSourceKeys] = useState<string[] | null>(
     retainedDialogSettings?.selectedSourceKeys ?? null
@@ -250,10 +254,12 @@ export function LabelStripExportDialog({
       includeNonProtection,
       includeTerminalStrips,
       includeDomotics,
+      includeBoardLabels,
       skipEmptyRows,
       selectedSourceKeys,
     }
   }, [
+    includeBoardLabels,
     brotherPrinter,
     brotherTapeWidthMm,
     brotherMode,
@@ -391,6 +397,13 @@ export function LabelStripExportDialog({
       toggle: () => setIncludeTerminalStrips((value) => !value),
       symbolId: 'terminal_strip',
     },
+    {
+      key: 'boardLabels',
+      label: t('labelStripExport.boardLabels'),
+      selected: includeBoardLabels,
+      toggle: () => setIncludeBoardLabels((value) => !value),
+      symbolId: 'panel_distribution',
+    },
   ] as const
 
   const exportOptions = useMemo<LabelStripExportOptions>(() => {
@@ -411,10 +424,12 @@ export function LabelStripExportDialog({
       includeDomotics,
       includeNonProtection,
       includeTerminalStrips,
+      includeBoardLabels,
       skipEmptyRows,
       selectedSourceKeys: selectedSourceKeysForExport,
     }
   }, [
+    includeBoardLabels,
     brotherPrinter,
     brotherTapeWidthMm,
     brotherMode,

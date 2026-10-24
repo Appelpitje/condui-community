@@ -1,5 +1,6 @@
 import type { Endpoint } from '@/types/schema'
-import { DOMOTICA_BASE_HEIGHT } from '@/lib/domoticaLayout'
+import { DOMOTICA_BASE_HEIGHT, DOMOTICA_CHILD_NOTE_ROW_RESERVE } from '@/lib/domoticaLayout'
+import { getControlButtonLabelLayout } from './controlButtonLabels'
 import { getVisibleEndpointNoteText } from '@/lib/conversionLabels'
 import { countSymbolLabelVisualLines } from '@/lib/symbolLabelMetrics'
 import { measureSymbolLabelTextWidth } from '@/lib/symbolLabelTextWidth'
@@ -9,10 +10,11 @@ export const DOMOTICA_NOTE_FONT_SIZE = 8
 export const DOMOTICA_NOTE_LINE_HEIGHT = 10
 export const DOMOTICA_NOTE_GAP = 5
 /** A nested module's output-row name is painted directly below its box. */
-export const DOMOTICA_NOTE_ROW_LABEL_RESERVE = 23
+export const DOMOTICA_NOTE_ROW_LABEL_RESERVE = DOMOTICA_CHILD_NOTE_ROW_RESERVE
 
-export function getDomoticaNoteOffsetFromSymbol(endpoint: Pick<Endpoint, 'domoticaChildProps'>): number {
-  return DOMOTICA_NOTE_GAP + (endpoint.domoticaChildProps ? DOMOTICA_NOTE_ROW_LABEL_RESERVE : 0)
+export function getDomoticaNoteOffsetFromSymbol(endpoint: Endpoint): number {
+  return getControlButtonLabelLayout(endpoint)?.ownNoteOffset ??
+    DOMOTICA_NOTE_GAP + (endpoint.domoticaChildProps ? DOMOTICA_NOTE_ROW_LABEL_RESERVE : 0)
 }
 
 /** Painted note rectangle relative to the module's bottom input row. */

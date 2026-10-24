@@ -201,6 +201,54 @@ export function WireLengthField({
   )
 }
 
+/** Optional positive number with a unit; clearing the field removes the value. */
+export function OptionalNumberField({
+  label,
+  unit,
+  value,
+  onChange,
+  resetKey,
+  step = '0.1',
+  disabled = false,
+}: {
+  label: string
+  unit: string
+  value?: number
+  onChange: (value: number | undefined) => void
+  resetKey?: unknown
+  step?: string
+  disabled?: boolean
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+        {label}
+      </label>
+      <div className="flex items-center gap-2">
+        <DebouncedTextInput
+          type="number"
+          min="0"
+          step={step}
+          disabled={disabled}
+          resetKey={resetKey}
+          value={value != null ? String(value) : ''}
+          onCommit={(draft) => {
+            const trimmed = draft.trim()
+            if (!trimmed) {
+              if (value != null) onChange(undefined)
+              return
+            }
+            const parsed = parseFloat(trimmed.replace(',', '.'))
+            if (Number.isFinite(parsed) && parsed > 0 && parsed !== value) onChange(parsed)
+          }}
+          className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+        />
+        <span className="text-sm text-gray-500 dark:text-gray-400">{unit}</span>
+      </div>
+    </div>
+  )
+}
+
 export function WireRouteAndCableForm({
   showLength = true,
   groundConductor = false,
@@ -594,47 +642,55 @@ export function WireRouteAndCableForm({
         </button>
       </div>
       <div className="space-y-2">
-        <div className="grid grid-cols-3 gap-2 text-xs font-medium text-gray-600 dark:text-gray-400">
-          <div>{t('wires.type', 'Type')}</div>
-          <div>{t('wires.conductors', 'Geleiders')}</div>
-          <div>{t('wires.thickness', 'Dikte')}</div>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <CustomDropdown
-            value={state.cable.kind}
-            onChange={changeCableType}
-            options={wireTypes.map((type) => ({ value: type.value, label: type.label }))}
-            className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-          />
-
-          <CustomDropdown
-            value={selectedConductorValue}
-            onChange={(nextValue) => {
-              const opt = conductorOptions.find((o) => o.value === nextValue)
-              if (!opt) return
-              const next: CableSpec = {
-                ...state.cable,
-                conductors: opt.conductors,
-                hasPE: opt.hasPE,
-              }
-              onChange({ cable: next })
-            }}
-            options={conductorOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
-            className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-          />
-
-          <CustomDropdown
-            value={String(state.cable.sectionMm2)}
-            onChange={(nextValue) => {
-              const next: CableSpec = {
-                ...state.cable,
-                sectionMm2: parseFloat(nextValue),
-              }
-              onChange({ cable: next })
-            }}
-            options={thicknessOptions.map((th) => ({ value: String(th), label: `${th} mm²` }))}
-            className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-          />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="col-span-2 space-y-1">
+            <div className="text-xs font-medium text-gray-600 dark:text-gray-400">{t('wires.type', 'Type')}</div>
+            <CustomDropdown
+              wrapLabels
+              ariaLabel={t('wires.type', 'Type')}
+              value={state.cable.kind}
+              onChange={changeCableType}
+              options={wireTypes.map((type) => ({ value: type.value, label: type.label }))}
+              className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-gray-600 dark:text-gray-400">{t('wires.conductors', 'Geleiders')}</div>
+            <CustomDropdown
+              wrapLabels
+              ariaLabel={t('wires.conductors', 'Geleiders')}
+              value={selectedConductorValue}
+              onChange={(nextValue) => {
+                const opt = conductorOptions.find((o) => o.value === nextValue)
+                if (!opt) return
+                const next: CableSpec = {
+                  ...state.cable,
+                  conductors: opt.conductors,
+                  hasPE: opt.hasPE,
+                }
+                onChange({ cable: next })
+              }}
+              options={conductorOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
+              className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-gray-600 dark:text-gray-400">{t('wires.thickness', 'Dikte')}</div>
+            <CustomDropdown
+              wrapLabels
+              ariaLabel={t('wires.thickness', 'Dikte')}
+              value={String(state.cable.sectionMm2)}
+              onChange={(nextValue) => {
+                const next: CableSpec = {
+                  ...state.cable,
+                  sectionMm2: parseFloat(nextValue),
+                }
+                onChange({ cable: next })
+              }}
+              options={thicknessOptions.map((th) => ({ value: String(th), label: `${th} mm²` }))}
+              className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+            />
+          </div>
         </div>
         {!busbar && state.cable.kind === 'other' && (
           <DebouncedTextInput

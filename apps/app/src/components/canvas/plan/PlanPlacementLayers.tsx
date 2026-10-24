@@ -340,6 +340,13 @@ const PlanPlacementLabelEntryWithSource = React.memo(function PlanPlacementLabel
     <PlanPlacementLabelEntry
       placementId={placement.id}
       labelText={labelText}
+      symbol={
+        placement.junctionPanelLabel
+          ? 'junction_panel'
+          : placement.enclosureId
+            ? 'panel_distribution'
+            : (endpoint?.symbol ?? trunkDevice?.symbol)
+      }
       staticLabelPosition={staticLabelPosition}
       labelFontSize={labelFontSize}
     />

@@ -1,10 +1,11 @@
 /* eslint react-refresh/only-export-components: off -- Shared menu actions and their input component form one API. */
-import { FileText, Map as MapIcon } from 'lucide-react'
+import { FileText, ListChecks, Map as MapIcon } from 'lucide-react'
 import type { TFunction } from 'i18next'
 import type { useDialog } from '@/hooks/useDialog'
 import { revealCanvas } from '@/lib/ui/revealCanvas'
 import { usePendingImportStore } from '@/stores/pendingImportStore'
 import { MenuActionPicker, type MenuActionItem } from './MenuSubmenu'
+import { openMaterialListExport } from '@/handlers/commands/exportMaterialList'
 
 /**
  * Shared pieces of the project menu's Import and Export groups. The hosted and Community
@@ -12,6 +13,25 @@ import { MenuActionPicker, type MenuActionItem } from './MenuSubmenu'
  */
 
 export const LARGE_MENU_ICON_CLASS = 'h-9 w-9'
+
+/** The same material-list export entry in hosted and Community menus. */
+export function createMaterialListExportMenuItem(
+  t: TFunction,
+  menuIconClass: string,
+  closeMenu: () => void
+): MenuActionItem {
+  return {
+    id: 'material-list',
+    label: t('materialListExport.menu'),
+    icon: <ListChecks className={menuIconClass} aria-hidden />,
+    largeIcon: <ListChecks className={LARGE_MENU_ICON_CLASS} aria-hidden />,
+    testId: 'app-menu-export-material-list',
+    onSelect: () => {
+      closeMenu()
+      openMaterialListExport()
+    },
+  }
+}
 
 /** Hover flyouts on desktop pointers; touch and compact layouts open the picker directly. */
 export function menuSubmenusOnHover(compact: boolean): boolean {

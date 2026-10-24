@@ -32,6 +32,8 @@ import type {
 import { resolveSymbolPortsForWire, DEFAULT_ELECTRICAL_DOMAIN } from '@/lib/symbols'
 import { applyHostedFeederSectionCut, FEED_STUB_FEEDER_GEOMETRY } from './feedStubFeeders'
 import { getDomoticaEndpointInputDomain } from '@/lib/eendraad/domoticaOutputOrdering'
+import { findDomoticaRowRoot } from '@/lib/eendraad/domoticaRowLabel'
+import { isDomoticaPanelFeedEndpoint } from '@/lib/eendraad/panelSupplyLink'
 import {
   createDefaultAcCircuitCable,
   ensurePanelBusCableMinimum,
@@ -190,12 +192,13 @@ function findDescendantNode(
 
 function getDomoticaOutputPhaseState(
   circuit: Circuit,
-  segment: WireSegment
+  segment: WireSegment,
+  incomingSourceEndpoint?: Endpoint,
 ):
   | Pick<ReturnType<typeof getCircuitWirePropertiesForDomain>, 'phaseAssignment' | 'showPhaseLabel'>
   | undefined {
   if (!segment.domoticaOutputGroup || segment.domoticaOutputIndex == null) return undefined
-  const segmentSource = circuit.endpoints.find((endpoint) => endpoint.id === segment.fromElementId)
+  const segmentSource = incomingSourceEndpoint ?? circuit.endpoints.find((endpoint) => endpoint.id === segment.fromElementId)
   const parentId =
     segmentSource?.symbol === 'domotica'
       ? segmentSource.id
@@ -401,6 +404,26 @@ function getCircuitWirePropertiesFromResolvedOverride(
         domainOverride?.showWireLengthLabel ??
         circuit.showWireLengthLabel
     ),
+  }
+}
+
+/** The source row and its receiving-board copy use the same per-output fallback rules. */
+function resolveDomoticaOutputWireProperties(
+  base: ReturnType<typeof getCircuitWirePropertiesForDomain>,
+  output: Partial<ReturnType<typeof getCircuitWirePropertiesForDomain>> | undefined,
+): ReturnType<typeof getCircuitWirePropertiesForDomain> {
+  const wireRoute = output?.wireRoute ?? base.wireRoute
+  return {
+    cable: output?.cable ?? base.cable,
+    phaseAssignment: output?.phaseAssignment ?? base.phaseAssignment,
+    showPhaseLabel: output?.showPhaseLabel ?? base.showPhaseLabel,
+    wireRoute,
+    inTube: output?.inTube ?? base.inTube,
+    inWall: output?.inWall ?? (wireRoute === 'wall' ? (base.inWall ?? false) : false),
+    hideWireLabel: output?.hideWireLabel ?? base.hideWireLabel,
+    showFireClassLabel: output?.showFireClassLabel ?? base.showFireClassLabel,
+    wireLengthM: output?.wireLengthM ?? base.wireLengthM,
+    showWireLengthLabel: output?.showWireLengthLabel ?? base.showWireLengthLabel,
   }
 }
 
@@ -1608,11 +1631,15 @@ function derivePanelWires(
     // Use the parent MCB's circuit cable — this is the same cable shown on the
     // main panel's circuit wire, so properties stay in sync when edited.
     const parentProtection = parentMcbNode.domainRef as ProtectionDevice | undefined
+    const sourceEndpoint = parentMcbNode.sourceEndpointForWires
     const parentCircuit =
       (parentMcbNode.circuitIdForWires && Array.isArray(parentProtection?.circuits)
         ? parentProtection.circuits.find((c: Circuit) => c.id === parentMcbNode.circuitIdForWires)
         : undefined) ?? parentProtection?.circuits?.[0]
     const parentCircuitCable = parentCircuit?.cable
+    const incomingDomain = parentCircuit && sourceEndpoint
+      ? getDomoticaEndpointInputDomain(parentCircuit, sourceEndpoint.id, DEFAULT_ELECTRICAL_DOMAIN)
+      : DEFAULT_ELECTRICAL_DOMAIN
     const fallbackSupplyCable = parentCircuitCable || {
       kind: 'XVB' as const,
       conductors: 3,
@@ -1624,21 +1651,41 @@ function derivePanelWires(
     // the source panel's protection→panel section override as well, otherwise it
     // silently falls back to Circuit.cable and validation can report a different
     // section than the wire properties editor.
-    const parentFeederOverride = parentCircuit
-      ? findSubPanelFeederWireOverride(
-          parentCircuit,
-          parentProtection?.id,
-          panel.id,
-          DEFAULT_ELECTRICAL_DOMAIN
-        )
+    const sourceOutput = sourceEndpoint?.domoticaChildProps
+    const sourceModule = parentCircuit?.endpoints.find((endpoint) => endpoint.id === sourceOutput?.parentEndpointId)
+    const sourceRowRoot = parentCircuit && sourceEndpoint ? findDomoticaRowRoot(parentCircuit, sourceEndpoint) : undefined
+    const sourceRowWire = sourceOutput?.outputGroup === 'endpoint'
+      ? sourceModule?.domoticaProps?.endpointOutputWires?.[sourceOutput.outputIndex]
       : undefined
-    const supplyWireProps = parentCircuit
+    const outputFeederOverride = parentCircuit && sourceOutput
+      ? findSectionWireOverride(parentCircuit, {
+          fromElementType: 'protection', fromElementId: parentProtection?.id,
+          toElementType: 'endpoint', toElementId: panel.id, domain: incomingDomain,
+        })
+      : undefined
+    const sourceRowOverride = parentCircuit && sourceOutput
+      ? findSectionWireOverride(parentCircuit, {
+          fromElementType: 'endpoint',
+          fromElementId: sourceOutput.parentEndpointId,
+          toElementType: 'endpoint', toElementId: sourceRowRoot?.id ?? sourceEndpoint?.id, domain: incomingDomain,
+        })
+      : undefined
+    const parentFeederOverride = sourceEndpoint ? sourceRowOverride : (parentCircuit
+      ? findSubPanelFeederWireOverride(parentCircuit, parentProtection?.id, panel.id, incomingDomain)
+      : undefined)
+    const baseSupplyWireProps = parentCircuit
       ? getCircuitWirePropertiesFromResolvedOverride(
           parentCircuit,
-          DEFAULT_ELECTRICAL_DOMAIN,
+          incomingDomain,
           parentFeederOverride
         )
       : undefined
+    const supplyWireProps = baseSupplyWireProps && sourceEndpoint
+      ? resolveDomoticaOutputWireProperties(
+          resolveDomoticaOutputWireProperties(baseSupplyWireProps, sourceRowWire),
+          outputFeederOverride,
+        )
+      : baseSupplyWireProps
     const supplyCable = supplyWireProps?.cable ?? fallbackSupplyCable
 
     const subPanelSupplyDeviceNodes = panelNode.children
@@ -1665,7 +1712,8 @@ function derivePanelWires(
       const endPt = { x: parentMcbNode.bounds.x, y: to.y }
       const fromNode = from.node
       const toNode = to.node
-      const adjustedStart = fromNode ? applyNodeWireInset(startPt, endPt, fromNode) : startPt
+      const adjustedStart = fromNode && !(sourceEndpoint && i === 0)
+        ? applyNodeWireInset(startPt, endPt, fromNode) : startPt
       const adjustedEnd = toNode ? applyNodeWireInset(endPt, startPt, toNode) : endPt
       segments.push({
         id: generateId(),
@@ -1674,7 +1722,7 @@ function derivePanelWires(
         endPoint: adjustedEnd,
         cable: supplyCable,
         panelId: panel.id,
-        domain: DEFAULT_ELECTRICAL_DOMAIN,
+        domain: incomingDomain,
         circuitId: parentCircuit?.id,
         inTube: supplyWireProps?.inTube ?? parentCircuit?.inTube,
         wireRoute:
@@ -1686,8 +1734,8 @@ function derivePanelWires(
         showFireClassLabel: supplyWireProps?.showFireClassLabel,
         wireLengthM: supplyWireProps?.wireLengthM,
         showWireLengthLabel: supplyWireProps?.showWireLengthLabel,
-        fromElementType: 'protection',
-        fromElementId: from.deviceId ?? parentProtection?.id,
+        fromElementType: from.deviceId || !sourceEndpoint ? 'protection' : 'endpoint',
+        fromElementId: from.deviceId ?? sourceEndpoint?.id ?? parentProtection?.id,
         toElementType: to.deviceId ? 'protection' : undefined,
         toElementId: to.deviceId,
         // Anchors follow the structure snapshot: the run into the first local supply device is
@@ -1696,6 +1744,8 @@ function derivePanelWires(
         wireAnchor: deriveWireAnchorKey({ kind: 'panel-input', panelId: panel.id, deviceId: to.deviceId }),
         isSubPanelSupply: true,
         feederProtectionId: parentProtection?.id,
+        domoticaOutputGroup: sourceOutput?.outputGroup,
+        domoticaOutputIndex: sourceOutput?.outputIndex,
       })
     }
   }
@@ -3829,7 +3879,8 @@ function derivePanelWires(
       installation?.nominalVoltage.system,
       installation
     )
-    const outputPhaseState = getDomoticaOutputPhaseState(circuit, segment)
+    const outputPhaseState = getDomoticaOutputPhaseState(circuit, segment,
+      segment.isSubPanelSupply ? parentMcbNode?.sourceEndpointForWires : undefined)
     const crossesProtectionBoundary =
       segment.fromElementType === 'protection' || segment.toElementType === 'protection'
     segment.phaseAssignment =
@@ -3894,39 +3945,31 @@ function derivePanelWires(
   const parentMcbNodeForTagging = panelNode.children.find((c) => c.id === 'parent-mcb')
   const parentProtection = parentMcbNodeForTagging?.domainRef as ProtectionDevice | undefined
   const parentProtectionId: string | undefined = parentProtection?.id
-  const parentFeedCircuitId: string | undefined = parentProtection?.circuits?.[0]?.id
+  const parentSourceEndpointId = parentMcbNodeForTagging?.sourceEndpointForWires?.id
+  const parentFeedCircuitId = parentMcbNodeForTagging?.circuitIdForWires ?? parentProtection?.circuits?.[0]?.id
   if (parentProtectionId && parentFeedCircuitId) {
     for (const segment of segments) {
       if (
         segment.type === 'vertical' &&
         segment.panelId === panel.id &&
         segment.circuitId === parentFeedCircuitId &&
-        segment.fromElementType === 'protection' &&
-        segment.fromElementId === parentProtectionId
+        ((segment.fromElementType === 'protection' && segment.fromElementId === parentProtectionId) ||
+          (segment.fromElementType === 'endpoint' && segment.fromElementId === parentSourceEndpointId))
       ) {
         segment.isSubPanelSupply = true
         segment.feederProtectionId = parentProtectionId
       }
     }
-    const incomingBusStub = segments
-      .filter(
-        (segment) =>
-          segment.type === 'vertical' &&
-          segment.panelId === panel.id &&
-          segment.circuitId === parentFeedCircuitId &&
-          segment.isSubPanelSupply === true
-      )
-      .sort(
-        (left, right) =>
-          Math.min(Math.abs(left.startPoint.y - mainBusY), Math.abs(left.endPoint.y - mainBusY)) -
-          Math.min(Math.abs(right.startPoint.y - mainBusY), Math.abs(right.endPoint.y - mainBusY))
-      )[0]
-    if (incomingBusStub) {
-      incomingBusStub.forcePhaseLabel = isPhaseAssignmentLabelVisible(
-        incomingBusStub.phaseAssignment,
-        installation?.nominalVoltage.system
-      )
-    }
+  }
+  for (const segment of segments) {
+    if (!segment.isSubPanelSupply) continue
+    // Moving the feeder into another enclosure does not select new phases.
+    // The source-side protection already identifies the phase set. Only an
+    // explicitly enabled caption belongs on the incoming physical cable;
+    // do not repeat it on the internal run from a local device to the bus.
+    segment.showPhaseLabel = segment.showPhaseLabel === true &&
+      (segment.fromElementId === segment.feederProtectionId ||
+        (parentSourceEndpointId != null && segment.fromElementId === parentSourceEndpointId))
   }
 
   if (supplyNode && renderedSupplyDeviceNodes.length > 0) {
@@ -5392,17 +5435,20 @@ function deriveBranchWires(
         })
         .sort((a, b) => a.bounds.x - b.bounds.x)
 
-      const segmentCable = wireProps?.cable ?? baseProps.cable
-      const baseRoute = wireProps?.wireRoute ?? baseProps.wireRoute
-      const segmentInTube = wireProps?.inTube ?? baseProps.inTube
-      const segmentInWall =
-        wireProps?.inWall ?? (baseRoute === 'wall' ? (baseProps.inWall ?? false) : false)
-      const segmentHideWireLabel = wireProps?.hideWireLabel ?? baseProps.hideWireLabel
-      const segmentShowFireClassLabel =
-        wireProps?.showFireClassLabel ?? baseProps.showFireClassLabel
-      const segmentWireLengthM = wireProps?.wireLengthM ?? baseProps.wireLengthM
-      const segmentShowWireLengthLabel =
-        wireProps?.showWireLengthLabel ?? baseProps.showWireLengthLabel
+      // A board's receiving copy resolves the physical output independently of
+      // the wire before the module. Keep both copies on the same exact row
+      // section/circuit defaults; ordinary rows retain their existing fallback.
+      const rowBaseProps = childrenOnRow.some((node) => isDomoticaPanelFeedEndpoint(node.domainRef as Endpoint))
+        ? getCircuitWirePropertiesForDomain(circuit, domain, {
+            fromElementType: 'endpoint', fromElementId: sourceNode.domainId,
+            toElementType: 'endpoint', toElementId: childrenOnRow[0]?.domainId, domain,
+          })
+        : baseProps
+      const {
+        cable: segmentCable, wireRoute: baseRoute, inTube: segmentInTube, inWall: segmentInWall,
+        hideWireLabel: segmentHideWireLabel, showFireClassLabel: segmentShowFireClassLabel,
+        wireLengthM: segmentWireLengthM, showWireLengthLabel: segmentShowWireLengthLabel,
+      } = resolveDomoticaOutputWireProperties(rowBaseProps, wireProps)
 
       const sourceBoxRightX = sourceNode.bounds.x + DOMOTICA_BOX_WIDTH / 2
       const start = { x: sourceBoxRightX, y: outputY }

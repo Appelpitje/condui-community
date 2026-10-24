@@ -552,6 +552,16 @@ export const symbols: SymbolMetadata[] = [
     tags: ['switch', 'changeover', 'omschakelaar'],
   },
   {
+    id: 'switch_shutter',
+    name: 'Roller Shutter Switch',
+    nameNL: 'Rolluikschakelaar',
+    nameFR: 'Interrupteur de volet roulant',
+    category: 'switches',
+    scope: 'both',
+    svgPath: '/symbols/switches/switch_shutter.svg',
+    tags: ['switch', 'shutter', 'blind', 'rolluik', 'screen', 'zonwering', 'jaloezie', 'volet', 'Rollladen', 'Jalousie', 'roleta', 'roletă'],
+  },
+  {
     id: 'switch_1p_pull',
     name: 'Pull Switch',
     nameNL: 'Trek schakelaar',
@@ -1503,6 +1513,9 @@ export function getSwitchSymbolPaths(
     case 'switch_1p_pull':
       basePath = '/symbols/switches/switch_1p_pull.svg'
       if (verklikkerlamp) overlayPath = SWITCH_OVERLAY_PATHS.overlayLight
+      break
+    case 'switch_shutter':
+      basePath = '/symbols/switches/switch_shutter.svg'
       break
     case 'contact':
       basePath = '/symbols/switches/contact.svg'

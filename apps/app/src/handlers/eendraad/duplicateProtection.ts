@@ -1,7 +1,6 @@
 import { runProjectCommand } from '@/stores/liveProjectCommandSession'
 import type { DropTarget } from '@/lib/layout/findDropTarget'
-import { useUIStore } from '@/stores/uiStore'
-import { getViewportCenterPlanSpaceIfApplicable } from '@/lib/plan/autoSitplanPlacement'
+import { createUiDropBehaviorHooks } from './uiDropBehaviorHooks'
 
 export function duplicateProtection(options: {
   protectionId: string
@@ -10,20 +9,12 @@ export function duplicateProtection(options: {
   gridPlacement?: { panelId: string; row: number; col: number }
   dropTarget?: DropTarget
   label?: string
+  ownerDocument?: Document
 }): string | null {
-  const ui = useUIStore.getState()
-  const sitplanTarget = {
-    activeFloorId: ui.activeFloorId,
-    viewportCenter: ui.activeFloorId
-      ? getViewportCenterPlanSpaceIfApplicable(
-          ui.viewportLayout,
-          ui.planCanvasViewportPx,
-          ui.activeFloorId,
-          ui.activeFloorId,
-          ui.planView
-        )
-      : null,
-  }
+  const { activeFloorId, viewportCenter } = createUiDropBehaviorHooks(
+    options.ownerDocument
+  ).getSitplanTarget()
+  const sitplanTarget = { activeFloorId, viewportCenter }
   const outcome = runProjectCommand(
     'electrical.duplicateProtection',
     {

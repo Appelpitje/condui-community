@@ -3,7 +3,10 @@ import { DOMOTICA_MIN_ENDPOINT_OUTPUTS, DOMOTICA_MAX_ENDPOINT_OUTPUTS, DOMOTICA_
 import { getCircuitBranches, getStandardCircuitBranches } from './endpointChains'
 import type { BranchLayout, TrunkLayout } from './wireSegments'
 import { calculateBranchWidth, getEndpointLayoutOffsets } from './bottomUpBranchWidths'
-import { getDomoticaNoteBounds } from '@/lib/eendraad/domoticaNotes'
+import {
+  DOMOTICA_NOTE_LINE_HEIGHT,
+  getDomoticaNoteBounds,
+} from '@/lib/eendraad/domoticaNotes'
 import { getProtectionOneWireAnchorLineIndex, getProtectionOneWireLabelLines } from '@/lib/protectionLabels'
 import { getVisibleConversionLabelParts, getVisibleEndpointNoteText } from '@/lib/conversionLabels'
 import { getVisibleCertificationLabelParts } from '@/lib/certificationLabels'
@@ -26,6 +29,7 @@ import {
   TRUNK_DEVICE_BRANCH_CLEARANCE,
 } from './trunkDeviceSpacing'
 import { getBranchConverterMetadataCalloutHeight } from './circuitConverterMetadataCallouts'
+import { getControlButtonAnnotationBounds } from '@/lib/eendraad/controlButtonLabels'
 
 export interface BranchPassConstants {
   BRANCH_LEAD_IN: number
@@ -190,7 +194,7 @@ export function calculateFirstBranchY(
 
 function getNonPanelEndpoints(circuit: Circuit) {
   return circuit.endpoints.filter(
-    (e) => e.symbol !== 'panel_distribution' && !isCircuitConverterDcChild(e)
+    (e) => (e.symbol !== 'panel_distribution' || !!e.domoticaChildProps) && !isCircuitConverterDcChild(e)
   )
 }
 function createEmptyBranch(
@@ -257,8 +261,25 @@ function getDomoticaBranchBottomExtent(endpoints: Endpoint[], symbolSize: number
   const offsets = getEndpointLayoutOffsets(endpoints, 20, 30, 0, symbolSize)
   return endpoints.reduce((bottom, endpoint, index) => {
     const offset = offsets[index]!
-    return Math.max(bottom, getDomoticaNoteBounds(endpoint, offset.x, offset.y, 0)?.bottom ?? bottom)
+    const note = getDomoticaNoteBounds(endpoint, offset.x, offset.y, 0)
+    const buttonAnnotation = getControlButtonAnnotationBounds(endpoint, offset.x, offset.y, 0)
+    return Math.max(bottom, note?.bottom ?? bottom, buttonAnnotation?.bottom ?? bottom)
   }, symbolSize / 2)
+}
+
+/** Extra branch lift for long notes, separate from the normal note-collision reserve. */
+function getDomoticaBranchLongNoteLift(endpoints: Endpoint[], symbolSize: number): number {
+  const offsets = getEndpointLayoutOffsets(endpoints, 20, 30, 0, symbolSize)
+  return endpoints.reduce((lift, endpoint, index) => {
+    const offset = offsets[index]!
+    const note = getDomoticaNoteBounds(endpoint, offset.x, offset.y, 0)
+    if (!note) return lift
+    const extraLines = Math.max(
+      0,
+      countSymbolLabelVisualLines(getVisibleEndpointNoteText(endpoint)) - 2,
+    )
+    return Math.max(lift, extraLines * DOMOTICA_NOTE_LINE_HEIGHT)
+  }, 0)
 }
 
 function getFirstBranchObstacleHalfHeight(circuit: Circuit, protection: ProtectionDevice | null | undefined, symbolSize: number): number {
@@ -404,6 +425,12 @@ function createEndpointBranchRows(
           branchY -= additionalReserve
         }
       }
+    }
+
+    const longNoteLift = getDomoticaBranchLongNoteLift(branchEndpoints, constants.SYMBOL_SIZE)
+    if (longNoteLift > 0) {
+      metadataVerticalReserve += longNoteLift
+      branchY -= longNoteLift
     }
 
     const storedBranch = storedBranches[branchIndex]

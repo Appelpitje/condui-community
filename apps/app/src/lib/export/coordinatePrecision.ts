@@ -81,8 +81,9 @@ export function applyCoordinatePrecision(svgString: string): string {
     // Fix transform attributes (matrix, translate, scale, etc.)
     const transform = element.getAttribute('transform')
     if (transform) {
-      // Parse and reformat transform values
-      const fixedTransform = transform.replace(/([\d.]+)/g, (match) => {
+      // Match complete SVG numbers, including the near-zero scientific notation
+      // produced by quarter-turn rotations. Splitting an exponent corrupts the matrix.
+      const fixedTransform = transform.replace(/[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi, (match) => {
         const num = parseFloat(match)
         return isNaN(num) ? match : formatCoordinate(num)
       })

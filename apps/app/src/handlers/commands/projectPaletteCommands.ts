@@ -18,6 +18,7 @@ import {
 
 const bindings = [
   ['electrical.addSupplyTransformer', 'addSupplyTransformer'],
+  ['electrical.addPanelAtDomoticaOutput', 'addPanelAtDomoticaOutput'],
   ['electrical.assignEndpoints', 'moveToCircuit'],
   ['electrical.reorderBranch', 'reorderBranch'],
   ['electrical.moveProtectionOnBus', 'moveOnBus'],
@@ -161,7 +162,7 @@ export function createProjectPaletteCommands(): CommandDefinition[] {
           searchKey: id === 'panel.rewire' ? 'commandPalette.rewire' : undefined,
           isEnabled: (ctx) =>
             ctx.capabilities.canEditProject &&
-            (id !== 'electrical.addSupplyTransformer' || ctx.capabilities.canPlaceSymbols) &&
+            (!['electrical.addSupplyTransformer', 'electrical.addPanelAtDomoticaOutput'].includes(id) || ctx.capabilities.canPlaceSymbols) &&
             actions().some((action) => action.id === id),
           run: () => {
             const action = actions().find((action) => action.id === id)

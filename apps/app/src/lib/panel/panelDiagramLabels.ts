@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next'
 import { normalizeNominalVoltageSystem } from '@/constants/nominalVoltage'
 import type { EarthingSystemType, Installation, Panel } from '@/types/schema'
 import { resolveEffectiveEarthingSystem } from '@/lib/panel/panelEarthingSync'
+import { isHouseholdInstallation } from '@/lib/installationProfile'
 import {
   getProjectElectricalInstallation,
   getProjectElectricalPanels,
@@ -9,6 +10,7 @@ import {
 } from '@/lib/projectV2/electrical'
 import type { ProjectWithOptionalV2Building } from '@/lib/projectV2/buildingFloors'
 import { getPanelDisplayName } from '@/utils/panelNames'
+import { buildPanelCodesById, resolveLabelScheme } from '@/lib/eendraad/labelScheme'
 
 type PanelDiagramProject = ProjectWithOptionalV2Electrical & ProjectWithOptionalV2Building & {
   project?: {
@@ -47,9 +49,6 @@ export function orderPanelsForNumbering(panels: Panel[]): Panel[] {
   return result
 }
 
-export function formatPanelCode(sequenceIndex: number): string {
-  return `B${String(sequenceIndex + 1).padStart(2, '0')}`
-}
 
 export function findParentPanel(panels: Panel[], childId: string): Panel | null {
   for (const panel of panels) {
@@ -60,9 +59,13 @@ export function findParentPanel(panels: Panel[], childId: string): Panel | null 
   return null
 }
 
-export function buildPanelNumberIndexById(panels: Panel[]): Map<string, number> {
-  const ordered = orderPanelsForNumbering(panels)
-  return new Map(ordered.map((panel, index) => [panel.id, index]))
+/** Panel codes (B01, B02 … or per the installation's label scheme) by panel id. */
+export function buildPanelCodeById(
+  panels: Panel[],
+  installation: Pick<Installation, 'labelScheme'> | undefined
+): Map<string, string> {
+  const codes = buildPanelCodesById(panels, resolveLabelScheme(installation?.labelScheme))
+  return new Map([...codes].map(([id, code]) => [id, code.code]))
 }
 
 function formatNetVoltagePart(installation: Installation): string {
@@ -94,7 +97,7 @@ export type PanelDiagramHeaderLine = {
 type PanelDiagramHeaderOptions = {
   advancedLabelsEnabled: boolean
   parentPanel?: Panel | null
-  numberIndexById?: Map<string, number>
+  panelCodeById?: Map<string, string>
   /** Detached supply frames never carry a panel sequence number. */
   suppressNumbering?: boolean
   /** A backup label is meaningful only while a backup feed is connected. */
@@ -112,7 +115,14 @@ export function isPanelNetLabelsActive(
   installation: Installation,
   advancedLabelsEnabled: boolean
 ): boolean {
-  return advancedLabelsEnabled && !!installation.panelNetTypeLabelsEnabled
+  return advancedLabelsEnabled && installationShowsNetTypeLabels(installation)
+}
+
+/** Net-type header lines are a non-domestic option; domestic projects never show them. */
+export function installationShowsNetTypeLabels(
+  installation: Pick<Installation, 'panelNetTypeLabelsEnabled' | 'installationProfile'>
+): boolean {
+  return !!installation.panelNetTypeLabelsEnabled && !isHouseholdInstallation(installation)
 }
 
 /** Extra top padding for the panel frame from multi-line diagram headers. */
@@ -142,11 +152,11 @@ export function getPanelFrameTitlePadding(
         }).length
       : buildPanelDiagramHeaderLines(project, panel, translate, {
           advancedLabelsEnabled: true,
-          numberIndexById: buildPanelNumberIndexById(rootPanels),
+          panelCodeById: buildPanelCodeById(rootPanels, installation),
           parentPanel: findParentPanel(rootPanels, panel.id),
           backupFeedActive: options.backupFeedActive,
         }).length
-  const netLabelsActive = !!installation.panelNetTypeLabelsEnabled
+  const netLabelsActive = installationShowsNetTypeLabels(installation)
 
   const required =
     PANEL_FRAME_HEADER_TOP_INSET +
@@ -175,11 +185,8 @@ export function buildPanelDiagramHeaderLines(
     !options.suppressNumbering && isPanelNumberingActive(installation, options.advancedLabelsEnabled)
   const netLabelsActive = isPanelNetLabelsActive(installation, options.advancedLabelsEnabled)
 
-  const numberIndexById =
-    options.numberIndexById ?? buildPanelNumberIndexById(rootPanels)
-  const panelIndex = numberIndexById.get(panel.id)
-  const panelCode =
-    panelIndex != null && numberingActive ? formatPanelCode(panelIndex) : null
+  const panelCodeById = options.panelCodeById ?? buildPanelCodeById(rootPanels, installation)
+  const panelCode = numberingActive ? panelCodeById.get(panel.id) ?? null : null
 
   if (!numberingActive && !netLabelsActive) {
     const lines: PanelDiagramHeaderLine[] = [{ text: displayName, variant: 'title' }]
@@ -218,11 +225,9 @@ export function buildPanelDiagramHeaderLines(
   const isSubPanel = parent != null
 
   if (isSubPanel && parent) {
-    const parentIndex = numberIndexById.get(parent.id)
     const parentCode =
-      parentIndex != null && numberingActive
-        ? formatPanelCode(parentIndex)
-        : getPanelDisplayName(parent, project)
+      (numberingActive ? panelCodeById.get(parent.id) : undefined) ??
+      getPanelDisplayName(parent, project)
     lines.push({
       text: t('panels.diagramFedFrom', {
         source: parentCode,
@@ -274,8 +279,22 @@ export function buildPanelDiagramHeaderLines(
       variant: 'body',
     })
   }
+  if (panel.expectedShortCircuitKa != null && panel.expectedShortCircuitKa > 0) {
+    const ka = formatShortCircuitKa(panel.expectedShortCircuitKa)
+    lines.push({
+      text: t('panels.diagramShortCircuit', {
+        ka,
+        defaultValue: `Ik max: ${ka} kA`,
+      }),
+      variant: 'body',
+    })
+  }
 
   return lines
+}
+
+function formatShortCircuitKa(ka: number): string {
+  return String(Math.round(ka * 100) / 100)
 }
 
 /** Header for a detached supply-assembly frame: network labels, never panel numbering. */
@@ -343,9 +362,9 @@ export function getPanelSymbolLabel(
   if (!installation || !isPanelNumberingActive(installation, advancedLabelsEnabled)) {
     return displayName
   }
-  const index = buildPanelNumberIndexById(getProjectElectricalPanels(project)).get(panel.id)
-  if (index == null) return displayName
-  return `${formatPanelCode(index)}  ${displayName}`
+  const code = buildPanelCodeById(getProjectElectricalPanels(project), installation).get(panel.id)
+  if (code == null) return displayName
+  return `${code}  ${displayName}`
 }
 
 export function getPanelDiagramTitleLine(

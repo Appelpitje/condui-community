@@ -8,7 +8,7 @@ import { COMPACT_PANEL_THRESHOLD, packPanelGroup } from './compactPanelPacking'
  * Layout flows from supply (bottom) upward to endpoints (top).
  */
 
-import type { Circuit, ProtectionDevice, Panel, Installation, TrunkDevice } from '@/types/schema'
+import type { Circuit, ProtectionDevice, Panel, Installation, TrunkDevice, Endpoint } from '@/types/schema'
 import type { Point } from '@/types/ui'
 import type { TrunkLayout, BranchLayout } from './wireSegments'
 import {
@@ -57,7 +57,9 @@ import {
   resolvePanelSupplyLinkForPanel,
   resolvePanelSupplyLinksForSourcePanel,
   resolvePanelSupplyLinksForSourcePanelInPanels,
+  isDomoticaPanelFeedEndpoint,
 } from '@/lib/eendraad/panelSupplyLink'
+import { getDomoticaEndpointOutputLabel } from '@/lib/eendraad/domoticaRowLabel'
 import {
   getProtectionOneWireAnchorLineIndex,
   getProtectionOneWireLabelLines,
@@ -1073,6 +1075,8 @@ export interface BottomUpPanelLayout {
   frameRole?: 'panel' | 'supply'
   /** Electrical panel that owns interactions and persisted supply topology. */
   ownerPanelId?: string
+  /** Sub-panel feeder drawn at its natural length (previews); see `subPanelFeedAnchorY`. */
+  compactSubPanelFeed?: boolean
   /** How the lower supply endpoint is represented in this frame. */
   supplyEndpointKind?: 'mains' | 'continuation'
   /**
@@ -1217,6 +1221,7 @@ export interface BottomUpPanelLayout {
     protection: ProtectionDevice
     circuit: Circuit
     position: Point
+    sourceEndpoint?: Endpoint
   }
 }
 
@@ -1589,6 +1594,8 @@ interface BottomUpPanelLayoutOptions {
   /** Render the compact detached-feed destination label and frame geometry. */
   feedOutput?: boolean
   infoBlockColumns?: InfoBlockColumns
+  /** See {@link BottomUpLayoutOptions.compactSubPanelFeed}. */
+  compactSubPanelFeed?: boolean
 }
 
 /** Inputs that live outside the project but change the drawing's geometry. */
@@ -1598,6 +1605,11 @@ export interface BottomUpLayoutOptions {
    * Widens every frame's info block, so callers must pass the value the canvas renders.
    */
   infoBlockLogo?: boolean
+  /**
+   * Draw a sub-panel's incoming feeder at its natural length instead of reserving room for an
+   * inserted feeder device. For small read-only previews only; the editor keeps the default.
+   */
+  compactSubPanelFeed?: boolean
 }
 
 export interface BottomUpLayoutResult {
@@ -2231,13 +2243,14 @@ function applySecondaryBusAssignmentsToCircuitLayouts(
 function findParentMcbForSubPanel(
   project: ProjectWithOptionalV2Electrical,
   subPanel: Panel
-): { protection: ProtectionDevice; circuit: Circuit; parentPanel: Panel } | null {
+): { protection: ProtectionDevice; circuit: Circuit; parentPanel: Panel; sourceEndpoint?: Endpoint } | null {
   const link = resolvePanelSupplyLinkForPanel(project, subPanel.id)
   if (link?.feederCircuit) {
     return {
       protection: link.protection,
       circuit: link.feederCircuit,
       parentPanel: link.sourcePanel,
+      sourceEndpoint: isDomoticaPanelFeedEndpoint(link.sourcePanelEndpoint) ? link.sourcePanelEndpoint : undefined,
     }
   }
 
@@ -2433,7 +2446,7 @@ function calculateBottomUpPanelLayout(
   panel: Panel,
   manualOverrides?: Map<string, Point>,
   frameOffset: Point = { x: 0, y: 0 },
-  parentMcbInfo?: { protection: ProtectionDevice; circuit: Circuit; parentPanel: Panel } | null,
+  parentMcbInfo?: { protection: ProtectionDevice; circuit: Circuit; parentPanel: Panel; sourceEndpoint?: Endpoint } | null,
   installation?: Installation,
   rootPanels?: Panel[],
   options: BottomUpPanelLayoutOptions = {}
@@ -2731,6 +2744,7 @@ function calculateBottomUpPanelLayout(
   // Circuits feeding a sub-panel should reserve one extra "branch step" above
   // their top-most branch so the panel symbol can cap the trunk at the top.
   resolvePanelSupplyLinksForSourcePanelInPanels([panel], panel).forEach((link) => {
+    if (link.sourcePanelEndpoint?.domoticaChildProps) return
     const feederCircuit = link.feederCircuit
     if (!feederCircuit) return
     if (feederCircuit.supplySource?.kind === 'converter-backup') return
@@ -4270,10 +4284,12 @@ function calculateBottomUpPanelLayout(
   // Sub-panels: keep frame bottom in sync with layoutTree parent-MCB anchor + feeder labels
   // (see getSubPanelIncomingFeedLabelAnchors / buildPanelNode in layoutTree.ts).
   if (isSubPanel && parentMcbInfo) {
-    const MIN_SUBPANEL_INCOMING_SEGMENT_LENGTH = 60 // keep in sync with layoutTree.ts export
+    const MIN_SUBPANEL_INCOMING_SEGMENT_LENGTH = 70 // keep in sync with layoutTree.ts export
     const SUBPANEL_FEED_PARENT_TAG_Y = 28 // keep in sync with layoutTree.ts export
     const SUBPANEL_FEED_LABEL_HEIGHT = 20
-    const parentMcbAnchorY = Math.max(supplyY, mainBusY + MIN_SUBPANEL_INCOMING_SEGMENT_LENGTH * 2)
+    const parentMcbAnchorY = options.compactSubPanelFeed
+      ? supplyY
+      : Math.max(supplyY, mainBusY + MIN_SUBPANEL_INCOMING_SEGMENT_LENGTH * 2)
     maxY = Math.max(
       maxY,
       parentMcbAnchorY + SUBPANEL_FEED_PARENT_TAG_Y + SUBPANEL_FEED_LABEL_HEIGHT
@@ -4354,7 +4370,9 @@ function calculateBottomUpPanelLayout(
         circuitId: parentMcbInfo.circuit.id,
       })
 
-      const upstreamProtectionLabel = (parentMcbInfo.protection.label ?? '').trim()
+      const upstreamProtectionLabel = parentMcbInfo.sourceEndpoint
+        ? getDomoticaEndpointOutputLabel(parentMcbInfo.circuit, parentMcbInfo.sourceEndpoint)
+        : (parentMcbInfo.protection.label ?? '').trim()
       if (upstreamProtectionLabel) {
         elements.push({
           id: 'parent-mcb-label',
@@ -5454,8 +5472,9 @@ function calculateBottomUpPanelLayout(
     }
 
     circuitBranches.forEach((branch) => {
-      // Exclude panel_distribution endpoints from branch endpoint processing
-      const normalEndpoints = branch.endpoints.filter((e) => e.symbol !== 'panel_distribution')
+      // Whole-circuit board references cap the trunk; output-fed boards belong
+      // on their actual module row alongside its other endpoints.
+      const normalEndpoints = branch.endpoints.filter((e) => e.symbol !== 'panel_distribution' || !!e.domoticaChildProps)
       const isHorizontalConverterBackup = cl.circuit.supplySource?.kind === 'converter-backup'
       const isDcBusBranch = !!cl.circuit.dcBusSource
 
@@ -6525,7 +6544,9 @@ function calculateBottomUpPanelLayout(
       : 0
     const labelWidth = Math.max(
       60,
-      estimateProtectionNameLabelWidth(parentMcbInfo.protection.label) + 20,
+      estimateProtectionNameLabelWidth(parentMcbInfo.sourceEndpoint
+        ? getDomoticaEndpointOutputLabel(parentMcbInfo.circuit, parentMcbInfo.sourceEndpoint)
+        : parentMcbInfo.protection.label) + 20,
       localFeedLabelWidth + 20
     )
     layoutObstacles.push({
@@ -6731,11 +6752,12 @@ function calculateBottomUpPanelLayout(
 
   // Calculate parent MCB position if this is a sub-panel (LOCAL coordinates, will be offset in return)
   let parentMcbPosition:
-    { protection: ProtectionDevice; circuit: Circuit; position: Point } | undefined
+    { protection: ProtectionDevice; circuit: Circuit; position: Point; sourceEndpoint?: Endpoint } | undefined
   if (parentMcbInfo) {
     parentMcbPosition = {
       protection: parentMcbInfo.protection,
       circuit: parentMcbInfo.circuit,
+      sourceEndpoint: parentMcbInfo.sourceEndpoint,
       position: { x: supplyX, y: supplyY }, // LOCAL coordinates
     }
     // Apply frameOffset to parent MCB position
@@ -6757,6 +6779,7 @@ function calculateBottomUpPanelLayout(
     diagramId: options.diagramId ?? panel.id,
     frameRole: options.frameRole ?? 'panel',
     ownerPanelId: options.ownerPanelId ?? panel.id,
+    ...(options.compactSubPanelFeed ? { compactSubPanelFeed: true } : {}),
     supplyEndpointKind: options.supplyEndpointKind ?? 'mains',
     panelLocalRootSupplyInsertBase,
     panelLocalRootBusSectionId: rootSupplyFeed?.busSectionId ?? getPrimaryPanelBusSectionId(panel),
@@ -7005,7 +7028,7 @@ function calculateBottomUpLayoutScoped(
   // Map to store parent MCB info for each sub-panel
   const subPanelMcbMap = new Map<
     string,
-    { protection: ProtectionDevice; circuit: Circuit; parentPanel: Panel }
+    { protection: ProtectionDevice; circuit: Circuit; parentPanel: Panel; sourceEndpoint?: Endpoint }
   >()
 
   const flatPanels = flattenPanelsForRendering(panels)
@@ -7014,6 +7037,7 @@ function calculateBottomUpLayoutScoped(
       protection: ProtectionDevice
       circuit: Circuit
       parentPanel: Panel
+      sourceEndpoint?: Endpoint
     } | null = null
     const isSubPanel = flatPanel.parentPanel !== undefined || flatPanel.panel.isMain !== true
 
@@ -7056,6 +7080,7 @@ function calculateBottomUpLayoutScoped(
       panels,
       {
         infoBlockColumns,
+        compactSubPanelFeed: layoutOptions.compactSubPanelFeed,
         ...(suppressInlineSupplyTopology
           ? ({
               includeSupplyTopology: false,
@@ -7105,7 +7130,9 @@ function calculateBottomUpLayoutScoped(
       detachedSupplyLayouts.push(detachedSupplyLayout)
     }
 
-    const upstreamProtectionLabel = (parentMcbInfo?.protection.label ?? '').trim()
+    const upstreamProtectionLabel = parentMcbInfo?.sourceEndpoint
+      ? getDomoticaEndpointOutputLabel(parentMcbInfo.circuit, parentMcbInfo.sourceEndpoint)
+      : (parentMcbInfo?.protection.label ?? '').trim()
     // Parent panel fallback below the incoming feeder. Only show this when the
     // immediate upstream protection has no own label; otherwise that protection
     // label is the reference and the parent-panel name is redundant/noisy.
@@ -7282,6 +7309,9 @@ function calculateBottomUpLayoutScoped(
   // These should appear at the end of the circuit's trunk (centered), not on a branch
   panelLayouts.forEach((mainPanelLayout) => {
     resolvePanelSupplyLinksForSourcePanel(project, mainPanelLayout.panel).forEach((link) => {
+      // Output-fed boards are real endpoints drawn on their module row already.
+      // Adding the ordinary trunk cap would draw a second, incorrect board feed.
+      if (link.sourcePanelEndpoint?.domoticaChildProps) return
       const feederIsConverterBackup = link.feederCircuit?.supplySource?.kind === 'converter-backup'
       const hasDetachedSupplyFrame = panelLayouts.some(
         (candidate) =>

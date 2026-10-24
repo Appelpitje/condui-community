@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { findCircuitOwner, panelContainsDescendant } from '@/lib/eendraad/projectElectricalDomain'
 import { findPanelById } from '@/lib/panel/panelTree'
 import { movePanelToCircuitInProject, promotePanelToRootSupply } from '@/lib/panel/panelSupplyMove'
-import { resolvePanelSupplyLinkForPanelInPanels } from '@/lib/eendraad/panelSupplyLink'
+import { isDomoticaPanelFeedEndpoint, resolvePanelSupplyLinkForPanelInPanels } from '@/lib/eendraad/panelSupplyLink'
 import { attachRootPanelToExistingSupplyAssembly } from '@/lib/supplyAssembly/panelHandoff'
 import {
   getEditableProjectElectricalInstallation,
@@ -31,6 +31,8 @@ export const panelMoveSupply = defineProjectCommand({
     const panel = findPanelById(panels, input.panelId)
     if (!installation || !panel)
       return { ok: false, code: 'unknown_panel', message: 'Panel no longer exists.' }
+    if (isDomoticaPanelFeedEndpoint(resolvePanelSupplyLinkForPanelInPanels(panels, panel.id)?.sourcePanelEndpoint))
+      return { ok: false, code: 'output_feed', message: 'This panel is connected to a domotica output.' }
     if (input.target.type === 'supply') {
       return { ok: true }
     }

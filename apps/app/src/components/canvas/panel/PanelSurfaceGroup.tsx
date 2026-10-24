@@ -20,6 +20,7 @@ export function PanelSurfaceGroup({
   initialView,
   forceMounted,
   forceDetails = false,
+  onActivateLabels,
   overview,
   children,
 }: {
@@ -27,6 +28,7 @@ export function PanelSurfaceGroup({
   initialView: View
   forceMounted: boolean
   forceDetails?: boolean
+  onActivateLabels?: () => void
   overview?: () => ReactNode
   children: () => ReactNode
 }) {
@@ -159,6 +161,23 @@ export function PanelSurfaceGroup({
           ? overview()
           : children()
         : null}
+      {onActivateLabels && (
+        <Rect
+          name="panel-label-activate"
+          width={surface.width}
+          height={surface.height}
+          fill="transparent"
+          onClick={(event) => {
+            if (event.evt.button !== 0) return
+            event.cancelBubble = true
+            onActivateLabels()
+          }}
+          onTap={(event) => {
+            event.cancelBubble = true
+            onActivateLabels()
+          }}
+        />
+      )}
     </Group>
   )
 }

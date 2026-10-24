@@ -9,7 +9,7 @@ import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import { AlertCircle, AlertTriangle, CheckCircle2, RotateCcw, RotateCw, CircleHelp } from 'lucide-react'
 import { focusIssue } from '@/lib/validation/core/api'
-import type { Issue, ScopeType } from '@/lib/validation/core/types'
+import type { Issue, Scope, ScopeType } from '@/lib/validation/core/types'
 import type { Selection } from '@/types/ui'
 import type { Panel, Circuit, WireSegment } from '@/types/schema'
 import { useEendraadWireSegments } from '@/hooks/eendraad/useEendraadWireSegments'
@@ -36,6 +36,10 @@ import {
 } from '@/lib/projectV2/electrical'
 import { findPanelById } from '@/lib/panel/panelTree'
 import { useOpenJunctionAsset } from '@/components/junctionEditor/junctionEditorHostedFeatures'
+import { useCanValidateCurrentProject } from '@/hooks/useCanValidateCurrentProject'
+import { IncompleteChecksDetails } from './IncompleteChecksDetails'
+import { missingCableSpecificationSegments } from '@/lib/validation/cableSpecifications'
+import { AffectedCircuitTargets } from './AffectedCircuitTargets'
 import {
   HIDDEN_SITUATION_PLAN_RULE_ID,
   openHiddenSituationPlanValidationDialog,
@@ -50,6 +54,39 @@ interface ValidationIssuesDialogProps {
 
 const DC_CROSS_SECTION_HEURISTIC_RULE_ID = 'be.areibook1.2025.dc-cross-section-heuristic'
 const MINIMUM_CROSS_SECTION_RULE_ID = 'be.areibook1.2025.minimum-cross-section'
+const CABLE_SPECIFICATION_RULE_IDS = new Set([
+  'be.areibook1.2025.cable-placement-known',
+  'be.areibook1.2025.cable-fire-class-known',
+])
+
+function wireSelection(wireSegments: WireSegment[]): Selection {
+  return {
+    type: 'wire',
+    ids: wireSegments.map((segment) => segment.id),
+    wireMetadata: wireSegments.map((segment) => ({
+      id: segment.id,
+      wireAnchor: segment.wireAnchor,
+      type: segment.type,
+      domain: segment.domain,
+      circuitId: segment.circuitId,
+      panelId: segment.panelId,
+      fromElementType: segment.fromElementType,
+      fromElementId: segment.fromElementId,
+      toElementType: segment.toElementType,
+      toElementId: segment.toElementId,
+      isGround: segment.fromElementType === 'ground',
+      isSupply: segment.isSupplyTrunk === true,
+      supplySegmentIndex: segment.supplySegmentIndex,
+      supplyWireRole: segment.supplyWireRole,
+      supplyFeedScope: segment.supplyFeedScope,
+      supplyAssemblyId: segment.supplyAssemblyId,
+      supplyConnectionId: segment.supplyConnectionId,
+      supplySectionKey: segment.supplySectionKey,
+      domoticaOutputGroup: segment.domoticaOutputGroup,
+      domoticaOutputIndex: segment.domoticaOutputIndex,
+    })),
+  }
+}
 
 const DEFAULT_SCOPE_LABELS: Record<ScopeType, string> = {
   circuit: 'Circuit',
@@ -119,6 +156,7 @@ function collectDcCrossSectionHeuristicFocusEndpoints(
 }
 
 export function ValidationRevalidateButton() {
+  const canValidate = useCanValidateCurrentProject()
   const { t } = useTranslation()
   const currentProject = useProjectStore((state: ProjectState) => state.currentProject)
   const validate = useValidationStore((state: ValidationState) => state.validate)
@@ -127,6 +165,7 @@ export function ValidationRevalidateButton() {
     ? t('validation.revalidateInProgress', { defaultValue: 'Re-validating…' })
     : t('validation.revalidate', { defaultValue: 'Re-validate now' })
 
+  if (!canValidate) return null
   return (
     <button
       type="button"
@@ -154,6 +193,7 @@ function ValidationIssuesDialog({
   onHeaderPointerDown,
   headerActions,
 }: ValidationIssuesDialogProps) {
+  const canValidate = useCanValidateCurrentProject()
   const focusSelectionOnCanvas = useFocusSelectionOnCanvas()
   const { t } = useTranslation()
   const currentProject = useProjectStore((state: ProjectState) => state.currentProject)
@@ -169,6 +209,7 @@ function ValidationIssuesDialog({
   const errorCount = useValidationStore((state: ValidationState) => state.getErrorCount())
   const warningCount = useValidationStore((state: ValidationState) => state.getWarningCount())
   const setSelection = useUIStore((s) => s.setSelection)
+  const selection = useUIStore((s) => s.selection)
   const openJunctionAsset = useOpenJunctionAsset()
   const eendraadWireSegments = useEendraadWireSegments()
   const storedWireSegments = currentProject ? queryOneWireSegments(currentProject) : []
@@ -268,7 +309,7 @@ function ValidationIssuesDialog({
     return t(`validation.citations.${code}.code`, { defaultValue: code })
   }
 
-  const getIssueLabels = (issue: Issue): string[] => {
+  const getIssueLabels = (issue: Issue, includeCircuitBoard = false): string[] => {
     const labels = new Set<string>()
     const project = currentProject
     if (!project) return []
@@ -340,8 +381,10 @@ function ValidationIssuesDialog({
     // Scope primary label
     if (issue.scope.type === 'circuit') {
       const found = findCircuitById(issue.scope.id)
-      if (found && found.circuit.code) {
-        labels.add(found.circuit.code)
+      if (found && (found.circuit.code || includeCircuitBoard)) {
+        const code = found.circuit.code?.trim() ||
+          t('validation.labels.unnamedCircuit', { defaultValue: '[unnamed circuit]' })
+        labels.add(includeCircuitBoard && found.panel.name ? `${code} · ${found.panel.name}` : code)
       }
     } else if (issue.scope.type === 'board') {
       const panel = findPanelById(getProjectElectricalPanels(project), issue.scope.id)
@@ -378,7 +421,18 @@ function ValidationIssuesDialog({
     return Array.from(labels)
   }
 
+  const getScopeLabel = (issue: Issue, scope: Scope): string => {
+    const label = t(`validation.scopeLabels.${scope.type}`, {
+      defaultValue: DEFAULT_SCOPE_LABELS[scope.type],
+    })
+    const names = getIssueLabels({ ...issue, scope, offenders: [] }, true)
+    return `${label} ${names.join(', ') || scope.id}`
+  }
+
   const getIssueBadgeLabel = (issue: Issue): string => {
+    if (issue.incompleteChecks || CABLE_SPECIFICATION_RULE_IDS.has(issue.ruleId)) {
+      return t('validation.incompleteChecks.affected', { total: issue.offenders.length })
+    }
     if (issue.subject) return issue.subject
     const labels = getIssueLabels(issue)
     if (labels.length > 0) return labels.join(', ')
@@ -386,6 +440,53 @@ function ValidationIssuesDialog({
     return t(`validation.scopeLabels.${issue.scope.type}`, {
       defaultValue: DEFAULT_SCOPE_LABELS[issue.scope.type],
     })
+  }
+
+  const incompleteScopeSelection = (scope: Scope): Selection | null => {
+    if (scope.type === 'junction' || scope.type === 'subgraph') return null
+    const type = scope.type === 'board' ? 'panel'
+      : scope.type === 'segment' ? 'wire'
+      : scope.type === 'device'
+        ? useProjectStore.getState().getProtectionById(scope.id) ? 'protection' : 'trunkDevice'
+        : scope.type
+    return { type, ids: [scope.id] }
+  }
+
+  const scopeSelection = (scope: Scope, issue?: Issue): Selection | null => {
+    if (scope.type === 'circuit' && issue && CABLE_SPECIFICATION_RULE_IDS.has(issue.ruleId)) {
+      const protectionId = useProjectStore.getState().getProtectionForCircuit(scope.id)?.id
+      const root = pickRootmostLiveCircuitWireSegmentForFocus(
+        missingCableSpecificationSegments(eendraadWireSegments, scope.id,
+          issue.ruleId.endsWith('cable-fire-class-known') ? 'fireClass' : 'placement'),
+        scope.id, protectionId, 'AC'
+      )
+      if (root) return wireSelection([root])
+    }
+    return incompleteScopeSelection(scope)
+  }
+
+  const isScopeSelected = (scope: Scope, issue?: Issue) => {
+    const target = scopeSelection(scope, issue)
+    return target != null && selection.type === target.type &&
+      selection.ids.length === 1 && selection.ids[0] === target.ids[0]
+  }
+
+  const handleScopeClick = (scope: Scope, issue: Issue) => {
+    if (scope.type === 'junction') {
+      openJunctionAsset(scope.id)
+      return
+    }
+    const target = scopeSelection(scope, issue)
+    if (!target) return
+    setSelection(target)
+    trackGoogleAnalyticsEvent('validation_issue_focus', {
+      rule_id: issue.ruleId,
+      severity: issue.severity,
+      scope_type: scope.type,
+      selection_type: target.type,
+      source: 'validation_card',
+    })
+    focusSelectionOnCanvas(target, { preferredCanvas: scope.type === 'placement' ? 'plan' : 'eendraad' })
   }
 
   const handleIssueClick = (
@@ -499,30 +600,7 @@ function ValidationIssuesDialog({
       if (wireSegments.length === 0) return false
       selectionType = 'wire'
       ids = wireSegments.map((ws) => ws.id)
-      explicitSelection = {
-        type: 'wire',
-        ids,
-        wireMetadata: wireSegments.map((ws) => ({
-          id: ws.id,
-          type: ws.type,
-          domain: ws.domain,
-          circuitId: ws.circuitId,
-          panelId: ws.panelId,
-          fromElementType: ws.fromElementType,
-          fromElementId: ws.fromElementId,
-          toElementType: ws.toElementType,
-          toElementId: ws.toElementId,
-          ...(ws.isSupplyTrunk === true ? { isSupply: true } : {}),
-          ...(ws.supplySegmentIndex !== undefined
-            ? { supplySegmentIndex: ws.supplySegmentIndex }
-            : {}),
-          ...(ws.supplyAssemblyId !== undefined ? { supplyAssemblyId: ws.supplyAssemblyId } : {}),
-          ...(ws.supplyConnectionId !== undefined
-            ? { supplyConnectionId: ws.supplyConnectionId }
-            : {}),
-          ...(ws.supplySectionKey !== undefined ? { supplySectionKey: ws.supplySectionKey } : {}),
-        })),
-      }
+      explicitSelection = wireSelection(wireSegments)
       return true
     }
 
@@ -538,6 +616,25 @@ function ValidationIssuesDialog({
     ): WireSegment | undefined => {
       const protectionId = query?.getProtectionForCircuit(circuitId)?.id
       return pickRootmostLiveCircuitWireSegmentForFocus(candidates, circuitId, protectionId, domain)
+    }
+
+    if (CABLE_SPECIFICATION_RULE_IDS.has(issue.ruleId) && offenderCircuitId) {
+      explicitSelection = scopeSelection({ type: 'circuit', id: offenderCircuitId }, issue)
+      if (explicitSelection?.type === 'wire') {
+        selectionType = 'wire'
+        ids = explicitSelection.ids
+      }
+    }
+
+    if (issue.ruleId === 'be.areibook1.2025.earthing-separator') {
+      const boardIds = new Set(issue.offenders.filter((offender) => offender.kind === 'board')
+        .map((offender) => offender.id))
+      const ground = eendraadWireSegments.find((segment) =>
+        boardIds.has(segment.panelId) && segment.fromElementType === 'ground' &&
+        isVisibleWireSegment(segment)
+      )
+      if (ground) buildWireSelectionFromSegments([ground])
+      else explicitSelection = { type: 'panel', ids: [...boardIds] }
     }
 
     if (issue.ruleId === 'be.areibook1.2025.phase-protection-compatibility') {
@@ -983,6 +1080,7 @@ function ValidationIssuesDialog({
       }
     )
 
+  if (!canValidate) return null
   return (
     <div className={`flex flex-col h-full ${showHeader ? 'max-h-[80vh]' : ''}`.trim()}>
       {showHeader && (
@@ -1022,7 +1120,7 @@ function ValidationIssuesDialog({
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-2 py-1.5 sm:px-4 sm:py-3">
+      <div data-app-scroll="true" className="flex-1 overflow-y-auto px-2 py-1.5 sm:px-4 sm:py-3">
         {validationDisabledOutsideBelgium ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <AlertTriangle className="mb-3 h-14 w-14 text-yellow-500" />
@@ -1120,6 +1218,12 @@ function ValidationIssuesDialog({
               )}
               {filteredIssues.map((entry, index) => {
                 const issue = entry.issue
+                const title = getShortTitle(issue)
+                const circuitScopes: Scope[] = CABLE_SPECIFICATION_RULE_IDS.has(issue.ruleId)
+                  ? issue.offenders.filter((offender) => offender.kind === 'circuit')
+                    .map((offender) => ({ type: 'circuit', id: offender.id }))
+                  : []
+                const hasScopeTargets = Boolean(issue.incompleteChecks)
                 const prev = index > 0 ? filteredIssues[index - 1] : null
                 const next = index < filteredIssues.length - 1 ? filteredIssues[index + 1] : null
                 const isGrouped =
@@ -1151,13 +1255,14 @@ function ValidationIssuesDialog({
                       />
                     )}
                     <div
-                      onClick={() => handleIssueClick(issue)}
+                      onClick={() => { if (!hasScopeTargets) handleIssueClick(issue) }}
                       data-validation-rule={issue.ruleId}
-                      className="w-full cursor-pointer rounded-md border border-gray-200 p-2 text-left transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800 sm:p-3"
-                      role="button"
-                      tabIndex={0}
+                      data-validation-severity={issue.severity}
+                      className={`w-full rounded-md border border-gray-200 p-2 text-left transition-colors dark:border-gray-700 sm:p-3 ${hasScopeTargets ? '' : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                      role={hasScopeTargets ? undefined : 'button'}
+                      tabIndex={hasScopeTargets ? undefined : 0}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
+                        if (!hasScopeTargets && (e.key === 'Enter' || e.key === ' ')) {
                           e.preventDefault()
                           handleIssueClick(issue, 'keyboard')
                         }
@@ -1174,19 +1279,19 @@ function ValidationIssuesDialog({
                         <div className="flex-1 min-w-0">
                           <div className="mb-1 flex items-center gap-2">
                             <h4 className="text-sm font-semibold text-gray-900 dark:text-white sm:text-base">
-                              {getShortTitle(issue)}
+                              {title}
                             </h4>
                             <span
-                              className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 cursor-pointer"
+                              className={`text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 ${hasScopeTargets ? '' : 'cursor-pointer'}`}
                               onClick={(e) => {
                                 e.stopPropagation()
-                                handleIssueClick(issue)
+                                if (!hasScopeTargets) handleIssueClick(issue)
                               }}
                             >
                               {getIssueBadgeLabel(issue)}
                             </span>
                           </div>
-                          {issue.scope.type !== 'junction' && (
+                          {issue.scope.type !== 'junction' && issue.message !== title && (
                             <p className="mb-1.5 text-sm text-gray-600 dark:text-gray-400">
                               {issue.message}
                             </p>
@@ -1202,6 +1307,22 @@ function ValidationIssuesDialog({
                             >
                               {t('contextMenu.showHidden', 'Show hidden…')}
                             </button>
+                          )}
+                          {issue.incompleteChecks && (
+                            <IncompleteChecksDetails
+                              entries={issue.incompleteCheckDetails ?? issue.incompleteChecks}
+                              onSelectScope={(scope) => handleScopeClick(scope, issue)}
+                              isScopeSelected={isScopeSelected}
+                              scopeLabel={(scope) => getScopeLabel(issue, scope)}
+                            />
+                          )}
+                          {circuitScopes.length > 0 && (
+                            <AffectedCircuitTargets
+                              scopes={circuitScopes}
+                              onSelectScope={(scope) => handleScopeClick(scope, issue)}
+                              isScopeSelected={(scope) => isScopeSelected(scope, issue)}
+                              scopeLabel={(scope) => getScopeLabel(issue, scope)}
+                            />
                           )}
                           <div className="mb-1.5">
                             <a
@@ -1267,6 +1388,10 @@ function ValidationIssuesDialog({
                                     logger.info('Citations:', issue.citations)
 
                                     logger.info('Tags:', issue.tags)
+
+                                    if (issue.incompleteChecks) {
+                                      logger.info('Incomplete checks (all):', JSON.stringify(issue.incompleteChecks, null, 2))
+                                    }
 
                                     // When this is a circuit-scoped issue, also dump the live circuit data
                                     if (issue.scope.type === 'circuit') {

@@ -20,7 +20,7 @@ export interface BaseDialogConfig {
   titleAside?: React.ReactNode
   message?: string
   type?: DialogType
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'wide'
   showCloseButton?: boolean
   onClose?: () => void
 }

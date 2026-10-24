@@ -137,6 +137,9 @@ export function refreshBranchDropTargetAfterInsert(
     : [...(target.branchEndpoints ?? []), lastAddedEndpointId]
   return {
     ...target,
+    // Creating a branch is a one-shot intent. Continue the expansion on the
+    // first switch's branch instead of creating another branch for each switch.
+    branchInsertIndex: undefined,
     branchEndpoints,
     insertAfterEndpointId: lastAddedEndpointId,
   }

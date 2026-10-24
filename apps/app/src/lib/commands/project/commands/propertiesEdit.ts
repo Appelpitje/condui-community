@@ -25,6 +25,7 @@ import {
   updateGroundTrunkPropertiesInProject,
 } from '@/lib/properties/electricalPropertyMutations'
 import { normalizePatch, patchChanges } from '@/lib/properties/propertyPatch'
+import { propertyPatchPreservesPanelSlots } from '@/lib/properties/propertyPanelSlots'
 import { getInstallationSupplyTransformer, getInstallationSupplyTransformers, isSupplyTransformer } from '@/lib/electrical/supplyTransformer'
 import { normalizeProtectionCapacityUpdates } from '@/lib/protectionDefaults'
 import { persistAutomaticPanelSlotsInProject } from '@/lib/panel/panelAutomaticSlots'
@@ -44,7 +45,7 @@ import {
 } from '@/lib/eendraad/projectElectricalDomain'
 import { updateCircuitInProject } from '@/lib/eendraad/circuitMutations'
 import { findTrunkDeviceInProject } from '@/lib/eendraad/findTrunkDeviceInProject'
-import { getAllSupplyTrunkDevices, getPanelSupplyTrunkDevices, queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
+import { getPanelSupplyTrunkDevices, queryAllSupplyTrunkDevices } from '@/lib/feedTopology'
 import { assignEndpointsToCircuitInProject } from '@/lib/eendraad/endpointMutations'
 import { deleteEndpointsFromProject } from '@/lib/eendraad/endpointDeletion'
 import {
@@ -79,6 +80,7 @@ import { isModularSocket } from '@/lib/socket/modularSocket'
 import { circuitModuleRef } from '@/lib/panel/circuitModuleMounting'
 import { listRemountableCircuitModules } from '@/lib/panel/circuitModuleMountingRules'
 import { isHvacDeviceSymbol } from '@/lib/symbols'
+import { canLinkControlDevice, collectControlLinkEntries } from '@/lib/controlLink/controlLink'
 import {
   circuitPatchSchema,
   circuitSectionRefSchema,
@@ -235,17 +237,18 @@ export type PropertiesEditOutcome = {
   changedEntities: Array<{ kind: string; id: string }>
 }
 
-// Drawing text and visibility cannot add modules or change their cabinet widths.
+// Text, nameplates and visibility cannot add modules or change their cabinet widths.
 // Keep all other property families on the existing slot-repair path.
-const drawingOnlyKeys = new Set([
-  'notes', 'labelNotes', 'panelLabel', 'symbolLabelDisplay', 'notesVisible', 'eendraadLetterVisible',
-])
-
-function isDrawingOnlyEdit(input: z.output<typeof propertiesEditInputSchema>): boolean {
+function preservesPanelSlots(input: z.output<typeof propertiesEditInputSchema>): boolean {
   return !input.installation && !input.actions?.length && !input.wireEdits?.length &&
     !input.seedInstallDateColors && !input.refreshAutomaticNaming && input.edits.every((edit) =>
-      ['protection', 'circuit', 'endpoint', 'trunkDevice'].includes(edit.kind) &&
-      Object.keys(edit.set).every((key) => drawingOnlyKeys.has(key))
+      isGeneralPropertyEdit(edit) || (
+        edit.kind === 'panel' && Object.keys(edit.set).every((key) =>
+          ['name', 'nameByLocale', 'location', 'symbolLabelDisplay'].includes(key))
+      ) || (
+        ['protection', 'circuit', 'endpoint', 'trunkDevice'].includes(edit.kind) &&
+        propertyPatchPreservesPanelSlots(edit.set)
+      )
     )
 }
 
@@ -340,10 +343,29 @@ function validateEntity(
         (set.domoticaChildProps as { parentEndpointId?: string | null } | null | undefined)
           ?.parentEndpointId ?? owner.endpoint.domoticaChildProps?.parentEndpointId
       const childParent = childParentId ? findEndpoint(project, childParentId)?.endpoint : undefined
+      const existingChild = owner.endpoint.domoticaChildProps
+      const nextChild = { ...existingChild, ...normalizePatch(
+        (existingChild ?? {}) as unknown as Record<string, unknown>,
+        (set.domoticaChildProps ?? {}) as Record<string, unknown>
+      ) }
+      const rowAnchor = existingChild && childParent?.domoticaProps &&
+        (existingChild.outputGroup === 'control'
+          ? childParent.domoticaProps.controlChildEndpointIds
+          : childParent.domoticaProps.endpointChildEndpointIds)?.[existingChild.outputIndex]
+      // Only the first device occupies the parent's row slot. Further physical devices
+      // on that row must be able to edit addressing without inventing a new parent link.
+      const keepsChainedRow = !!existingChild && !!rowAnchor &&
+        nextChild.parentEndpointId === existingChild.parentEndpointId &&
+        nextChild.outputGroup === existingChild.outputGroup &&
+        nextChild.outputIndex === existingChild.outputIndex &&
+        !!owner.circuit.branches?.some((branch) =>
+          branch.endpointIds.includes(rowAnchor) && branch.endpointIds.includes(owner.endpoint.id)
+        )
       const childLinkValid =
         !!childParent?.domoticaProps &&
         (childParent.domoticaProps.endpointChildEndpointIds?.includes(owner.endpoint.id) ||
-          childParent.domoticaProps.controlChildEndpointIds?.includes(owner.endpoint.id))
+          childParent.domoticaProps.controlChildEndpointIds?.includes(owner.endpoint.id) ||
+          keepsChainedRow)
       if (has('domoticaChildProps') && !childLinkValid) return false
       if (has('domoticaRowLabel') && !owner.endpoint.domoticaChildProps && !childLinkValid)
         return false
@@ -384,6 +406,35 @@ function validateEntity(
       Object.keys(set)
     )
   })
+}
+
+/** Check all requested endpoint links together, so a multi-edit cannot create a cycle
+ * that each individual edit would accept against the original project. */
+function validateControlLinkEdits(
+  project: ProjectV2,
+  edits: readonly z.output<typeof propertyEditSchema>[],
+): boolean {
+  const relevant = edits.filter((edit) => edit.kind === 'endpoint' &&
+    ['controlLink', 'symbol', 'domoticaChildProps'].some((key) => Object.hasOwn(edit.set, key)))
+  if (relevant.length === 0) return true
+  const panels = getEditableProjectElectricalPanels(project)
+  const projected = new Map(collectControlLinkEntries(panels).map(({ endpoint }) => [endpoint.id, endpoint]))
+  const targets = new Set<string>()
+  for (const edit of relevant) {
+    if (edit.kind !== 'endpoint') continue
+    for (const id of edit.ids) {
+      const endpoint = projected.get(id)
+      if (!endpoint) return false
+      const patch = normalizePatch(endpoint as unknown as Record<string, unknown>, edit.set as Record<string, unknown>)
+      projected.set(id, { ...endpoint, ...patch } as Endpoint)
+      targets.add(id)
+    }
+  }
+  for (const id of targets) {
+    const endpoint = projected.get(id)!
+    if (endpoint.controlLink && !canLinkControlDevice(panels, endpoint, endpoint.controlLink.deviceId, projected)) return false
+  }
+  return true
 }
 
 function nestedValuesValid(value: Record<string, unknown>, touched: string[]): boolean {
@@ -484,8 +535,14 @@ function applyEdit(
         edit.set as Record<string, unknown>
       )
       if (!patchChanges(owner.endpoint as unknown as Record<string, unknown>, patch)) continue
-      if (updateEndpointInProject(project, id, patch as Partial<Endpoint>).changed)
+      const previousRotations = new Map(owner.endpoint.placements.map((placement) => [placement.id, placement.rotationDeg]))
+      if (updateEndpointInProject(project, id, patch as Partial<Endpoint>).changed) {
         changed.add(`endpoint:${id}`)
+        for (const placement of owner.endpoint.placements) {
+          if (previousRotations.get(placement.id) !== placement.rotationDeg)
+            changed.add(`placement:${placement.id}`)
+        }
+      }
     }
     return
   }
@@ -501,7 +558,7 @@ function applyEdit(
     )
     if (!patchChanges(device as unknown as Record<string, unknown>, patch)) continue
     let didChange = false
-    if (getAllSupplyTrunkDevices(project).some((candidate) => candidate.id === id)) {
+    if (queryAllSupplyTrunkDevices(project).some((candidate) => candidate.id === id)) {
       didChange = updateSupplyTrunkDeviceInProject(
         project,
         id,
@@ -732,7 +789,7 @@ function applyAction(
       }
       const device = findTrunkDevice(project, entityId)
       if (!device) continue
-      if (getAllSupplyTrunkDevices(project).some((candidate) => candidate.id === entityId)) {
+      if (queryAllSupplyTrunkDevices(project).some((candidate) => candidate.id === entityId)) {
         updateSupplyTrunkDeviceInProject(project, entityId, patch)
       } else {
         Object.assign(device, patch)
@@ -805,6 +862,9 @@ export const propertiesEdit = defineProjectCommand({
         code: 'duplicate_target',
         message: 'A property target may only appear once',
       }
+    }
+    if (!validateControlLinkEdits(project, input.edits)) {
+      return { ok: false, code: 'invalid_control_link', message: 'Control links require an eligible device and cannot form a cycle' }
     }
     for (const edit of input.edits) {
       if (isGeneralPropertyEdit(edit)) {
@@ -1080,7 +1140,7 @@ export const propertiesEdit = defineProjectCommand({
       }
       collectChanged(getEditableProjectElectricalPanels(project))
     }
-    if ((changed.size || created.length || removed.length) && !isDrawingOnlyEdit(input)) {
+    if ((changed.size || created.length || removed.length) && !preservesPanelSlots(input)) {
       for (const panel of walkPanels(getEditableProjectElectricalPanels(project))) {
         if (persistAutomaticPanelSlotsInProject(project, panel.id)) changed.add(`panel:${panel.id}`)
       }

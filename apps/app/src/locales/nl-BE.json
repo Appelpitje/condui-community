@@ -279,6 +279,7 @@
     "zoom": "Zoomen"
   },
   "commandPalette": {
+    "addPanelAtDomoticaOutput": "Bord toevoegen op uitgang",
     "addSupplyTransformer": "Voedingstransformator toevoegen",
     "placeholder": "Opdrachten zoeken",
     "empty": "Geen opdrachten gevonden",
@@ -298,6 +299,7 @@
     "apply": "Toepassen",
     "unavailable": "Deze wijziging kan niet worden toegepast. Controleer de waarden of open de actie opnieuw.",
     "fields": {
+      "output": "Uitgang",
       "circuit": "Kring",
       "position": "Positie",
       "row": "Rij",
@@ -954,7 +956,8 @@
     "voltage_1x230": "1×230V",
     "lineToNeutral": "Fase-Nul (V)",
     "lineToLine": "Fase-Fase (V)",
-    "notes": "Notities"
+    "notes": "Notities",
+    "earthResistance": "Spreidingsweerstand"
   },
   "panels": {
     "title": "Borden",
@@ -971,9 +974,8 @@
     "secondaryPanel": "Bord {{number}}",
     "diagramLabels": "Schemabenamingen",
     "panelNumbering": "Bordnummering",
-    "panelNumberingHint": "Voegt B01, B02, … toe in volgorde vanaf het hoofdbord door de onderborden op het eendraadschema.",
+    "panelNumber": "Bordnummer",
     "panelNetTypeLabels": "Nettype op schema",
-    "panelNetTypeLabelsHint": "Voegt voeding, spanning en aardverbinding toe in de kop van het eendraadschema wanneer een aardverbindingssysteem is ingesteld.",
     "earthingSystemLabel": "Aardverbindingssysteem",
     "earthingSystemGridLabel": "Aardingssysteem (net)",
     "earthingSystemBackupLabel": "Aardingssysteem (backup)",
@@ -993,7 +995,9 @@
     "diagramNetWithEarthing": "Net: {{net}} – {{earthing}}",
     "diagramEarthingSystem": "Aardverbindingssysteem: {{earthing}}",
     "diagramEarthingSystemGrid": "Aardingssysteem (net): {{earthing}}",
-    "diagramEarthingSystemBackup": "Aardingssysteem (backup): {{earthing}}"
+    "diagramEarthingSystemBackup": "Aardingssysteem (backup): {{earthing}}",
+    "expectedShortCircuit": "Verwachte max. kortsluitstroom",
+    "diagramShortCircuit": "Ik max: {{ka}} kA"
   },
   "panel": {
     "deleteConfirmTitle": "Bord(en) verwijderen?",
@@ -1015,6 +1019,8 @@
     "poles": "Polen",
     "polesConfig": "Poolconfiguratie",
     "residualCurrentType": "Type differentieel",
+    "selective": "Selectief (S)",
+    "superImmunized": "Superimmunisatie (SI)",
     "breakingCapacity": "Kortsluitvermogen",
     "spdKind": "Symbool",
     "spdStandard": "Bliksembeveiliging",
@@ -1025,10 +1031,14 @@
     "poles_3P": "3P",
     "poles_3P_N": "3P+N",
     "poles_4P": "4P (3L+N)",
-    "residualType_AC": "AC (sinusvormig)",
-    "residualType_A": "A (pulserend DC)",
-    "residualType_F": "F (gemengde frequentie)",
-    "residualType_B": "B (glad DC)",
+    "residualType_AC": "AC (zonder elektronica)",
+    "residualTypeHelp_AC": "Alleen sinusvormige wisselstroom. Controleer of type AC is toegestaan voor deze installatie.",
+    "residualType_A": "A (huishoudelijke kringen)",
+    "residualTypeHelp_A": "Wisselstroom en pulserende gelijkstroom. Gebruikelijk voor huishoudelijke kringen.",
+    "residualType_F": "F (toestellen met toerentalregeling)",
+    "residualTypeHelp_F": "Ook gemengde frequenties, bijvoorbeeld bij eenfasige motoraandrijvingen. Volg de toestelvoorschriften.",
+    "residualType_B": "B (bepaalde laadpalen / PV)",
+    "residualTypeHelp_B": "Ook zuivere gelijkstroom. Niet elke laadpaal of PV-omvormer vereist type B; controleer de toestelvoorschriften en interne DC-lekbeveiliging.",
     "description": "Beschrijving",
     "type_MCB": "Automaat",
     "type_RCD": "Differentieelschakelaar",
@@ -1222,6 +1232,21 @@
       "field": "Ter plaatse"
     },
     "controlLink": {
+      "busDevices": "Busapparaten",
+      "connection": "Verbinding",
+      "standard": "Standaard",
+      "bus": "Bus",
+      "busName": "Busnaam",
+      "busSystem": "Bussysteem",
+      "moduleSystem": "Modulesysteem",
+      "showBusLabel": "Buslabel tonen",
+      "serialNumber": "Serienummer",
+      "duplicateDeviceAddress": "Apparaatadres al gebruikt op deze bus",
+      "functions": "Functies",
+      "buttonAddresses": "Knopadressen",
+      "buttonNumber": "Knop {{number}}",
+      "previousButtons": "Vorige",
+      "nextButtons": "Volgende",
       "section": "Domotica",
       "controlSection": "Bediening",
       "operates": "Bedient",
@@ -1264,6 +1289,7 @@
         "niko_hc": "Niko Home Control",
         "dali": "DALI",
         "loxone": "Loxone",
+        "qbus": "Qbus",
         "other": "Ander"
       },
       "controlArea": "Sturing",
@@ -1289,7 +1315,9 @@
       "count": "Aantal panelen",
       "groupTitle": "Merk en model",
       "wattage": "Vermogen (Wp)",
-      "voltage": "Spanning (V)"
+      "voltage": "Spanning (V)",
+      "wattageProperty": "Vermogen (Pmax) (Wp)",
+      "voltageProperty": "Spanning (Umax) (V)"
     },
     "battery": {
       "voltage": "Spanning (V)",
@@ -1456,6 +1484,8 @@
     "labelSourceNotes": "Notities",
     "labelSourceExtra": "Extra",
     "labelSourceTechnical": "Technisch",
+    "labelSourceFeeds": "Voedt",
+    "labelSourceMain": "Hoofd",
     "labelCellPlaceholder": "Label",
     "notesCellPlaceholder": "Notities",
     "extraCellPlaceholder": "Labelnotities toevoegen",
@@ -1515,9 +1545,9 @@
       "customStatus": "Aangepast",
       "setCustomLabel": "Aangepast label instellen",
       "useAutomaticLabel": "Automatisch label gebruiken",
-      "customLabelNonStandardWarning": "Dit aangepaste label valt buiten de reeks A, B, C…",
+      "customLabelNonStandardWarning": "Dit aangepaste label valt buiten de automatische reeks.",
       "customLabelDuplicateWarning": "Dit label wordt ook door een andere kring op dit bord gebruikt.",
-      "customLabelBothWarnings": "Dit aangepaste label valt buiten de reeks A, B, C… en wordt ook door een andere kring op dit bord gebruikt.",
+      "customLabelBothWarnings": "Dit aangepaste label valt buiten de automatische reeks en wordt ook door een andere kring op dit bord gebruikt.",
       "resetAllLabels": "Alle labels resetten",
       "resetAllTooltip": "Verwijder alle aangepaste labels en gebruik opnieuw automatische labels voor alle kringen.",
       "resetAllConfirmTitle": "Alle aangepaste labels resetten?",
@@ -1525,7 +1555,59 @@
       "resetAllConfirm": "Labels resetten",
       "confirmOverwriteTitle": "Letters vervangen?",
       "confirmOverwriteMessage": "Automatische benaming vervangt de huidige letters door A, B, C… volgens de rijen op elk bord. Doorgaan?",
-      "confirmOverwriteConfirm": "Doorgaan"
+      "confirmOverwriteConfirm": "Doorgaan",
+      "scheme": {
+        "searchAliases": "labelstijl nummering kringletters bordnummers benaming",
+        "dialogTitle": "Automatische labels",
+        "style": "Stijl",
+        "conduiStyles": "Condui-stijlen",
+        "myStyles": "Mijn stijlen",
+        "customStyle": "Aangepast (niet bewaard)",
+        "styleClassic": "Klassiek",
+        "stylePanelLetterLetter": "Bordletter + letter",
+        "styleNumbers": "Nummers",
+        "stylePanelLetterNumber": "Bordletter + nummer",
+        "stylePanelDotCircuit": "Bord.kring",
+        "saveStyle": "Bewaar als mijn stijl",
+        "updateStyle": "“{{name}}” bijwerken",
+        "deleteStyle": "Stijl verwijderen",
+        "styleName": "Naam van de stijl",
+        "separator": "Scheidingsteken",
+        "prefix": "Voorvoegsel",
+        "subPanels": "Onderborden",
+        "ownNumber": "Eigen nummer",
+        "underParent": "Onder hoofdbord",
+        "circuits": "Kringen",
+        "sequence": "Reeks",
+        "panelInLabel": "Bord in label",
+        "panelPartNone": "Geen",
+        "panelPartNumber": "Nummer",
+        "panelPartFull": "Volledig",
+        "joined": "Aaneen",
+        "separated": "Gescheiden",
+        "numbersSeparated": "Twee nummers worden altijd gescheiden.",
+        "lettersRunTogether": "Vanaf 26 kringen zijn bordletter en kringletter niet meer uit elkaar te houden.",
+        "branches": "Aftakkingen",
+        "changeCount_one": "{{count}} label wijzigt",
+        "changeCount_few": "{{count}} labels wijzigen",
+        "changeCount_many": "{{count}} labels wijzigen",
+        "changeCount_other": "{{count}} labels wijzigen",
+        "apply": "Toepassen",
+        "customize": "Aanpassen…",
+        "startsAt": "Begint bij",
+        "betweenPanelAndCircuit": "Tussen bord en kring",
+        "betweenCircuitAndBranch": "Tussen kring en aftakking",
+        "separatorHelp": "Komt tussen de delen van een label waar die gescheiden zijn, zoals in A1.1.",
+        "subPanelsHelp": "Eigen nummer telt gewoon verder; onder hoofdbord nummert een onderbord na het bord dat het voedt.",
+        "panelInLabelHelp": "Welk deel van het bordnummer vooraan elk kringlabel staat: niets, alleen het nummer of het volledige nummer met voorvoegsel.",
+        "numberingHelp": "Nummert borden in huishoudelijke en niet-huishoudelijke installaties.",
+        "prefixHelp": "Letters voor elk bordnummer, zoals B in B1.",
+        "panelSequenceHelp": "Gebruik cijfers, cijfers met een voorloopnul of letters voor borden.",
+        "startHelp": "Het eerste bordnummer. Letterreeksen beginnen bij A.",
+        "circuitSequenceHelp": "Gebruik hoofdletters, kleine letters of cijfers voor kringen.",
+        "betweenPanelAndCircuitHelp": "Voeg de bord- en kringcode samen of plaats het scheidingsteken ertussen.",
+        "betweenCircuitAndBranchHelp": "Voeg de kringcode en het aftakkingsnummer samen of plaats het scheidingsteken ertussen."
+      }
     }
   },
   "planImport": {
@@ -1664,6 +1746,7 @@
     "movePoint": "Muurpunt verplaatsen",
     "insertDoor": "Deur invoegen",
     "insertWindow": "Raam invoegen",
+    "curvedWallOpeningHint": "Je kunt geen deuren of ramen in gebogen muren plaatsen.",
     "drawStair": "Trap tekenen",
     "placeNote": "Notitie",
     "graphicElements": "Grafische elementen",
@@ -1811,6 +1894,11 @@
     "library": "Symbolenbibliotheek",
     "recent": "Recent",
     "favorites": "Favorieten",
+    "jump": {
+      "filterOnly": "Ctrl/Cmd+klik: alleen deze tonen",
+      "filterAdd": "Ctrl/Cmd+Shift+klik: aan filter toevoegen",
+      "clearFilter": "Alle categorieën tonen"
+    },
     "armed": {
       "placing": "Plaatsen: {{name}}",
       "stop": "Stoppen met plaatsen"
@@ -1826,6 +1914,7 @@
     "switch_2p_twoway": "Wisselschakelaar (2-polig)",
     "switch_dimmer": "Dimmer",
     "switch_1p_changeover": "Omschakelaar",
+    "switch_shutter": "Rolluikschakelaar",
     "switch_1p_pull": "Trekschakelaar",
     "contact": "Contact",
     "switch_impulse": "Impulsschakelaar",
@@ -1911,6 +2000,7 @@
       "switch_cross": "Kruisschakelaar",
       "switch_dimmer": "Dimmer",
       "switch_1p_changeover": "Omschakelaar",
+      "switch_shutter": "Rolluikschakelaar",
       "switch_1p_pull": "Trek schakelaar",
       "switch_impulse": "Impulsschakelaar",
       "motion_detector": "Bewegingsdetector",
@@ -2025,6 +2115,75 @@
     "endpoint": "Eindpunt"
   },
   "validation": {
+    "incompleteChecks": {
+      "message": "Niet alle controles konden worden uitgevoerd",
+      "details": "Sommige controles missen gegevens of ondersteunen deze installatie niet.",
+      "showChecks": "Onvolledige controles ({{total}})",
+      "affected": "Betrokken: {{total}}",
+      "missing": "Ontbreekt: {{information}}",
+      "unavailable": "Niet beschikbaar: {{information}}",
+      "unknown": "Controlegegevens ontbreken",
+      "checks": {
+        "supplyRcdCircuitCount": "Kringen per differentieel",
+        "cableHasCrossSection": "Kabeldoorsnede",
+        "breakerSizeMatchesCrossSection": "Automaat en kabeldoorsnede",
+        "minimumCrossSection": "Minimale doorsnede",
+        "dcCrossSectionHeuristic": "DC-kabeldoorsnede",
+        "protectionPhaseCompatibility": "Polen en voedingsfasen",
+        "earthResistanceWithinLimits": "Aardingsweerstand",
+        "nonHouseholdEarthResistanceEntered": "Aardingsgegevens",
+        "circuitHasRcdProtection": "Differentieelbeveiliging",
+        "nonHouseholdTtIndirectContact": "TT-beveiliging bij onrechtstreekse aanraking",
+        "rcdHasTooManyCircuits": "Kringen per differentieel",
+        "circuitHasTooManyEndpoints": "Punten per kring",
+        "circuitWithinMaximumProtectedLength": "Maximale beveiligde kabellengte",
+        "circuitShortCircuitProtectionVerifiable": "Kortsluitbeveiliging",
+        "nonHouseholdBreakingCapacity": "Onderbrekingsvermogen",
+        "nonHouseholdBoardShortCircuitStated": "Kortsluitstroom van het bord",
+        "householdSocketProtection": "Beveiliging stopcontactenkring"
+      },
+      "facts": {
+        "cable-path-conductor-segments": "Kabeltraject / geleidersegmenten",
+        "cable-installation-method": "Plaatsingswijze van de kabel",
+        "cable-cross-section": "Kabeldoorsnede",
+        "design-current-and-admissible-current-iz-for-the-installation-method": "Ontwerpstroom en toelaatbare stroom Iz",
+        "upstream-protection-rating": "Nominale stroom van de voorbeveiliging",
+        "validated-ampacity-for-this-cross-section-and-installation-method": "Ondersteunde stroombelastbaarheid voor deze doorsnede en plaatsingswijze",
+        "design-current": "Ontwerpstroom",
+        "dc-cable-cross-section": "DC-kabeldoorsnede",
+        "validated-dc-ampacity-for-this-cross-section": "Ondersteunde DC-stroombelastbaarheid voor deze doorsnede",
+        "dc-design-power-current": "DC-ontwerpvermogen of -stroom",
+        "dc-operating-voltage": "DC-bedrijfsspanning",
+        "dc-cable-installation-method": "Plaatsingswijze van de DC-kabel",
+        "earth-electrode-resistance": "Aardingsweerstand",
+        "upstream-rcd-rcbo-residual-current-sensitivity-ma": "Gevoeligheid van de bovenliggende differentieel (mA)",
+        "rcd-sensitivity-ma": "Differentieelgevoeligheid (mA)",
+        "rcd-sensitivity": "Differentieelgevoeligheid",
+        "upstream-main-rcd-and-its-sensitivity": "Bovenliggende hoofddifferentieel en gevoeligheid",
+        "panel-record": "Bordgegevens",
+        "circuit-record": "Kringgegevens",
+        "nominal-voltage-system": "Nominaal spanningsstelsel",
+        "supported-explicit-phase-system": "Ondersteund fasenstelsel",
+        "protection-pole-configuration-or-incoming-phase-assignment": "Polen van de beveiliging of inkomende fasen",
+        "upstream-protective-device": "Bovenliggende beveiliging",
+        "supported-protective-device-curve-model": "Ondersteunde uitschakelcurve",
+        "protective-device-current-rating": "Nominale stroom van de beveiliging",
+        "modeled-cable-path": "Kabeltraject",
+        "complete-route-length-connected-cable-anchors": "Volledige trajectlengte / verbonden kabelaansluitpunten",
+        "cable-edge-length": "Lengte van het kabelsegment",
+        "protective-device-trip-curve": "Uitschakelcurve van de beveiliging",
+        "conductor-material": "Geleidermateriaal",
+        "expected-maximum-short-circuit-current-at-the-board": "Verwachte kortsluitstroom van het bord",
+        "socket-circuit-overcurrent-protection-rating": "Nominale stroom van de stopcontactenkringbeveiliging"
+      },
+      "reasons": {
+        "unknown-primitive": "Controle niet beschikbaar",
+        "unknown-skip-condition-primitive": "Voorafgaande controle niet beschikbaar",
+        "no-rule-pack-loaded": "Geen validatieregels geladen",
+        "no-rule-pack-for-jurisdiction": "Geen regels voor dit rechtsgebied",
+        "prerequisite-could-not-be-evaluated": "Voorwaarde kon niet worden gecontroleerd"
+      }
+    },
     "title": "AREI Validatie",
     "disabledOutsideBelgium": "Validatie uitgeschakeld buiten België.",
     "belgianRulesOnly": "De app controleert momenteel alleen AREI-regels voor België.",
@@ -2123,8 +2282,8 @@
         "rcd-grouping": {
           "shortTitle": "Te veel stroombanen per differentieel",
           "message": "Te veel stroombanen onder één 30 mA differentieel",
-          "details": "Een 30 mA differentieel mag maximaal 8 stroombanen beschermen (stroombanen met differentieelautomaat-bescherming tellen niet mee) om ongewenst uitschakelen te beperken en lekstroomophoping te beperken.",
-          "remediation": "Verminder het aantal stroombanen onder deze differentieel of splits in meerdere differentiëlen. Stroombanen beschermd door een differentieelautomaat tellen niet mee."
+          "details": "Een huishoudelijke differentieel van maximaal 30 mA stroomafwaarts van de hoofddifferentieel mag maximaal 8 eindstroombanen beschermen, ook met een eigen differentieelautomaat of in een onderliggend bord. De hoofddifferentieel zelf valt buiten deze limiet.",
+          "remediation": "Verdeel de eindstroombanen over meerdere differentiëlen stroomafwaarts, met maximaal acht per differentieel. Tel stroombanen met een eigen differentieelautomaat mee."
         },
         "rcd-selectivity": {
           "shortTitle": "Differentieel-selectiviteit fout",
@@ -2284,6 +2443,48 @@
           "message": "Een beveiliging of verbruiker op de back-upvoeding heeft geen label",
           "details": "Onderdelen op de back-upvoeding staan buiten de hoofdbusbalk en krijgen geen automatische naam.",
           "remediation": "Geef elke beveiliging en verbruiker op de back-uptak van de omvormer een duidelijk handmatig label."
+        },
+        "earth-resistance": {
+          "shortTitle": "Spreidingsweerstand te hoog",
+          "message": "De spreidingsweerstand overschrijdt de AREI-grens",
+          "details": "Huishoudelijke installaties vragen minder dan 100 Ω, en boven 30 Ω twee differentieelschakelaars van 30 mA met elk hoogstens 16 contactdozen. Niet-huishoudelijke TT-installaties laten hoogstens 250 Ω toe, of 500 Ω in droge ruimten met niet-geleidende vloeren en wanden.",
+          "remediation": "Verbeter de aardverbinding of voeg differentieelschakelaars toe zoals beschreven."
+        },
+        "nonhousehold-earth-resistance-entered": {
+          "shortTitle": "Spreidingsweerstand ontbreekt",
+          "message": "De spreidingsweerstand is niet ingevuld",
+          "details": "De spreidingsweerstand is nodig om de bescherming bij onrechtstreekse aanraking in een niet-huishoudelijke TT-installatie te controleren.",
+          "remediation": "Selecteer het aardingssymbool en vul de spreidingsweerstand in."
+        },
+        "nonhousehold-tt-indirect-contact": {
+          "shortTitle": "TT-stroombaan niet beschermd",
+          "message": "Stroombaan niet beschermd bij onrechtstreekse aanraking",
+          "details": "In een TT-net vraagt automatische onderbreking een differentieelschakelaar waarvan de gevoeligheid voldoet aan IΔn × RE ≤ UL (50 V in droge omstandigheden).",
+          "remediation": "Voeg een differentieelschakelaar of differentieelautomaat met geschikte gevoeligheid toe, of gebruik klasse II-materieel, ZLVS of veiligheidsscheiding."
+        },
+        "nonhousehold-board-short-circuit-current": {
+          "shortTitle": "Kortsluitstroom ontbreekt",
+          "message": "Bord zonder verwachte kortsluitstroom",
+          "details": "Niet-huishoudelijke schema's en bordmarkeringen vermelden de verwachte maximale kortsluitstroom wanneer die hoger is dan 3000 A.",
+          "remediation": "Open de bordeigenschappen en vul de verwachte maximale kortsluitstroom in."
+        },
+        "nonhousehold-breaking-capacity": {
+          "shortTitle": "Onderbrekingsvermogen te laag",
+          "message": "Onderbrekingsvermogen lager dan de verwachte kortsluitstroom",
+          "details": "Elke overstroombeveiliging heeft minstens een onderbrekingsvermogen gelijk aan de verwachte kortsluitstroom op de plaats van installatie nodig.",
+          "remediation": "Kies toestellen met een hoger onderbrekingsvermogen, of bevestig filiatie met de tabellen van de fabrikant."
+        },
+        "nonhousehold-breaking-capacity-shown": {
+          "shortTitle": "Onderbrekingsvermogen ontbreekt",
+          "message": "Onderbrekingsvermogen niet ingevuld",
+          "details": "Niet-huishoudelijke stroombaanschema's vermelden het onderbrekingsvermogen van elke beschermingsinrichting.",
+          "remediation": "Selecteer elk vermeld toestel en kies het onderbrekingsvermogen."
+        },
+        "nonhousehold-supply-transformer": {
+          "shortTitle": "Transformatorgegevens ontbreken",
+          "message": "Gegevens van de voedingstransformator onvolledig",
+          "details": "Niet-huishoudelijke schema's vermelden de kenmerken van de bronnen, waaronder het schijnbaar vermogen en de kortsluitspanning van een voedingstransformator.",
+          "remediation": "Selecteer de voedingstransformator en vul het nominaal vermogen en de kortsluitspanning in."
         }
       }
     },
@@ -2310,6 +2511,48 @@
       "branchMultiplierEndpointsSplit": "Stroombaan {{circuitCode}}: aftakking \"{{branchLabel}}\" heeft {{absorbCount}} extra vermenigvuldigingssymbool(len) als aparte eindpunten; horen één eindpunt met meerdere plaatsingen te zijn. Gebruik Repareren in de weesinspectie."
     },
     "primitives": {
+      "feedbackSafety": {
+        "rcdOverload": {
+          "message": "Nominale stroom differentieel is te laag",
+          "details": "De gemarkeerde differentieelschakelaar kan door de aangesloten bronnen meer dan zijn nominale stroom voeren. Controleer zijn nominale stroom en de overstroombeveiliging op dat pad. Een gewone differentieelschakelaar biedt geen bescherming tegen overbelasting."
+        },
+        "rcdType": {
+          "message": "Huishoudelijke differentieel moet type A, F of B zijn",
+          "details": "Vervang het toestel van type AC door een geschikte differentieel van type A, F of B."
+        },
+        "breakingCapacity": {
+          "message": "Onderbrekingsvermogen ontbreekt",
+          "details": "Vul het bevestigde onderbrekingsvermogen van elke overstroombeveiliging in, ook op de voeding. Een onbekende waarde kan niet gecontroleerd worden."
+        },
+        "earthingSeparator": {
+          "message": "Aardingsonderbreker ontbreekt",
+          "details": "Voeg bij elke aardelektrode een aardingsonderbreker toe zodat de aardingsweerstand gemeten kan worden."
+        },
+        "socketSafety": {
+          "message": "Contactdoos mist aardcontact of kinderbescherming",
+          "details": "Gewone huishoudelijke contactdozen moeten een aardcontact en kinderbescherming hebben. Controleer een eventuele aantoonbare afwijking voor bestaande installaties."
+        },
+        "socketProtection": {
+          "message": "Beveiliging van gewone contactdoos is te zwaar",
+          "details": "Gebruik voor gewone huishoudelijke contactdozen een automaat van maximaal 20 A of een smeltveiligheid van maximaal 16 A. Een dikkere kabel laat op zichzelf geen zwaardere beveiliging toe."
+        },
+        "placement": {
+          "message": "Plaatsingswijze van de leiding ontbreekt",
+          "details": "Vul het leidingtraject of de plaatsingswijze in om het schema te vervolledigen en de kabeldoorsnede te controleren."
+        },
+        "fireClass": {
+          "message": "Brandklasse van de kabel ontbreekt",
+          "details": "Vul de bevestigde brandklasse van de kabel in. De geschiktheid hangt af van het gebouw en de plaatsing; een onbekende klasse is ontbrekende informatie."
+        },
+        "evCoordination": {
+          "message": "Controleer DC-coördinatie van de differentieel vóór laadpunten",
+          "details": "Meerdere laadpunten met 6 mA DC-detectie, of een differentieel van type B stroomafwaarts, kunnen een differentieel van type A stroomopwaarts aan te veel DC blootstellen. Gebruik stroomopwaarts type B of controleer de toegelaten combinatie en het aantal laadpunten bij de fabrikant."
+        },
+        "rcdCircuitCount": {
+          "message": "Differentieel op de voeding beveiligt meer dan acht eindstroombanen",
+          "details": "Een huishoudelijke differentieel van maximaal 30 mA stroomafwaarts van de hoofddifferentieel mag maximaal 8 eindstroombanen beschermen, ook met een eigen differentieelautomaat of in een onderliggend bord. De hoofddifferentieel zelf valt buiten deze limiet."
+        }
+      },
       "supplyModePaths": {
         "message": "Geen geldig net-/backuppad voor {{phases}}",
         "details": "De getekende topologie bevat geen volledig en gecoördineerd net- en backuppad voor {{phases}}.",
@@ -2325,6 +2568,10 @@
         "details": "Dubbele beveiligingsnamen op hetzelfde bord (hoofdbus, secundaire bus of voeding) maken stroombanen moeilijk herkenbaar. Hernoem één beveiliging of schakel automatische naamgeving in."
       },
       "controlLinkIntegrity": {
+        "duplicateBusDeviceAddress": {
+          "message": "Apparaatadres {{address}} is al gebruikt op deze bus",
+          "details": "Geef elk apparaat op deze bus een uniek adres."
+        },
         "dangling": {
           "message": "{{endpoint}} wordt bediend door een toestel dat niet meer bestaat",
           "details": "Kies een ander toestel bij Bediend door, of wis de link."
@@ -2501,7 +2748,7 @@
       },
       "rcdHasTooManyCircuits": {
         "message": "Differentieel heeft te veel stroombanen ({{circuitCount}} > {{threshold}})",
-        "details": "Stroombanen onder één 30 mA differentieel moeten een maximum ({{threshold}}) respecteren om ongewenst uitschakelen te beperken. Stroombanen met differentieelautomaat-bescherming zijn uitgesloten."
+        "details": "Een huishoudelijke differentieel van maximaal 30 mA stroomafwaarts van de hoofddifferentieel mag maximaal {{threshold}} eindstroombanen beschermen, ook met een eigen differentieelautomaat of in een onderliggend bord. De hoofddifferentieel zelf valt buiten deze limiet."
       },
       "rcdSelectivity": {
         "message": "Differentieel-selectiviteit: stroomopwaarts differentieel moet minder gevoelig zijn dan stroomafwaarts (bv. 300 mA hoofd, 30 mA sub)",
@@ -2589,6 +2836,58 @@
       "fixedApplianceDedicatedCircuitHint": {
         "message": "Vast toestel(len) {{applianceLabels}} op stroombaan {{circuitCode}} delen de stroombaan met andere verbruikers",
         "details": "Vaste toestellen worden vaak op een eigen stroombaan geplaatst zodat kabeldoorsnede en beveiliging afgestemd zijn op het toestel en toekomstige vervangingen. Overweeg om deze toestellen op een eigen stroombaan te plaatsen zonder bijkomende stopcontacten, verlichting of andere verbruikers."
+      },
+      "earthResistanceWithinLimits": {
+        "nonHouseholdDryOnly": {
+          "message": "Spreidingsweerstand {{ohm}} Ω is enkel toegelaten in droge, niet-geleidende ruimten"
+        },
+        "nonHouseholdTooHigh": {
+          "message": "Spreidingsweerstand {{ohm}} Ω is hoger dan 500 Ω"
+        },
+        "nonHousehold": {
+          "details": "Met differentieelbescherming in een niet-huishoudelijke installatie mag de spreidingsweerstand niet hoger zijn dan 500 Ω in droge ruimten met niet-geleidende vloeren en wanden (AD1, BB1, BC1) en 250 Ω in andere ruimten."
+        },
+        "householdTooHigh": {
+          "message": "Spreidingsweerstand {{ohm}} Ω is niet lager dan 100 Ω",
+          "details": "De aardverbinding van een huishoudelijke installatie heeft een spreidingsweerstand lager dan 100 Ω."
+        },
+        "householdSplitRcd": {
+          "message": "Spreidingsweerstand {{ohm}} Ω vraagt minstens twee differentieelschakelaars van 30 mA",
+          "details": "Boven 30 Ω heeft een huishoudelijke installatie minstens twee differentieelschakelaars met grote gevoeligheid (30 mA) nodig, elk met hoogstens 16 contactdozen of gelijkgestelde vaste toestellen."
+        },
+        "householdOutlets": {
+          "message": "Meer dan 16 contactdozen achter: {{labels}}"
+        }
+      },
+      "nonHouseholdEarthResistanceEntered": {
+        "message": "De spreidingsweerstand is niet ingevuld",
+        "details": "In een niet-huishoudelijke TT-installatie bepaalt de spreidingsweerstand welke gevoeligheid van de differentieelschakelaar beschermt bij onrechtstreekse aanraking (IΔn × RE ≤ UL)."
+      },
+      "nonHouseholdTtIndirectContact": {
+        "missing": {
+          "message": "Stroombaan {{circuitCode}} heeft geen differentieelbescherming in een TT-net",
+          "details": "In een TT-net onderbreken overstroombeveiligingen alleen een aardfout niet tijdig. Bescherm de stroombaan met een differentieelschakelaar of differentieelautomaat, of gebruik klasse II-materieel, ZLVS of veiligheidsscheiding."
+        },
+        "insensitive": {
+          "message": "Stroombaan {{circuitCode}}: differentieelschakelaar van {{sensitivityMa}} mA is niet gevoelig genoeg voor de spreidingsweerstand",
+          "details": "IΔn × RE mag niet hoger zijn dan 50 V. Gebruik bij {{ohm}} Ω een differentieelschakelaar van hoogstens {{maxSensitivityMa}} mA. In natte omstandigheden (BB2) is de grens 25 V."
+        }
+      },
+      "nonHouseholdBoardShortCircuitStated": {
+        "message": "Bord {{panelName}} heeft geen verwachte kortsluitstroom",
+        "details": "Niet-huishoudelijke schema's en bordmarkeringen vermelden de verwachte maximale kortsluitstroom wanneer die hoger is dan 3000 A. Ze is ook nodig om onderbrekingsvermogens te controleren."
+      },
+      "nonHouseholdBreakingCapacity": {
+        "message": "Onderbrekingsvermogen lager dan {{ka}} kA: {{labels}}",
+        "details": "De verwachte kortsluitstroom op dit bord is {{ka}} kA. Elke overstroombeveiliging heeft minstens dat onderbrekingsvermogen nodig, tenzij een stroomopwaarts toestel dit dekt via filiatie volgens de tabellen van de fabrikant."
+      },
+      "nonHouseholdBreakingCapacityShown": {
+        "message": "Onderbrekingsvermogen niet ingevuld: {{labels}}",
+        "details": "Niet-huishoudelijke stroombaanschema's vermelden het onderbrekingsvermogen van elke beschermingsinrichting."
+      },
+      "nonHouseholdSupplyTransformerDocumented": {
+        "message": "Vermogen of kortsluitspanning van de voedingstransformator ontbreekt",
+        "details": "Niet-huishoudelijke schema's vermelden de kenmerken van de bronnen, waaronder het schijnbaar vermogen en de impedantie van een voedingstransformator."
       }
     },
     "citations": {
@@ -2711,7 +3010,13 @@
     "export": "Exporteren",
     "errorTitle": "Export van labels mislukt",
     "errorMessage": "De label-export kon niet worden aangemaakt. Probeer opnieuw.",
-    "generatedDescription": "{{type}} voor {{items}}"
+    "generatedDescription": "{{type}} voor {{items}}",
+    "mainRoleSwitch": "Hoofdschakelaar",
+    "mainRoleRcd": "Hoofddifferentieel",
+    "mainRoleProtection": "Hoofdbeveiliging",
+    "boardLabels": "Bordlabels",
+    "boardLabel": "Bordlabel",
+    "boardFedFromCircuit": "Voeding vanaf {{source}}, kring {{circuit}}"
   },
   "panelRelationOverview": "Overzicht van paneelrelaties",
   "properties": {
@@ -2844,7 +3149,7 @@
     "categoryDomotica": "Domotica / Smarthome",
     "categoryStove": "Fornuisverdeler",
     "categoryPanels": "Borden",
-    "categoryWires": "Draden",
+    "categoryWires": "Kabels",
     "wireLengthTotal": "{{length}} totaal",
     "wireLengthEstimate": "Ruwe schatting op basis van het grondplan: {{length}}",
     "wireLengthEstimateShort": "schatting {{length}}",
@@ -2874,6 +3179,7 @@
     "csvDetails": "Details"
   },
   "wires": {
+    "wireTypeLabel": "Draadtype",
     "cableDefault": "Standaard",
     "makeCableDefault": "Maak standaard",
     "useCableDefault": "Gebruik standaard",
@@ -3557,6 +3863,31 @@
     },
     "bridgeThroughRail": "Aarding is al verbonden via de rail",
     "shapeOf": "Vorm"
+  },
+  "materialListExport": {
+    "cableMargin": "Kabelmarge (%)",
+    "invalidCableMargin": "Vul een geldig percentage van 0 of meer in.",
+    "skipSupplyPanel": "Materiaal in het netbord overslaan",
+    "title": "Materiaallijst exporteren",
+    "menu": "Meetstaat / materiaallijst",
+    "export": "Exporteren",
+    "searchAliases": "Excel CSV Robaws meetstaat hoeveelheden materialen",
+    "preset": "Voorinstelling",
+    "standard": "Standaard",
+    "format": "Bestandsformaat",
+    "categories": "Categorieën",
+    "description": "Omschrijving",
+    "quantity": "Aantal",
+    "unit": "Eenheid",
+    "piece": "stuk",
+    "estimated": "Geschatte lengte",
+    "partialLength": "Onvolledige lengte",
+    "includePlanEstimates": "Geschatte kabellengtes van het plan meenemen",
+    "roundCableLengths": "Kabellengtes naar boven afronden op hele meters",
+    "missingLengths": "Kabeltrajecten zonder lengte worden overgeslagen. Onvolledige totalen worden aangeduid.",
+    "robawsImport": "Kies Uploaden in een Robaws-offerte en koppel Omschrijving, Aantal en Eenheid. Vul prijzen in Robaws in.",
+    "empty": "Geen materialen geselecteerd.",
+    "error": "Het exportbestand kon niet worden gemaakt. Probeer het opnieuw."
   },
   "oneWireReference": {
     "title": "Gescande pagina",

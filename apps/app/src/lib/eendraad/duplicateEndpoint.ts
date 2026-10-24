@@ -26,7 +26,7 @@ function circuitFeedsSubPanel(project: ProjectWithOptionalV2Electrical, circuitI
   while (stack.length) {
     const panel = stack.pop()!
     for (const link of resolvePanelSupplyLinksForSourcePanel(project, panel)) {
-      if (link.feederCircuit?.id === circuitId) return true
+      if (link.feederCircuit?.id === circuitId && !link.sourcePanelEndpoint?.domoticaChildProps) return true
     }
     if (panel.subPanels?.length) {
       stack.push(...panel.subPanels)

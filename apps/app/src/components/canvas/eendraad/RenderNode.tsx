@@ -10,8 +10,10 @@ import { GroundSymbol } from './GroundSymbol'
 import { ProtectionSymbol } from './ProtectionSymbol'
 import { EndpointMetadataCallout, EndpointSymbol } from './EndpointSymbol'
 import { CircuitLabel } from './CircuitLabel'
+import { OneWireRenderProjectContext } from './oneWireRenderProject'
 import { PanelFrame } from './PanelFrame'
 import { PanelSymbol } from './PanelSymbol'
+import { getDomoticaRowLabelPlacement } from '@/lib/layout/domoticaRowLabelPlacement'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getPanelSymbolLabel } from '@/lib/panel/panelDiagramLabels'
@@ -212,6 +214,7 @@ const RenderNode = memo(function RenderNodeImpl({
   disablePositionIsland = false,
   disableViewportIsland = false,
 }: RenderNodeProps) {
+  const renderProjectOverride = useContext(OneWireRenderProjectContext)
   const detailScope = useContext(DiagramDetailContext)
   if (
     detailScope.localized && !detailScope.materialized && !disableViewportIsland &&
@@ -497,7 +500,12 @@ const RenderNode = memo(function RenderNodeImpl({
 
         if (subPanel) {
           // The fed main panel of a hosted stub feeder is not a sub-panel attachment.
-          const allowAttachmentDrag = !node.id.startsWith('feed-stub-feeder-panel-')
+          const allowAttachmentDrag = !node.id.startsWith('feed-stub-feeder-panel-') && !endpoint?.domoticaChildProps
+          const outputBranch = endpoint?.domoticaChildProps
+            ? panelLayout?.branches.find((branch) => branch.endpoints.some((candidate) => candidate.id === endpoint.id))
+            : undefined
+          const hasOutputCaption = !!(endpoint && outputBranch && panelLayout &&
+            getDomoticaRowLabelPlacement(panelLayout, outputBranch.endpoints, endpoint))
           const feederProtectionId = node.id.startsWith('subpanel-symbol-')
             ? node.id.slice('subpanel-symbol-'.length)
             : undefined
@@ -526,7 +534,7 @@ const RenderNode = memo(function RenderNodeImpl({
               ? Math.max(40, nextColumnX - labelStartX - 8)
               : Math.max(80, panelLayout!.frame.x + panelLayout!.frame.width - labelStartX - 12)
 
-          const latestProject = useProjectStore.getState().currentProject
+          const latestProject = renderProjectOverride?.project ?? useProjectStore.getState().currentProject
           const panelName =
             latestProject != null
               ? getPanelSymbolLabel(latestProject, subPanel, advancedPanelLabels)
@@ -539,9 +547,12 @@ const RenderNode = memo(function RenderNodeImpl({
                 x: node.bounds.x,
                 y:
                   node.bounds.y -
-                  (isHorizontalConverterBackup ? getEendraadPanelBodyCenterYOffset() : 0),
+                  (isHorizontalConverterBackup || endpoint?.domoticaChildProps
+                    ? getEendraadPanelBodyCenterYOffset()
+                    : 0),
               }}
               panelName={panelName}
+              showName={!hasOutputCaption}
               subPanelId={subPanel.id}
               circuitCount={circuitCount}
               symbolLabelDisplay={subPanel.symbolLabelDisplay}
@@ -765,6 +776,7 @@ const RenderNode = memo(function RenderNodeImpl({
             onTap={selectSupply}
           >
             <CircuitLabel
+              previewSection={isSupplyFeedLabel ? undefined : labelCircuit ? 'circuits' : 'branches'}
               x={node.bounds.x}
               y={node.bounds.y}
               label={
@@ -773,6 +785,7 @@ const RenderNode = memo(function RenderNodeImpl({
                   : node.visual.text
               }
               align={node.visual.align}
+              unwrappedWidth={node.visual.unwrappedWidth}
               custom={
                 labelProtection?.circuits?.some(
                   (circuit) => circuit.eendraadManualCodeLock === true

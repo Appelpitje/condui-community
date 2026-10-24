@@ -26,6 +26,8 @@ import type { FrameSlice } from '../slicing/eendraadSlicing'
 import { exportLog } from '../exportLogger'
 import { stripInteractiveOverlaysForExport } from '../interactiveOverlayExport'
 import { acquireCanvasGroupMaterialization } from '@/lib/canvas/groupMaterialization'
+import { shouldRasterizePdf } from '@/lib/editionPdfRenderingPolicy'
+import { queryOneWireNotes } from '@/lib/projectV2/annotations'
 
 const EXPORT_STRIP_LABEL_NAME = 'export-strip-label'
 
@@ -56,7 +58,7 @@ export function stripEendraadOverlayLabelsForExport(root: Konva.Container): void
  * @param slice Optional slice bounds (if provided, exports only that slice)
  * @param options Export options
  * @param eendraadSliceMeta When provided (for slice exports), fixed scale and main-bus Y for alignment
- * @param installDateSource Project and panel layout used to draw install dates when requested
+ * @param layoutSource Project and panel layout used for install dates and free notes
  * @returns Isolated export scene
  */
 export async function prepareEendraadScene(
@@ -65,7 +67,7 @@ export async function prepareEendraadScene(
   slice: FrameSlice | null,
   options: ExportOptions,
   eendraadSliceMeta?: EendraadSliceExportMeta,
-  installDateSource?: {
+  layoutSource?: {
     project: InstallDateOverlayProject
     panelLayout: BottomUpPanelLayout
     wireSegments?: readonly WireSegment[]
@@ -73,6 +75,7 @@ export async function prepareEendraadScene(
 ): Promise<ExportScene> {
   const sourceTheme = useSettingsStore.getState().theme.mode
   const targetTheme = options.theme
+  const isRasterExport = shouldRasterizePdf(options)
 
   // 1. Get stage from registry
   let stage = useCanvasRegistryStore.getState().registry.eendraad?.getStage()
@@ -158,16 +161,31 @@ export async function prepareEendraadScene(
   }
 
   return prepareIsolatedExportScene(clonedGroup, async (createStage) => {
+    // Free notes are siblings of the diagram groups on the live canvas. Include
+    // their rendered text in raster scenes; vector PDFs redraw them separately.
+    if (isRasterExport && layoutSource && layoutSource.panelLayout.frameRole !== 'supply') {
+      const notes = queryOneWireNotes(layoutSource.project).filter(
+        (note) =>
+          note.text.trim() && (!note.panelId || note.panelId === layoutSource.panelLayout.panel.id)
+      )
+      const noteNames = new Set(notes.map((note) => `note-${note.id}`))
+      if (noteNames.size > 0) {
+        canvasContentGroup
+          .find((node: Konva.Node) => noteNames.has(node.name()))
+          .forEach((node) => clonedGroup.add(node.clone()))
+      }
+    }
+
     const tempStage = createStage(stage.width(), stage.height())
     const tempLayer = new Konva.Layer()
     tempStage.add(tempLayer)
     clonedGroup.find('.install-date-overlay').forEach((node) => node.destroy())
-    if (options.includeInstallDates && installDateSource) {
+    if (options.includeInstallDates && layoutSource) {
       const installDates = createInstallDateExportNode(
-        installDateSource.project,
-        installDateSource.panelLayout,
+        layoutSource.project,
+        layoutSource.panelLayout,
         useUIStore.getState().eendraadDateMarkingVisibility.installDatesMonochrome,
-        installDateSource.wireSegments
+        layoutSource.wireSegments
       )
       if (installDates) clonedGroup.add(installDates)
     }
@@ -219,9 +237,9 @@ export async function prepareEendraadScene(
       space: 'scene',
     })
 
-    // Remove circuit/endpoint/notes labels that are wrapped in export-strip-label groups.
-    // These are redrawn in the PDF overlay pass; all other text remains in the SVG.
-    stripEendraadOverlayLabelsForExport(clonedGroup)
+    // Only vector PDFs redraw labels in a later overlay pass. Raster PDFs must
+    // keep every rendered label in the scene before it becomes a page image.
+    if (!isRasterExport) stripEendraadOverlayLabelsForExport(clonedGroup)
 
     const symbolExports = collectAndRemoveSymbolImagesForExport(clonedGroup)
 

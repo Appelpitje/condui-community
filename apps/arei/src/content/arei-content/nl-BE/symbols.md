@@ -105,6 +105,9 @@ Een dimmer regelt de lichtsterkte van een lichtpunt.
 ### [switch_1p_changeover]
 Een omschakelaar, ook dubbele aansteking, bedient twee kringen apart vanaf één plaats, bijvoorbeeld plafondlicht en spots in de living.
 
+### [switch_shutter]
+Een rolluikschakelaar bedient de op- en neergaande beweging van een rolluik of zonwering. Teken de aangedreven motor als afzonderlijk toestel.
+
 ### [switch_1p_pull]
 Een trekschakelaar bedien je met een koord, een oplossing die je vooral in oudere badkamers ziet.
 

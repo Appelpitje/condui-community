@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react'
-import { getConnectionDirection, getNextFreeChannel, canOperateControlLinks } from '@/lib/controlLink/controlLink'
+import { getConnectionDirection, getNextFreeChannel, canHaveControlLink, canLinkControlDevice, rebindControlLink } from '@/lib/controlLink/controlLink'
 import { findEndpointById } from '@/lib/eendraad/projectElectricalDomain'
 import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { useProjectStore } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
+import { updateEndpointProperties } from '@/handlers/properties/editProperties'
 
 /**
  * "Pick on canvas" for an operated endpoint: while armed, the next canvas click that selects
@@ -40,6 +41,7 @@ function findDevice(deviceId: string) {
 
 export function startControlDevicePick(endpointId: string) {
   cancelControlDevicePick()
+  if (!canHaveControlLink(findDevice(endpointId)?.endpoint)) return
   pickingFor = endpointId
   const unsubscribe = useUIStore.subscribe((state, previous) => {
     if (state.selection === previous.selection) return
@@ -48,15 +50,14 @@ export function startControlDevicePick(endpointId: string) {
     const device = deviceId ? findDevice(deviceId) : undefined
     const target = pickingFor
     cancelControlDevicePick()
-    if (!target || !deviceId || !device || !canOperateControlLinks(device.endpoint)) return
-    if (deviceId === target) return
-    const direction = getConnectionDirection(findDevice(target)?.endpoint ?? device.endpoint, 'linked')
-    useProjectStore.getState().updateEndpoint(target, {
-      controlLink: {
-        deviceId,
-        channel: getNextFreeChannel(device.panels, deviceId, target, direction) || undefined,
-      },
+    const consumer = target ? findDevice(target)?.endpoint : undefined
+    if (!target || !deviceId || !device || !consumer || !canLinkControlDevice(device.panels, consumer, deviceId)) return
+    const direction = getConnectionDirection(consumer, 'linked')
+    const result = updateEndpointProperties(target, {
+      controlLink: rebindControlLink(consumer, deviceId,
+        getNextFreeChannel(device.panels, deviceId, target, direction) || undefined),
     })
+    if (!result) return
     useUIStore.getState().setSelection({ type: 'endpoint', ids: [target] })
   })
   const onKeyDown = (event: KeyboardEvent) => {

@@ -130,7 +130,8 @@ function phaseAssignmentGroupKey(assignment: CircuitPhaseAssignment): string {
 
 function getPhaseCompatibilityReason(
   device: PhaseProtectionDevice,
-  assignment: CircuitPhaseAssignment
+  assignment: CircuitPhaseAssignment,
+  requireAllConductors = false,
 ): PhaseCompatibilityReason | undefined {
   const poles = poleCountFromDevice(device)
   const activeConductors = getActiveConductorCount(assignment)
@@ -141,7 +142,7 @@ function getPhaseCompatibilityReason(
   if (poles > activeConductors) return 'tooManyPoles'
   // A one-pole device on a phase-to-phase supply is the useful suspicious case.
   // Do not warn for common L+N arrangements where neutral is intentionally unswitched.
-  if (poles < activeConductors && !assignment.phases.includes('N')) return 'tooFewPoles'
+  if (poles < activeConductors && (requireAllConductors || !assignment.phases.includes('N'))) return 'tooFewPoles'
   return undefined
 }
 
@@ -172,13 +173,14 @@ function protectionPhaseCompatibility(context: CheckContext): Issue[] | CheckRes
   const addCandidate = (
     device: PhaseProtectionDevice,
     assignment: CircuitPhaseAssignment | undefined,
-    offenderKind: 'protection' | 'device'
+    offenderKind: 'protection' | 'device',
+    requireAllConductors = false,
   ) => {
     if (!assignment) {
       hasIncompleteEvidence = true
       return
     }
-    const reason = getPhaseCompatibilityReason(device, assignment)
+    const reason = getPhaseCompatibilityReason(device, assignment, requireAllConductors)
     if (poleCountFromDevice(device) == null || getActiveConductorCount(assignment) == null) {
       hasIncompleteEvidence = true
     }
@@ -220,11 +222,14 @@ function protectionPhaseCompatibility(context: CheckContext): Issue[] | CheckRes
   // Root-feed devices are ordered from supply to bus. Once the incoming protection
   // narrows the feed, later panel-side devices see that reduced phase set.
   const projection = getPanelFeedProjection(installation, panels, panel)
-  const rootDevices = projection?.rootFeed?.trunkDevices ?? []
-  let rootAssignment = projection?.rootFeed?.phaseAssignment ?? fullAssignment
-  for (const device of rootDevices) {
+  const rootDevices = projection?.devices ?? []
+  let rootAssignment = fullAssignment
+  for (const [index, device] of rootDevices.entries()) {
+    if (index === projection?.sharedDeviceCount) {
+      rootAssignment = projection.rootFeed?.phaseAssignment ?? rootAssignment
+    }
     if (trunkDeviceCountsAsProtection(device)) {
-      addCandidate(device, rootAssignment, 'device')
+      addCandidate(device, rootAssignment, 'device', true)
     }
     if (device.id === panelIncoming.lockedByProtectionId) {
       rootAssignment = panelIncoming.assignment

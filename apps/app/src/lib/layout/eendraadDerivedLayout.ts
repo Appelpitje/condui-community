@@ -41,6 +41,7 @@ const equivalentLayoutSourceByProject = new WeakMap<ProjectV2, ProjectV2>()
 const latestLayoutTreeByProjectId = new Map<string, LayoutTree>()
 const layoutTreesByProjectShape = new Map<string, Map<string, LayoutTree>>()
 const latestWiresByProjectId = new Map<string, WireSegment[]>()
+const latestLayoutByProjectId = new Map<string, BottomUpLayoutResult>()
 
 const MAX_REMEMBERED_PROJECTS = 10
 const MAX_REMEMBERED_LAYOUT_SHAPES = 8
@@ -96,6 +97,14 @@ function rememberLayoutTree(projectId: string, tree: LayoutTree): void {
 function equalDerivedValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true
   if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
+  if (Object.getPrototypeOf(left) !== Object.getPrototypeOf(right)) return false
+  if (left instanceof Map && right instanceof Map) {
+    return left.size === right.size && [...left].every(([key, value]) =>
+      right.has(key) && equalDerivedValue(value, right.get(key)))
+  }
+  if (left instanceof Set && right instanceof Set) {
+    return left.size === right.size && [...left].every((value) => right.has(value))
+  }
   if (Array.isArray(left) || Array.isArray(right)) {
     if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
     return left.every((value, index) => equalDerivedValue(value, right[index]))
@@ -280,15 +289,26 @@ export function getCachedEendraadLayout(
   const framesCache = getOrCreateWeakMap(overrideCache, overrides, () => new WeakMap())
   // Frames move circuit notes, so a frame edit must re-derive the layout.
   const variantCache = getOrCreateWeakMap(framesCache, frames, () => new Map())
-  const variantKey = getInfoBlockVariantKey(
+  const variantKey = `${getInfoBlockVariantKey(
     getInfoBlockColumns(project, { hasLogo: layoutOptions.infoBlockLogo })
-  )
+  )}${layoutOptions.compactSubPanelFeed ? ':compact-feed' : ''}`
   const cached = variantCache.get(variantKey)
   if (cached) return cached
 
   const layoutStartedAt = import.meta.env?.VITE_E2E ? performance.now() : 0
   const layout = calculateBottomUpLayout(project, new Map(overrides), layoutOptions)
   liftCircuitNotesClearOfFrames(layout, project, frames)
+  // A label edit may leave most boards untouched. Preserve their layout props so
+  // React/Konva can retain those drawings instead of updating every symbol.
+  const projectKey = projectCacheKey(project)
+  const previousPanels = new Map(
+    latestLayoutByProjectId.get(projectKey)?.panels.map((panel) => [panel.diagramId ?? panel.panel.id, panel])
+  )
+  layout.panels = layout.panels.map((panel) => {
+    const previous = previousPanels.get(panel.diagramId ?? panel.panel.id)
+    return previous && equalDerivedValue(panel, previous) ? previous : panel
+  })
+  rememberLatest(latestLayoutByProjectId, projectKey, layout)
   if (import.meta.env?.VITE_E2E) {
     performance.measure('eendra:layout-derivation', {
       start: layoutStartedAt,

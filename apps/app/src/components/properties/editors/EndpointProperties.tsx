@@ -1,7 +1,6 @@
 import { JunctionEditorOpenButton } from '@/components/junctionEditor/junctionEditorHostedFeatures'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TransformerNameplateFields } from '../shared/TransformerNameplateFields'
 import { Eye, EyeOff } from 'lucide-react'
 import { DebouncedTextInput, DebouncedTextarea } from '@/components/forms'
 import CustomDropdown, { type CustomDropdownOption } from '@/components/common/CustomDropdown'
@@ -66,7 +65,6 @@ import { useControlLinkNote } from '@/lib/controlLink/useControlLinkNote'
 import { canHaveControlLink } from '@/lib/controlLink/controlLink'
 import {
   ControlDeviceAddressingFields,
-  RelayOperatedContactsFields,
   ControlLinkOperatedByFields,
   DomoticaChildAddressFields,
 } from './ControlLinkFields'
@@ -75,6 +73,7 @@ import { DomoticaRowLabelField } from '../shared/DomoticaRowLabelField'
 import {
   findDomoticaRowRoot,
   getDomoticaOutputBaseLabel,
+  getDomoticaOutputSeparator,
   isDomoticaRowLabelVisible,
   withDomoticaRowLabelVisibility,
 } from '@/lib/eendraad/domoticaRowLabel'
@@ -345,7 +344,7 @@ export function EndpointProperties({
     const root = findDomoticaRowRoot(currentCircuit, endpoint)
     if (!parent || !root) return undefined
     // The module owns the branch number: only the part after `{base}.` is editable here.
-    const prefix = `${getDomoticaOutputBaseLabel(parent, currentCircuit.code)}.`
+    const prefix = `${getDomoticaOutputBaseLabel(parent, currentCircuit.code)}${getDomoticaOutputSeparator()}`
     const literal =
       root.domoticaRowLabel?.kind === 'literal' || !endpoint.label.startsWith(prefix)
     const editableText = literal ? endpoint.label : endpoint.label.slice(prefix.length)
@@ -615,12 +614,6 @@ export function EndpointProperties({
             {/* Transformer-specific overlays */}
             {symbol === 'transformer' && (
               <div className="space-y-2">
-                <TransformerNameplateFields
-                  value={endpoint.energyConversionProps ?? {}}
-                  onChange={(patch) => onUpdate(endpointId, {
-                    energyConversionProps: { ...endpoint.energyConversionProps, ...patch },
-                  })}
-                />
                 <div>
                   <label className={labelClass}>{t('endpoints.transformer.safetyType')}</label>
                   <div className="flex gap-2">
@@ -1528,8 +1521,8 @@ export function EndpointProperties({
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <label className={labelClass + ' mb-0'}>
-                {t('endpoints.solarPanel.wattage', 'Wattage (Wp)')}
+              <label className={labelClass + ' mb-0 min-w-0 whitespace-normal'}>
+                {t('endpoints.solarPanel.wattageProperty', 'Wattage (Pmax) (Wp)')}
               </label>
               <button
                 type="button"
@@ -1585,8 +1578,8 @@ export function EndpointProperties({
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <label className={labelClass + ' mb-0'}>
-                {t('endpoints.solarPanel.voltage', 'Voltage (V)')}
+              <label className={labelClass + ' mb-0 min-w-0 whitespace-normal'}>
+                {t('endpoints.solarPanel.voltageProperty', 'Voltage (Umax) (V)')}
               </label>
               <button
                 type="button"
@@ -1788,11 +1781,8 @@ export function EndpointProperties({
       {symbol === 'domotica' && !endpoint.domoticaChildProps && (
         <ControlDeviceAddressingFields endpointId={endpointId} endpoint={endpoint} onUpdate={onUpdate} />
       )}
-      {endpoint.domoticaChildProps && symbol !== 'domotica' && (
+      {endpoint.domoticaChildProps && (
         <DomoticaChildAddressFields endpointId={endpointId} endpoint={endpoint} onUpdate={onUpdate} />
-      )}
-      {symbol === 'relay' && !endpoint.domoticaChildProps && (
-        <RelayOperatedContactsFields endpointId={endpointId} />
       )}
       {/* Notes at bottom of endpoint props */}
       <div>

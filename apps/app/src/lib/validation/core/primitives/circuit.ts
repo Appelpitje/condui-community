@@ -26,6 +26,8 @@ import {
 import { isHouseholdInstallation } from '@/lib/installationProfile'
 import { selectProjectSupplyAssemblies } from '@/lib/projectV2/electrical'
 import { isHvacDeviceSymbol } from '@/lib/symbols'
+import { downstreamFinalCircuits, rcdGroupingQualification } from '../../upstreamProtection'
+import { hasLegacyRcdGroupingDate } from '../../rcdGroupingDate'
 
 // Push/impulse buttons are control-only devices. They commonly operate a
 // remote teleruptor or relay, so they may legitimately have no load on their
@@ -272,9 +274,12 @@ function stoveCircuitSizingHint(
   context: CheckContext,
   _params?: Record<string, unknown>
 ): CheckResult | Issue[] {
-  const { scope, query } = context
+  const { scope, query, project } = context
   if (scope.type !== 'circuit') {
     return { passed: true, coverage: { status: 'skipped', reason: 'rule-requires-circuit-scope' } }
+  }
+  if (!isHouseholdInstallation(projectInstallation(project))) {
+    return { passed: true, coverage: { status: 'skipped', reason: 'cooker-sizing-hint-is-household-only' } }
   }
 
   const circuit = query.getCircuitById(scope.id)
@@ -449,9 +454,13 @@ function fixedApplianceDedicatedCircuitHint(
   context: CheckContext,
   _params?: Record<string, unknown>
 ): CheckResult | Issue[] {
-  const { scope, query } = context
+  const { scope, query, project } = context
   if (scope.type !== 'circuit') {
     return { passed: true }
+  }
+  // AREI 5.2.1.2 requires dedicated appliance circuits only in household installations.
+  if (!isHouseholdInstallation(projectInstallation(project))) {
+    return { passed: true, coverage: { status: 'skipped', reason: 'dedicated-appliance-circuit-rule-is-household-only' } }
   }
 
   const circuit = query.getCircuitById(scope.id)
@@ -587,8 +596,8 @@ function fixedApplianceDedicatedCircuitHint(
 
 /**
  * Check if RCD has too many circuits.
- * For 30 mA RCDs: max 8 circuits; RCBO-protected circuits do not count toward the limit
- * (each RCBO provides its own 30 mA protection, so they are excluded from the count).
+ * For downstream 30 mA RCDs: max 8 final circuits, including RCBO circuits.
+ * FOD AREI FAQ pp. 7, 13 exempts the origin RCD itself.
  */
 function rcdHasTooManyCircuits(
   context: CheckContext,
@@ -606,17 +615,23 @@ function rcdHasTooManyCircuits(
   }
 
   // Only enforce max circuits for 30 mA RCDs (leakage accumulation limit)
-  const sensitivityMa = protection.sensitivityMa ?? 0
-  if (sensitivityMa > 30) {
+  const sensitivityMa = protection.sensitivityMa
+  if (sensitivityMa == null || !Number.isFinite(sensitivityMa) || sensitivityMa <= 0) {
+    return { passed: true, coverage: { status: 'missing-information', reason: 'rcd-sensitivity-not-entered', missingFacts: ['RCD sensitivity'] } }
+  }
+  if (sensitivityMa > 30 || hasLegacyRcdGroupingDate(context, protection)) {
     return { passed: true }
   }
 
-  const circuits = protection.circuits ?? []
-  // RCBO-protected circuits do not count toward the 8-circuit limit (AREI / European practice)
-  const countTowardLimit = circuits.filter((c: Circuit) => {
-    const circuitProtection = query.getProtectionForCircuit(c.id)
-    return circuitProtection?.type !== 'RCBO'
-  }).length
+  const circuits = downstreamFinalCircuits(context, protection.id)
+  if (circuits.length === 0) return { passed: true, coverage: { status: 'skipped', reason: 'rcd-has-no-final-circuits' } }
+  const qualification = rcdGroupingQualification(context, protection.id)
+  if (qualification !== 'downstream') {
+    return { passed: true, coverage: qualification === 'origin'
+      ? { status: 'skipped', reason: 'origin-rcd-is-outside-eight-final-circuit-limit' }
+      : { status: 'missing-information', reason: 'main-rcd-path-not-confirmed', missingFacts: ['upstream main RCD and its sensitivity'] } }
+  }
+  const countTowardLimit = circuits.length
 
   const threshold = (params?.threshold as number) || 8
 
@@ -640,7 +655,7 @@ function rcdHasTooManyCircuits(
     }),
     details: i18n.t('validation.primitives.rcdHasTooManyCircuits.details', {
       threshold,
-      defaultValue: `Circuits under one 30 mA RCD should respect a maximum count (${threshold}) to reduce nuisance tripping and limit leakage current accumulation. RCBO-protected circuits are excluded from this count.`,
+      defaultValue: `A downstream 30 mA RCD may protect at most ${threshold} final circuits, including circuits with an RCBO. The origin RCD itself is outside this limit.`,
     }),
   }
 }

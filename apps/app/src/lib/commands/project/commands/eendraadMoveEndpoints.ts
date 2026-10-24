@@ -24,6 +24,7 @@ import {
   findEndpointById,
 } from '@/lib/eendraad/projectElectricalDomain'
 import { isMainPanelDistributionEndpoint } from '@/lib/plan/panelDistributionEndpoint'
+import { isDomoticaPanelFeedEndpoint } from '@/lib/eendraad/panelSupplyLink'
 import { circuitContainsJunctionPanelIdentity, getJunctionIdentity } from '@/lib/junctionIdentity'
 import { getEditableProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { getSymbolById } from '@/lib/symbols'
@@ -160,6 +161,26 @@ export const eendraadMoveEndpoints = defineProjectCommand({
     const targetCircuit = target.circuitId
       ? circuitForProject(project, target.circuitId)
       : undefined
+    const expandedSelection = new Set(selected)
+    for (const endpointId of selected) {
+      const owner = sourceForEndpoint(project, endpointId)!
+      for (const childId of domoticaGroup(owner.circuit, endpointId)) expandedSelection.add(childId)
+    }
+    const outputFeeds = [...expandedSelection].flatMap((id) => {
+      const owner = sourceForEndpoint(project, id)
+      return owner && isDomoticaPanelFeedEndpoint(owner.endpoint) ? [owner] : []
+    })
+    if (outputFeeds.length && (!targetCircuit ||
+      outputFeeds.some((owner) => owner.circuit.id !== targetCircuit.id))) {
+      return { ok: false, code: 'output_feed', message: 'A domotica output feeding a panel cannot be moved to another circuit.' }
+    }
+    if (outputFeeds.length && source.endpoint.symbol !== 'domotica' &&
+      target.domoticaOutput?.group !== 'endpoint') {
+      return { ok: false, code: 'output_feed', message: 'A panel feed must stay on a domotica endpoint output.' }
+    }
+    if (outputFeeds.length && target.domoticaOutput?.group === 'control') {
+      return { ok: false, code: 'output_feed', message: 'A panel feed cannot be moved to a control output.' }
+    }
     if (targetCircuit?.code === 'PANEL') {
       return {
         ok: false,

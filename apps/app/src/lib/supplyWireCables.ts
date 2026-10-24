@@ -1,4 +1,5 @@
 import type { CableSpec, Installation, Panel, Point2, WireSegment } from '@/types/schema'
+import { createDefaultSupplyCable } from '@/lib/electrical/supplyCable'
 import {
   collectRootPanels,
   getPanelFeedProjection,
@@ -11,13 +12,6 @@ import {
 } from '@/lib/feedTopology'
 
 export type { SupplyWireRole } from '@/lib/feedTopology'
-
-const FALLBACK_SUPPLY_CABLE: CableSpec = {
-  kind: 'XVB',
-  conductors: 3,
-  sectionMm2: 6,
-  hasPE: true,
-}
 
 /** Match dashed separator X on the eendraad supply trunk (see EendraadCanvas.getSupplySeparatorForPanelLayout). */
 export function computeSupplySeparatorX(
@@ -46,7 +40,7 @@ export function getSupplyUpstreamCable(
   panel: Panel,
 ): CableSpec {
   const projection = getPanelFeedProjection(installation, panels, panel)
-  return projection?.sharedFeed.cable ?? installation.mainSupply.cable ?? FALLBACK_SUPPLY_CABLE
+  return projection?.sharedFeed.cable ?? installation.mainSupply.cable ?? createDefaultSupplyCable(installation.nominalVoltage.system)
 }
 
 /** Short segment at the dashed shared/root separator. */
@@ -76,7 +70,7 @@ export function getSupplyDownstreamCable(
     projection?.rootFeed?.cable ??
     projection?.cable ??
     installation.mainSupply.cable ??
-    FALLBACK_SUPPLY_CABLE
+    createDefaultSupplyCable(installation.nominalVoltage.system)
   )
 }
 

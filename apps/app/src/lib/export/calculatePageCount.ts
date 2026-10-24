@@ -11,6 +11,7 @@ import {
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
 import { buildPanelExportTargets, countElectricalPanels } from './exportPlan'
+import { getEendraadPackingTitle } from './eendraadPackingTitle'
 
 type PageCountProject = ProjectWithOptionalV2Electrical & ProjectWithOptionalV2Building
 
@@ -70,7 +71,11 @@ export function calculatePageCounts(
   // Calculate 1draad pages (sliced frames)
   if (options.includeEendraad === true) {
     if (layout) {
-      eendraad = estimateEendraadPageCount(layout.panels, options.eendraadPaperSize)
+      eendraad = estimateEendraadPageCount(
+        layout.panels,
+        options.eendraadPaperSize,
+        (panelLayout) => getEendraadPackingTitle(project, panelLayout.panel)
+      )
     } else {
       // No layout available - estimate based on number of panels
       const panelCount = countElectricalPanels(getProjectElectricalPanels(project))

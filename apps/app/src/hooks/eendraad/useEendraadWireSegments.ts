@@ -1,4 +1,5 @@
-import { useDeferredValue, useMemo } from 'react'
+import { useContext, useDeferredValue, useMemo } from 'react'
+import { EendraadWireSegmentsContext } from '@/contexts/EendraadWireSegmentsContext'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useLayoutTree } from './useLayoutTree'
 import type { WireSegment } from '@/types/schema'
@@ -11,14 +12,18 @@ import {
  * Hook to generate wire segments from the layout tree
  */
 export function useEendraadWireSegments(enabled = true): WireSegment[] {
+  const shared = useContext(EendraadWireSegmentsContext)
+  const derive = enabled && shared === null
   const currentProject = useProjectStore((state: ProjectState) =>
-    enabled && state.currentProject ? getEendraadRenderProjectRevision(state.currentProject) : null
+    derive && state.currentProject ? getEendraadRenderProjectRevision(state.currentProject) : null
   )
   const renderProject = useDeferredValue(currentProject)
-  const layoutTree = useLayoutTree(enabled)
+  const layoutTree = useLayoutTree(derive)
 
   return useMemo<WireSegment[]>(() => {
-    if (!enabled || !layoutTree || !renderProject) return []
+    if (!enabled) return []
+    if (shared) return shared
+    if (!layoutTree || !renderProject) return []
     return getCachedEendraadWireSegments(renderProject, layoutTree)
-  }, [enabled, layoutTree, renderProject])
+  }, [enabled, shared, layoutTree, renderProject])
 }

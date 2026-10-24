@@ -14,7 +14,6 @@ import i18n from '@/i18n'
 import { planFloorDrawingConsumesTabRef } from '@/lib/plan/planFloorDrawingKeyboardGate'
 import { planFloorDrawingUndoRef } from '@/lib/plan/planFloorDrawingUndo'
 import { isTextLikeFocusTarget } from '@/lib/ui/blurFocusStealingActiveElement'
-import { dispatchExtendPropertiesPanelFieldBlur } from '@/lib/ui/propertiesPanelFieldBlur'
 import { revealCanvas } from '@/lib/ui/revealCanvas'
 import { isStructuralCanvasEnabled } from '@/lib/structuralCanvas/availability'
 import { CommandPalette, COMMAND_PALETTE_DIALOG_ID } from '@/components/commands/CommandPalette'
@@ -27,6 +26,8 @@ import { fitView } from './fitView'
 import { toggleViewportPanelFocus, zoomVisibleCanvases } from './viewport'
 import { createProjectPaletteCommands } from './projectPaletteCommands'
 import { openFindPanel } from './findPanel'
+import { openMaterialListExport } from './exportMaterialList'
+import { openLabelSchemeDialog } from '@/components/canvas/eendraad/LabelSchemeSettings'
 
 const canEdit = (ctx: CommandContext) => ctx.capabilities.canEditProject
 
@@ -128,6 +129,13 @@ function openMoveToFloorDialog(): void {
 export function createEditorCommands(registry: CommandRegistry): CommandDefinition[] {
   return [
     {
+      id: 'ui.exportMaterialList',
+      labelKey: 'materialListExport.title',
+      searchKey: 'materialListExport.searchAliases',
+      isEnabled: () => useProjectStore.getState().currentProject != null,
+      run: (ctx) => openMaterialListExport(ctx.viewport?.getOwnerWindow().document),
+    },
+    {
       id: 'ui.findPanel',
       labelKey: 'findPanel.title',
       keyLabels: ['ctrlCmdF'],
@@ -174,6 +182,16 @@ export function createEditorCommands(registry: CommandRegistry): CommandDefiniti
           title: i18n.t('sitplanVisibility.colors'),
           content: createElement(SitplanVisibilityPanel),
         })
+      },
+    },
+    {
+      id: 'ui.eendraad.labelScheme',
+      labelKey: 'canvas.eendraadNaming.scheme.dialogTitle',
+      searchKey: 'canvas.eendraadNaming.scheme.searchAliases',
+      isEnabled: (ctx) => canEdit(ctx) && !!useProjectStore.getState().currentProject,
+      run: () => {
+        revealCanvas('eendraad')
+        openLabelSchemeDialog(i18n.t)
       },
     },
     {
@@ -277,7 +295,6 @@ export function createEditorCommands(registry: CommandRegistry): CommandDefiniti
         const target = ctx.event?.target
         if ((target as Element | null)?.nodeType === 1 && (target as Element).closest('button'))
           return false
-        dispatchExtendPropertiesPanelFieldBlur()
         toggleViewportPanelFocus(actionPanelIndex(ctx), ctx.viewport)
         return true
       },

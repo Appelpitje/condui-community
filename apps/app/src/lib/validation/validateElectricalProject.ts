@@ -72,15 +72,13 @@ async function runElectricalProjectValidation(
     options?.language ??
       (typeof document === 'undefined' ? 'nl-BE' : document.documentElement?.lang || 'nl-BE')
   )
-  const baseRun = includeCoverage
-    ? validationEngine.validateProjectWithCoverage(snapshot, { packs: [loadRulePack(beAreiBook1_2025)] })
-    : undefined
-  const baseIssues = baseRun?.issues ?? validationEngine.validateProject(snapshot, { packs: [loadRulePack(beAreiBook1_2025)] })
+  const baseRun = validationEngine.validateProjectWithCoverage(snapshot, { packs: [loadRulePack(beAreiBook1_2025)] })
   const junctionIssues = (options?.collectJunctionIssues ?? collectJunctionValidationIssuesForEdition)(
     snapshot,
     validationI18n.t.bind(validationI18n)
   )
-  const issues = [...baseIssues, ...junctionIssues]
+  // Preserve coverage for diagnostic callers without turning it into a catch-all notice.
+  const issues = [...baseRun.issues, ...junctionIssues]
   if (!includeCoverage || !baseRun) return { issues }
   const hasJunctionAssets = selectProjectJunctionAssets(snapshot).length > 0
   const coverageEntries: ValidationCoverageEntry[] = [

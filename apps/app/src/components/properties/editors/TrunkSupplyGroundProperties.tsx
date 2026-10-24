@@ -1,3 +1,4 @@
+import { isHouseholdInstallation } from '@/lib/installationProfile'
 import { useShallow } from 'zustand/react/shallow'
 import { BusbarPhaseOrderProperties } from './BusbarPhaseOrderProperties'
 import {
@@ -94,7 +95,7 @@ import {
 import { DEFAULT_PANEL_GRID_COLUMNS, DEFAULT_PANEL_GRID_ROWS } from '@/lib/panel/panelGridDefaults'
 import { getJunctionPanelGridView } from '@/lib/junctionPanel/grid'
 import { getInstallDateTargetInheritedYear } from '@/lib/installDatePropagation'
-import { InstallDateField } from '../shared/propertiesShared'
+import { InstallDateField, OptionalNumberField } from '../shared/propertiesShared'
 import {
   getSynergridFocusForCircuit,
   labelClass,
@@ -106,6 +107,8 @@ import { CertificationListingFields } from '../CertificationListingFields'
 import { NominalVoltageSystemPicker } from '../NominalVoltageSystemPicker'
 import { ConnectionCurrentField } from '../ConnectionCurrentField'
 import { TransformerNameplateFields } from '../shared/TransformerNameplateFields'
+import { getInstallationSupplyTransformer } from '@/lib/electrical/supplyTransformer'
+import { resolveInstallationProfile } from '@/lib/installationProfile'
 import {
   ProtectionDeviceElectricalFields,
   getProtectionTypeDropdownOptions,
@@ -208,6 +211,10 @@ export function TrunkDeviceProperties({
   const circuit = result?.circuit
   const isSupplyDevice = result?.isSupplyDevice
   const isSharedSupplyDevice = isSupplyDevice && result?.supplyFeedScope === 'shared'
+  const installation = currentProject ? getProjectElectricalInstallation(currentProject) : undefined
+  const showTransformerNameplate = !!installation && !!isSharedSupplyDevice &&
+    resolveInstallationProfile(installation) === 'non_household' &&
+    getInstallationSupplyTransformer(installation)?.id === deviceId
   const isGroundDevice = result?.isGroundDevice
   const isDetachedSupplyAssemblyDevice =
     !!isSupplyDevice &&
@@ -519,7 +526,7 @@ export function TrunkDeviceProperties({
       const visible = isSymbolLabelVisible(device.symbolLabelDisplay, key, true)
       return (
         <div className="flex items-center gap-2 mb-1">
-          <label className={labelClass + ' mb-0'}>{text}</label>
+          <label className={labelClass + ' mb-0 min-w-0 whitespace-normal'}>{text}</label>
           <button
             type="button"
             onClick={() => setDiagramVisibility(key, !visible)}
@@ -596,7 +603,7 @@ export function TrunkDeviceProperties({
         ) : (
           <div className="space-y-2">
             <div>
-              {diagramFieldLabel(t('endpoints.solarPanel.wattage', 'Wattage (Wp)'), 'solarPower')}
+              {diagramFieldLabel(t('endpoints.solarPanel.wattageProperty', 'Wattage (Pmax) (Wp)'), 'solarPower')}
               <input
                 type="number"
                 min={0}
@@ -610,7 +617,7 @@ export function TrunkDeviceProperties({
               />
             </div>
             <div>
-              {diagramFieldLabel(t('endpoints.solarPanel.voltage', 'Voltage (V)'), 'solarVoltage')}
+              {diagramFieldLabel(t('endpoints.solarPanel.voltageProperty', 'Voltage (Umax) (V)'), 'solarVoltage')}
               <input
                 type="number"
                 min={0}
@@ -1139,6 +1146,7 @@ export function TrunkDeviceProperties({
             value={junctionPanelGrid.rows ?? DEFAULT_PANEL_GRID_ROWS}
             min={1}
             max={32}
+            resetKey={device.id}
             onChange={(rows) => updateJunctionPanelGrid(device.id, { rows })}
           />
           <PanelGridDimensionInput
@@ -1146,6 +1154,7 @@ export function TrunkDeviceProperties({
             value={junctionPanelGrid.columns ?? DEFAULT_PANEL_GRID_COLUMNS}
             min={1}
             max={48}
+            resetKey={device.id}
             onChange={(columns) => updateJunctionPanelGrid(device.id, { columns })}
           />
           <button
@@ -1552,6 +1561,8 @@ export function TrunkDeviceProperties({
               curve={device.curve}
               sensitivityMa={device.sensitivityMa}
               residualCurrentType={device.residualCurrentType}
+              selective={device.selective}
+              superImmunized={device.superImmunized}
               breakingCapacityKa={device.breakingCapacityKa}
               breakingCapacityOption={device.breakingCapacityOption}
               surgeProtectionKind={device.surgeProtectionKind}
@@ -1718,11 +1729,13 @@ export function TrunkDeviceProperties({
           {/* Transformer-only overlays when used as trunk device */}
           {device.symbol === 'transformer' && (
             <div className="space-y-2">
-              <TransformerNameplateFields
-                value={conv}
-                readOnly={readOnly}
-                onChange={(conversionProps) => handleUpdate({ conversionProps })}
-              />
+              {showTransformerNameplate && (
+                <TransformerNameplateFields
+                  value={conv}
+                  readOnly={readOnly}
+                  onChange={(conversionProps) => handleUpdate({ conversionProps })}
+                />
+              )}
               <div>
                 <label className={labelClass}>
                   {t('endpoints.transformer.safetyType', 'Safety transformer type')}
@@ -2242,7 +2255,12 @@ export function GroundProperties() {
 
   return (
     <div className="space-y-4">
-      {/* Notes only */}
+      <OptionalNumberField
+        label={t('installation.earthResistance', 'Earth resistance')}
+        unit="Ω"
+        value={installation.earthResistanceOhm}
+        onChange={(earthResistanceOhm) => updateInstallation({ earthResistanceOhm })}
+      />
       <div>
         <label className={labelClass}>{t('properties.notes', 'Notes')}</label>
         <DebouncedTextarea
@@ -2300,6 +2318,7 @@ export function SupplyProperties({
     : panels.find((candidate) => candidate.isMain !== false)
   const panelNumberingEnabled = !!installation.panelNumberingEnabled
   const panelNetTypeLabelsEnabled = !!installation.panelNetTypeLabelsEnabled
+  const netTypeLabelsAvailable = !isHouseholdInstallation(installation)
   const hasBackupFeed =
     currentProject != null && panel != null && panelHasBackupOutput(currentProject, panel.id)
   const earthingValue =
@@ -2345,31 +2364,38 @@ export function SupplyProperties({
                 type="checkbox"
                 checked={panelNumberingEnabled}
                 disabled={readOnly}
-                onChange={(e) => updateInstallation({ panelNumberingEnabled: e.target.checked })}
+                onChange={(e) =>
+                  editProperties({
+                    installation: { panelNumberingEnabled: e.target.checked },
+                    refreshAutomaticNaming: true,
+                  })
+                }
               />
               {t('panels.panelNumbering', 'Panel numbering')}
             </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
-                type="checkbox"
-                checked={panelNetTypeLabelsEnabled}
-                disabled={readOnly}
-                onChange={(e) => {
-                  editProperties({
-                    installation: { panelNetTypeLabelsEnabled: e.target.checked },
-                    ...(e.target.checked && !earthingValue
-                      ? {
-                          edits: [
-                            { kind: 'panel', ids: [panel.id], set: { earthingSystem: 'TT' } },
-                          ],
-                        }
-                      : {}),
-                  })
-                }}
-              />
-              {t('panels.panelNetTypeLabels', 'Net type on diagram')}
-            </label>
-            {panelNetTypeLabelsEnabled ? (
+            {netTypeLabelsAvailable ? (
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={panelNetTypeLabelsEnabled}
+                  disabled={readOnly}
+                  onChange={(e) => {
+                    editProperties({
+                      installation: { panelNetTypeLabelsEnabled: e.target.checked },
+                      ...(e.target.checked && !earthingValue
+                        ? {
+                            edits: [
+                              { kind: 'panel', ids: [panel.id], set: { earthingSystem: 'TT' } },
+                            ],
+                          }
+                        : {}),
+                    })
+                  }}
+                />
+                {t('panels.panelNetTypeLabels', 'Net type on diagram')}
+              </label>
+            ) : null}
+            {netTypeLabelsAvailable && panelNetTypeLabelsEnabled ? (
               <div className="space-y-3">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -2564,6 +2590,7 @@ export function SupplyPanelProperties({
         value={supplyPanelRows}
         min={1}
         max={32}
+        resetKey={`${panelId}:supply`}
         onChange={(supplyPanelRows) => updatePanelGrid(panelId, { supplyPanelRows })}
       />
       <PanelGridDimensionInput
@@ -2571,6 +2598,7 @@ export function SupplyPanelProperties({
         value={supplyPanelColumns}
         min={1}
         max={48}
+        resetKey={`${panelId}:supply`}
         onChange={(supplyPanelColumns) => updatePanelGrid(panelId, { supplyPanelColumns })}
       />
     </div>

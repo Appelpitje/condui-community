@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useTouchPrimaryDevice } from '@/hooks/useTouchPrimaryDevice'
 
@@ -7,17 +7,66 @@ export function PanelGridDimensionInput({
   value,
   min,
   max,
+  resetKey,
   onChange,
 }: {
   label: string
   value: number
   min: number
   max: number
+  /** Identifies the board whose dimension is being edited. */
+  resetKey?: unknown
   onChange: (value: number) => void
 }) {
   const id = useId()
   const touchPrimary = useTouchPrimaryDevice()
   const clamp = (next: number) => Math.max(min, Math.min(max, next))
+  const [draft, setDraft] = useState(String(value))
+  const draftRef = useRef(draft)
+  const identityRef = useRef(resetKey)
+  const currentRef = useRef({ value, min, max, onChange })
+  currentRef.current = { value, min, max, onChange }
+
+  const setDraftValue = useCallback((next: string) => {
+    draftRef.current = next
+    setDraft(next)
+  }, [])
+
+  const commitDraft = useCallback(() => {
+    const raw = draftRef.current.trim()
+    const parsed = raw === '' ? Number.NaN : Number(raw)
+    if (!Number.isInteger(parsed)) {
+      setDraftValue(String(currentRef.current.value))
+      return
+    }
+
+    const { min: currentMin, max: currentMax, onChange: commit } = currentRef.current
+    const next = Math.max(currentMin, Math.min(currentMax, parsed))
+    setDraftValue(String(next))
+    if (next !== currentRef.current.value) commit(next)
+  }, [setDraftValue])
+
+  const cancelDraft = useCallback(() => {
+    setDraftValue(String(currentRef.current.value))
+  }, [setDraftValue])
+
+  useEffect(() => {
+    if (!Object.is(identityRef.current, resetKey) || draftRef.current !== String(value)) {
+      setDraftValue(String(value))
+    }
+    identityRef.current = resetKey
+  }, [resetKey, setDraftValue, value])
+
+  const updateDraft = (next: string) => {
+    setDraftValue(next)
+  }
+
+  const commitButtonChange = (next: number) => {
+    const clamped = clamp(next)
+    setDraftValue(String(clamped))
+    if (clamped !== value) onChange(clamped)
+  }
+
   const buttonClass =
     'flex h-11 w-11 flex-shrink-0 items-center justify-center gap-0.5 rounded-md border border-gray-300 bg-white text-sky-700 disabled:opacity-40 dark:border-gray-600 dark:bg-gray-700 dark:text-sky-300'
 
@@ -31,8 +80,20 @@ export function PanelGridDimensionInput({
         type="number"
         min={min}
         max={max}
-        value={value}
-        onChange={(event) => onChange(clamp(Number(event.target.value) || min))}
+        step={1}
+        value={draft}
+        onChange={(event) => updateDraft(event.target.value)}
+        onBlur={commitDraft}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            event.currentTarget.blur()
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            cancelDraft()
+            event.currentTarget.blur()
+          }
+        }}
         className="w-20 min-w-0 rounded-md border border-gray-300 bg-white px-2 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
       />
       {touchPrimary && (
@@ -42,7 +103,7 @@ export function PanelGridDimensionInput({
             className={buttonClass}
             aria-label={`${label} −1`}
             disabled={value <= min}
-            onClick={() => onChange(clamp(value - 1))}
+            onClick={() => commitButtonChange(value - 1)}
           >
             <span aria-hidden="true">−</span>
             <ChevronDown className="h-4 w-4" aria-hidden="true" />
@@ -52,7 +113,7 @@ export function PanelGridDimensionInput({
             className={buttonClass}
             aria-label={`${label} +1`}
             disabled={value >= max}
-            onClick={() => onChange(clamp(value + 1))}
+            onClick={() => commitButtonChange(value + 1)}
           >
             <span aria-hidden="true">+</span>
             <ChevronUp className="h-4 w-4" aria-hidden="true" />

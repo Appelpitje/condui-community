@@ -279,6 +279,7 @@
     "zoom": "Zoom"
   },
   "commandPalette": {
+    "addPanelAtDomoticaOutput": "Adaugă tablou la ieșire",
     "addSupplyTransformer": "Adaugă transformator de alimentare",
     "placeholder": "Caută comenzi",
     "empty": "Nicio comandă găsită",
@@ -298,6 +299,7 @@
     "apply": "Aplică",
     "unavailable": "Această modificare nu poate fi aplicată. Verifică valorile sau redeschide acțiunea.",
     "fields": {
+      "output": "Ieșire",
       "circuit": "Circuit",
       "position": "Poziție",
       "row": "Rând",
@@ -954,7 +956,8 @@
     "voltage_1x230": "1×230V",
     "lineToNeutral": "Faza zero (V)",
     "lineToLine": "fază-fază (V)",
-    "notes": "Note"
+    "notes": "Note",
+    "earthResistance": "Rezistența prizei de pământ"
   },
   "panels": {
     "title": "plăci de distribuție",
@@ -971,9 +974,8 @@
     "secondaryPanel": "tablou de distribuție {{number}}",
     "diagramLabels": "Denumiri schematice",
     "panelNumbering": "Numerotarea plăcuței",
-    "panelNumberingHint": "Adaugă B01, B02, ... în ordine de la placa principală prin plăcile secundare de pe schema circuitului unipolar.",
+    "panelNumber": "Numărul tabloului",
     "panelNetTypeLabels": "Tip de rețea pe schema de circuit",
-    "panelNetTypeLabelsHint": "Adaugă puterea, tensiunea și conexiunea la masă în antetul schemei de circuit unipolar atunci când este setat un sistem de conectare la masă.",
     "earthingSystemLabel": "Sistem de conectare la pământ",
     "earthingSystemGridLabel": "Sistem de împământare (rețea)",
     "earthingSystemBackupLabel": "Sistem de împământare (de rezervă)",
@@ -993,7 +995,9 @@
     "diagramNetWithEarthing": "Rețea: {{net}} – {{earthing}}",
     "diagramEarthingSystem": "Sistem de conectare la pământ: {{earthing}}",
     "diagramEarthingSystemGrid": "Sistem de împământare (grilă): {{earthing}}",
-    "diagramEarthingSystemBackup": "Sistem de împământare (de rezervă): {{earthing}}"
+    "diagramEarthingSystemBackup": "Sistem de împământare (de rezervă): {{earthing}}",
+    "expectedShortCircuit": "Curent de scurtcircuit max. prezumat",
+    "diagramShortCircuit": "Ik max: {{ka}} kA"
   },
   "panel": {
     "deleteConfirmTitle": "?",
@@ -1015,6 +1019,8 @@
     "poles": "Poli",
     "polesConfig": "Configurația polilor",
     "residualCurrentType": "Tipul curentului diferențial",
+    "selective": "Selectiv (S)",
+    "superImmunized": "Superimunizat (SI)",
     "breakingCapacity": "Capacitate de scurtcircuit",
     "spdKind": "Simbol",
     "spdStandard": "Protecție împotriva trăsnetului",
@@ -1025,10 +1031,14 @@
     "poles_3P": "3P",
     "poles_3P_N": "3P+N",
     "poles_4P": "4P (3L+N)",
-    "residualType_AC": "AC (sinusoidal)",
-    "residualType_A": "A (DC pulsatorie)",
-    "residualType_F": "F (frecvență mixtă)",
-    "residualType_B": "B (curent continuu neted)",
+    "residualType_AC": "AC (consumatori fără electronică)",
+    "residualTypeHelp_AC": "Numai curent alternativ sinusoidal. Verificați dacă tipul AC este permis pentru această instalație.",
+    "residualType_A": "A (circuite casnice)",
+    "residualTypeHelp_A": "Curent alternativ și curent continuu pulsatoriu. Utilizat frecvent pentru circuitele casnice.",
+    "residualType_F": "F (aparate cu turație variabilă)",
+    "residualTypeHelp_F": "Și frecvențe mixte, de exemplu la acționări monofazate. Respectați cerințele producătorului.",
+    "residualType_B": "B (anumite stații EV / sisteme FV)",
+    "residualTypeHelp_B": "Și curent continuu neted. Nu orice stație EV sau invertor FV necesită tipul B; verificați cerințele producătorului și protecția internă la scurgeri de curent continuu.",
     "description": "Descriere",
     "type_MCB": "întreruptor automat",
     "type_RCD": "întreruptor diferențial",
@@ -1222,6 +1232,21 @@
       "field": "Pe teren"
     },
     "controlLink": {
+      "busDevices": "Dispozitivele magistralei",
+      "connection": "Conexiune",
+      "standard": "Standard",
+      "bus": "Magistrală",
+      "busName": "Numele magistralei",
+      "busSystem": "Sistemul magistralei",
+      "moduleSystem": "Sistemul modulului",
+      "showBusLabel": "Afișează eticheta magistralei",
+      "serialNumber": "Număr de serie",
+      "duplicateDeviceAddress": "Adresa dispozitivului este deja folosită pe această magistrală",
+      "functions": "Funcții",
+      "buttonAddresses": "Adresele butoanelor",
+      "buttonNumber": "Butonul {{number}}",
+      "previousButtons": "Anterior",
+      "nextButtons": "Următor",
       "section": "Domotică",
       "controlSection": "Comandă",
       "operates": "Comandă",
@@ -1264,6 +1289,7 @@
         "niko_hc": "Niko Home Control",
         "dali": "DALI",
         "loxone": "Loxone",
+        "qbus": "Qbus",
         "other": "Altul"
       },
       "controlArea": "Control",
@@ -1289,7 +1315,9 @@
       "count": "Număr de panouri",
       "groupTitle": "Marca și modelul",
       "wattage": "Putere (Wp)",
-      "voltage": "Tensiune (V)"
+      "voltage": "Tensiune (V)",
+      "wattageProperty": "Putere (Pmax) (Wp)",
+      "voltageProperty": "Tensiune (Umax) (V)"
     },
     "battery": {
       "voltage": "Tensiune (V)",
@@ -1456,6 +1484,8 @@
     "labelSourceNotes": "Note",
     "labelSourceExtra": "Suplimentar",
     "labelSourceTechnical": "Tehnic",
+    "labelSourceFeeds": "Alimentează",
+    "labelSourceMain": "General",
     "labelCellPlaceholder": "Etichetă",
     "notesCellPlaceholder": "Note",
     "extraCellPlaceholder": "Adăugați note de etichetă",
@@ -1515,9 +1545,9 @@
       "customStatus": "Modificat",
       "setCustomLabel": "Setați eticheta personalizată",
       "useAutomaticLabel": "Utilizați etichetă automată",
-      "customLabelNonStandardWarning": "Această etichetă personalizată se află în afara intervalului A, B, C...",
+      "customLabelNonStandardWarning": "Această etichetă personalizată se află în afara secvenței automate.",
       "customLabelDuplicateWarning": "Această etichetă este folosită și de un alt circuit de pe această placă de distribuție.",
-      "customLabelBothWarnings": "Această etichetă personalizată se află în afara intervalului A, B, C... și este folosită și de un alt circuit de pe acest tablou de distribuție.",
+      "customLabelBothWarnings": "Această etichetă personalizată se află în afara secvenței automate și este folosită și de un alt circuit de pe acest tablou de distribuție.",
       "resetAllLabels": "Resetați toate etichetele",
       "resetAllTooltip": "Îndepărtați toate etichetele personalizate și reutilizați etichetele automate pentru toate circuitele.",
       "resetAllConfirmTitle": "Resetați toate etichetele personalizate?",
@@ -1525,7 +1555,59 @@
       "resetAllConfirm": "Resetați etichetele",
       "confirmOverwriteTitle": "Înlocuiți literele?",
       "confirmOverwriteMessage": "Autonaming înlocuiește literele curente cu A, B, C... conform rândurilor de pe fiecare tablou de distribuție. Continua?",
-      "confirmOverwriteConfirm": "Continuați"
+      "confirmOverwriteConfirm": "Continuați",
+      "scheme": {
+        "searchAliases": "stil etichete numerotare litere circuite numere tablouri denumire",
+        "dialogTitle": "Etichete automate",
+        "style": "Stil",
+        "conduiStyles": "Stiluri Condui",
+        "myStyles": "Stilurile mele",
+        "customStyle": "Personalizat (nesalvat)",
+        "styleClassic": "Clasic",
+        "stylePanelLetterLetter": "Litera tabloului + literă",
+        "styleNumbers": "Numere",
+        "stylePanelLetterNumber": "Litera tabloului + număr",
+        "stylePanelDotCircuit": "Tablou.circuit",
+        "saveStyle": "Salvează ca stilul meu",
+        "updateStyle": "Actualizează „{{name}}”",
+        "deleteStyle": "Șterge stilul",
+        "styleName": "Numele stilului",
+        "separator": "Separator",
+        "prefix": "Prefix",
+        "subPanels": "Tablouri secundare",
+        "ownNumber": "Număr propriu",
+        "underParent": "Sub tabloul părinte",
+        "circuits": "Circuite",
+        "sequence": "Secvență",
+        "panelInLabel": "Tabloul în etichetă",
+        "panelPartNone": "Niciuna",
+        "panelPartNumber": "Număr",
+        "panelPartFull": "Complet",
+        "joined": "Lipite",
+        "separated": "Separate",
+        "numbersSeparated": "Două numere sunt mereu separate.",
+        "lettersRunTogether": "Peste 26 de circuite, literele tabloului și ale circuitului nu mai pot fi deosebite.",
+        "branches": "Ramuri",
+        "changeCount_one": "{{count}} etichetă se schimbă",
+        "changeCount_few": "{{count}} etichete se schimbă",
+        "changeCount_many": "{{count}} de etichete se schimbă",
+        "changeCount_other": "{{count}} de etichete se schimbă",
+        "apply": "Aplică",
+        "customize": "Personalizează…",
+        "startsAt": "Începe de la",
+        "betweenPanelAndCircuit": "Între tablou și circuit",
+        "betweenCircuitAndBranch": "Între circuit și ramură",
+        "separatorHelp": "Se pune între părțile unei etichete acolo unde sunt separate, ca în A1.1.",
+        "subPanelsHelp": "Numărul propriu continuă secvența; sub tabloul părinte numerotează un tablou secundar după tabloul care îl alimentează.",
+        "panelInLabelHelp": "Ce parte din numărul tabloului începe fiecare etichetă de circuit: nimic, doar numărul sau numărul complet cu prefix.",
+        "numberingHelp": "Numerotează tablourile din instalațiile rezidențiale și nerezidențiale.",
+        "prefixHelp": "Litere înaintea fiecărui număr de tablou, precum B în B1.",
+        "panelSequenceHelp": "Folosește numere, numere cu zero inițial sau litere pentru tablouri.",
+        "startHelp": "Primul număr de tablou. Seriile de litere încep de la A.",
+        "circuitSequenceHelp": "Folosește majuscule, minuscule sau numere pentru circuite.",
+        "betweenPanelAndCircuitHelp": "Unește codurile tabloului și circuitului sau pune separatorul între ele.",
+        "betweenCircuitAndBranchHelp": "Unește codul circuitului și numărul ramificației sau pune separatorul între ele."
+      }
     }
   },
   "planImport": {
@@ -1664,6 +1746,7 @@
     "movePoint": "Mutați punctul de perete",
     "insertDoor": "Introduceți ușa",
     "insertWindow": "Introduceți fereastra",
+    "curvedWallOpeningHint": "Ușile și ferestrele nu pot fi amplasate în pereți curbați.",
     "drawStair": "Desen scări",
     "placeNote": "Notă",
     "graphicElements": "Elemente grafice",
@@ -1811,6 +1894,11 @@
     "library": "Biblioteca de simboluri",
     "recent": "Recent",
     "favorites": "Favorite",
+    "jump": {
+      "filterOnly": "Ctrl/Cmd+clic: afișează doar aceasta",
+      "filterAdd": "Ctrl/Cmd+Shift+clic: adaugă la filtru",
+      "clearFilter": "Afișează toate categoriile"
+    },
     "armed": {
       "placing": "Locuri: {{name}}",
       "stop": "Opriți postarea"
@@ -1826,6 +1914,7 @@
     "switch_2p_twoway": "Comutator (2 poli)",
     "switch_dimmer": "Dimmer",
     "switch_1p_changeover": "Comutator",
+    "switch_shutter": "Întrerupător pentru rulouri",
     "switch_1p_pull": "Trageți întrerupător",
     "contact": "Contact",
     "switch_impulse": "Comutator de impuls",
@@ -1911,6 +2000,7 @@
       "switch_cross": "Întrerupător cruce",
       "switch_dimmer": "Variator de lumină",
       "switch_1p_changeover": "Comutator",
+      "switch_shutter": "Întrerupător pentru rulouri",
       "switch_1p_pull": "Întrerupător cu șnur",
       "switch_impulse": "Întrerupător cu impuls",
       "motion_detector": "Detector de mișcare",
@@ -2025,6 +2115,75 @@
     "endpoint": "Punct final"
   },
   "validation": {
+    "incompleteChecks": {
+      "message": "Unele verificări nu au putut fi finalizate",
+      "details": "Unele verificări nu au date suficiente sau nu acceptă această instalație.",
+      "showChecks": "Verificări incomplete ({{total}})",
+      "affected": "Afectate: {{total}}",
+      "missing": "Lipsește: {{information}}",
+      "unavailable": "Indisponibil: {{information}}",
+      "unknown": "Informațiile verificării sunt indisponibile",
+      "checks": {
+        "supplyRcdCircuitCount": "Circuite pe RCD",
+        "cableHasCrossSection": "Secțiunea conductoarelor",
+        "breakerSizeMatchesCrossSection": "Protecție și secțiune",
+        "minimumCrossSection": "Secțiune minimă",
+        "dcCrossSectionHeuristic": "Dimensionarea cablurilor DC",
+        "protectionPhaseCompatibility": "Poli și faze de alimentare",
+        "earthResistanceWithinLimits": "Rezistența prizei de pământ",
+        "nonHouseholdEarthResistanceEntered": "Datele prizei de pământ",
+        "circuitHasRcdProtection": "Protecție diferențială",
+        "nonHouseholdTtIndirectContact": "Protecție TT la atingere indirectă",
+        "rcdHasTooManyCircuits": "Circuite pe RCD",
+        "circuitHasTooManyEndpoints": "Puncte pe circuit",
+        "circuitWithinMaximumProtectedLength": "Lungimea maximă protejată",
+        "circuitShortCircuitProtectionVerifiable": "Protecție la scurtcircuit",
+        "nonHouseholdBreakingCapacity": "Capacitate de rupere",
+        "nonHouseholdBoardShortCircuitStated": "Curentul de scurtcircuit al tabloului",
+        "householdSocketProtection": "Protecția circuitului de prize"
+      },
+      "facts": {
+        "cable-path-conductor-segments": "Traseu cabluri / segmente conductoare",
+        "cable-installation-method": "Modul de pozare a cablului",
+        "cable-cross-section": "Secțiunea cablului",
+        "design-current-and-admissible-current-iz-for-the-installation-method": "Curent de calcul și curent admisibil Iz",
+        "upstream-protection-rating": "Curentul nominal al protecției din amonte",
+        "validated-ampacity-for-this-cross-section-and-installation-method": "Capacitate de curent acceptată pentru această secțiune și pozare",
+        "design-current": "Curent de calcul",
+        "dc-cable-cross-section": "Secțiunea cablului DC",
+        "validated-dc-ampacity-for-this-cross-section": "Capacitate de curent DC acceptată pentru această secțiune",
+        "dc-design-power-current": "Putere sau curent de calcul DC",
+        "dc-operating-voltage": "Tensiune de funcționare DC",
+        "dc-cable-installation-method": "Modul de pozare a cablului DC",
+        "earth-electrode-resistance": "Rezistența prizei de pământ",
+        "upstream-rcd-rcbo-residual-current-sensitivity-ma": "Sensibilitatea RCD/RCBO din amonte (mA)",
+        "rcd-sensitivity-ma": "Sensibilitatea RCD (mA)",
+        "rcd-sensitivity": "Sensibilitatea RCD",
+        "upstream-main-rcd-and-its-sensitivity": "RCD principal din amonte și sensibilitatea sa",
+        "panel-record": "Datele tabloului",
+        "circuit-record": "Datele circuitului",
+        "nominal-voltage-system": "Sistemul de tensiune nominală",
+        "supported-explicit-phase-system": "Configurație de faze acceptată",
+        "protection-pole-configuration-or-incoming-phase-assignment": "Polii protecției sau fazele de intrare",
+        "upstream-protective-device": "Protecție din amonte",
+        "supported-protective-device-curve-model": "Model acceptat al curbei de declanșare",
+        "protective-device-current-rating": "Curentul nominal al protecției",
+        "modeled-cable-path": "Traseul cablului",
+        "complete-route-length-connected-cable-anchors": "Lungimea completă / puncte de conectare legate",
+        "cable-edge-length": "Lungimea segmentului de cablu",
+        "protective-device-trip-curve": "Curba de declanșare a protecției",
+        "conductor-material": "Materialul conductorului",
+        "expected-maximum-short-circuit-current-at-the-board": "Curentul de scurtcircuit prezumat al tabloului",
+        "socket-circuit-overcurrent-protection-rating": "Curentul nominal al protecției circuitului de prize"
+      },
+      "reasons": {
+        "unknown-primitive": "Verificare indisponibilă",
+        "unknown-skip-condition-primitive": "Verificarea preliminară indisponibilă",
+        "no-rule-pack-loaded": "Nu sunt încărcate reguli de validare",
+        "no-rule-pack-for-jurisdiction": "Nu există reguli pentru această jurisdicție",
+        "prerequisite-could-not-be-evaluated": "Condiția preliminară nu a putut fi verificată"
+      }
+    },
     "title": "Validare AREI",
     "disabledOutsideBelgium": "Validarea este dezactivată în afara Belgiei.",
     "belgianRulesOnly": "În prezent, aplicația verifică doar regulile AREI pentru Belgia.",
@@ -2123,8 +2282,8 @@
         "rcd-grouping": {
           "shortTitle": "Prea multe circuite per întreruptor diferențial",
           "message": "Prea multe circuite sub un întreruptor diferențial de 30 mA",
-          "details": "Un dispozitiv diferențial de 30 mA poate proteja maximum 8 circuite (circuitele protejate prin întreruptoare automate diferențiale nu se numără), pentru a limita declanșările nedorite și acumularea curenților de scurgere.",
-          "remediation": "Reduceți numărul circuitelor protejate de acest întreruptor diferențial sau împărțiți-le între mai multe întreruptoare diferențiale. Circuitele protejate printr-un întreruptor automat diferențial nu se numără."
+          "details": "Un diferențial casnic de maximum 30 mA în aval de diferențialul principal poate proteja cel mult 8 circuite finale, inclusiv cu RCBO și în tablouri secundare. Diferențialul de la originea instalației nu intră în această limită.",
+          "remediation": "Distribuiți circuitele finale între mai multe diferențiale în aval, cu cel mult opt pentru fiecare diferențial. Numărați și circuitele protejate prin RCBO."
         },
         "rcd-selectivity": {
           "shortTitle": "Eroare de selectivitate diferențială",
@@ -2284,6 +2443,48 @@
           "message": "O protecție sau un consumator de pe sursa de alimentare de rezervă nu are o etichetă",
           "details": "Componentele sursei de alimentare de rezervă sunt situate în afara barei principale și nu sunt denumite automat.",
           "remediation": "Etichetați manual în mod clar fiecare protector și consumator de pe ramura de rezervă a invertorului."
+        },
+        "earth-resistance": {
+          "shortTitle": "Rezistența de pământ prea mare",
+          "message": "Rezistența prizei de pământ depășește limita AREI",
+          "details": "Instalațiile casnice necesită sub 100 Ω, iar peste 30 Ω două dispozitive diferențiale de 30 mA, fiecare cu cel mult 16 prize. Instalațiile necasnice TT admit cel mult 250 Ω sau 500 Ω în încăperi uscate cu pardoseli și pereți neconductori.",
+          "remediation": "Îmbunătățiți priza de pământ sau adăugați dispozitive diferențiale conform descrierii."
+        },
+        "nonhousehold-earth-resistance-entered": {
+          "shortTitle": "Lipsește rezistența de pământ",
+          "message": "Rezistența prizei de pământ nu este introdusă",
+          "details": "Rezistența prizei de pământ este necesară pentru a verifica protecția la atingere indirectă într-o instalație necasnică TT.",
+          "remediation": "Selectați simbolul de împământare și introduceți rezistența prizei de pământ."
+        },
+        "nonhousehold-tt-indirect-contact": {
+          "shortTitle": "Circuit TT neprotejat",
+          "message": "Circuit neprotejat la atingere indirectă",
+          "details": "În rețeaua TT, deconectarea automată necesită un dispozitiv diferențial a cărui sensibilitate respectă IΔn × RE ≤ UL (50 V în condiții uscate).",
+          "remediation": "Adăugați un dispozitiv diferențial sau RCBO cu sensibilitate adecvată ori folosiți echipamente de clasa II, TFJS sau separare electrică."
+        },
+        "nonhousehold-board-short-circuit-current": {
+          "shortTitle": "Lipsește curentul de scurtcircuit",
+          "message": "Tablou fără curent de scurtcircuit prezumat",
+          "details": "Schemele și marcajele tablourilor necasnice indică curentul de scurtcircuit maxim prezumat când depășește 3000 A.",
+          "remediation": "Deschideți proprietățile tabloului și introduceți curentul de scurtcircuit maxim prezumat."
+        },
+        "nonhousehold-breaking-capacity": {
+          "shortTitle": "Capacitate de rupere prea mică",
+          "message": "Capacitate de rupere sub curentul de scurtcircuit prezumat",
+          "details": "Fiecare dispozitiv de protecție la supracurent necesită o capacitate de rupere cel puțin egală cu curentul de scurtcircuit prezumat la locul de montare.",
+          "remediation": "Alegeți aparate cu capacitate de rupere mai mare sau confirmați protecția în cascadă cu tabelele producătorului."
+        },
+        "nonhousehold-breaking-capacity-shown": {
+          "shortTitle": "Lipsește capacitatea de rupere",
+          "message": "Capacitatea de rupere nu este introdusă",
+          "details": "Schemele circuitelor necasnice indică capacitatea de rupere a fiecărui dispozitiv de protecție.",
+          "remediation": "Selectați fiecare aparat menționat și alegeți capacitatea sa de rupere."
+        },
+        "nonhousehold-supply-transformer": {
+          "shortTitle": "Lipsesc datele transformatorului",
+          "message": "Datele transformatorului de alimentare sunt incomplete",
+          "details": "Schemele necasnice indică caracteristicile surselor, inclusiv puterea aparentă și tensiunea de scurtcircuit a unui transformator de alimentare.",
+          "remediation": "Selectați transformatorul de alimentare și introduceți puterea nominală și tensiunea de scurtcircuit."
         }
       }
     },
@@ -2310,6 +2511,48 @@
       "branchMultiplierEndpointsSplit": "Circuitul {{circuitCode}}: ramura „{{branchLabel}}” are {{absorbCount}} simboluri suplimentare de multiplicare ca puncte finale separate; acestea ar trebui să formeze un singur punct final cu mai multe amplasări. Utilizați funcția de remediere din inspecția elementelor orfane."
     },
     "primitives": {
+      "feedbackSafety": {
+        "rcdOverload": {
+          "message": "Curentul nominal al întreruptorului diferențial este prea mic",
+          "details": "Sursele conectate pot produce prin întreruptorul diferențial marcat un curent mai mare decât curentul său nominal. Verificați valoarea nominală și protecțiile la supracurent de pe acest traseu. Un întreruptor diferențial simplu nu protejează la suprasarcină."
+        },
+        "rcdType": {
+          "message": "Diferențialul casnic trebuie să fie de tip A, F sau B",
+          "details": "Înlocuiți dispozitivul de tip AC cu un diferențial adecvat de tip A, F sau B."
+        },
+        "breakingCapacity": {
+          "message": "Capacitatea de rupere nu este specificată",
+          "details": "Introduceți capacitatea de rupere confirmată pentru fiecare protecție la supracurent, inclusiv pe alimentare. O valoare necunoscută nu poate fi verificată."
+        },
+        "earthingSeparator": {
+          "message": "Lipsește piesa de separație pentru priza de pământ",
+          "details": "Adăugați o piesă de separație la fiecare conexiune a electrodului de pământ pentru a permite măsurarea rezistenței."
+        },
+        "socketSafety": {
+          "message": "Priză fără contact de protecție sau protecție pentru copii",
+          "details": "Prizele casnice obișnuite necesită contact de protecție și protecție pentru copii. Verificați eventualele derogări documentate pentru instalațiile existente."
+        },
+        "socketProtection": {
+          "message": "Protecția prizei obișnuite este prea mare",
+          "details": "Pentru prizele casnice obișnuite folosiți un disjunctor de maximum 20 A sau o siguranță fuzibilă de maximum 16 A. Un cablu mai gros nu permite singur o protecție mai mare."
+        },
+        "placement": {
+          "message": "Modul de pozare a cablului nu este specificat",
+          "details": "Introduceți traseul sau modul de pozare pentru a completa schema și a verifica secțiunea cablului."
+        },
+        "fireClass": {
+          "message": "Clasa de reacție la foc a cablului nu este specificată",
+          "details": "Introduceți clasa de reacție la foc confirmată a cablului. Adecvarea depinde de clădire și de pozare; o clasă necunoscută înseamnă informații lipsă."
+        },
+        "evCoordination": {
+          "message": "Verificați coordonarea DC a diferențialului din amonte de stații",
+          "details": "Mai multe stații cu detecție DC de 6 mA sau un diferențial de tip B în aval pot expune un diferențial de tip A din amonte la prea mult curent continuu. Folosiți tip B în amonte sau verificați combinația și numărul de stații admise de producător."
+        },
+        "rcdCircuitCount": {
+          "message": "Diferențialul de alimentare protejează peste opt circuite finale",
+          "details": "Un diferențial casnic de maximum 30 mA în aval de diferențialul principal poate proteja cel mult 8 circuite finale, inclusiv cu RCBO și în tablouri secundare. Diferențialul de la originea instalației nu intră în această limită."
+        }
+      },
       "supplyModePaths": {
         "message": "Nu există o cale validă pentru alimentarea de la rețea/de rezervă pentru {{phases}}",
         "details": "Topologia desenată nu include pentru {{phases}} o cale completă și coordonată de la rețea și una de rezervă.",
@@ -2325,6 +2568,10 @@
         "details": "Denumirile duplicate ale dispozitivelor de protecție din același tablou de distribuție (bara principală, bara secundară sau alimentarea de intrare) îngreunează identificarea circuitelor. Redenumiți un dispozitiv de protecție sau activați denumirea automată."
       },
       "controlLinkIntegrity": {
+        "duplicateBusDeviceAddress": {
+          "message": "Adresa dispozitivului {{address}} este deja folosită pe această magistrală",
+          "details": "Atribuiți fiecărui dispozitiv de pe această magistrală o adresă unică."
+        },
         "dangling": {
           "message": "{{endpoint}} este comandat de un dispozitiv care nu mai există",
           "details": "Alegeți alt dispozitiv la Comandat de sau ștergeți legătura."
@@ -2501,7 +2748,7 @@
       },
       "rcdHasTooManyCircuits": {
         "message": "are prea multe căi de curent ({{circuitCount}} > {{threshold}})",
-        "details": "Numărul circuitelor protejate de un întreruptor diferențial de 30 mA nu trebuie să depășească {{threshold}}, pentru a limita declanșările nedorite. Circuitele protejate printr-un întreruptor automat diferențial sunt excluse."
+        "details": "Un diferențial casnic de maximum 30 mA în aval de diferențialul principal poate proteja cel mult {{threshold}} circuite finale, inclusiv cu RCBO și în tablouri secundare. Diferențialul de la originea instalației nu intră în această limită."
       },
       "rcdSelectivity": {
         "message": "Selectivitatea întreruptoarelor diferențiale: cel din amonte trebuie să fie mai puțin sensibil decât cel din aval (de exemplu, 300 mA principal, 30 mA secundar)",
@@ -2589,6 +2836,58 @@
       "fixedApplianceDedicatedCircuitHint": {
         "message": "Aparatele fixe {{applianceLabels}} din circuitul {{circuitCode}} împart circuitul cu alți consumatori",
         "details": "Aparatele fixe sunt adesea amplasate pe circuite dedicate, astfel încât secțiunea transversală a cablului și protecția să fie adaptate aparatului și eventualelor înlocuiri viitoare. Luați în considerare amplasarea acestor aparate pe circuite dedicate, fără prize suplimentare, iluminat sau alți consumatori."
+      },
+      "earthResistanceWithinLimits": {
+        "nonHouseholdDryOnly": {
+          "message": "O rezistență a prizei de pământ de {{ohm}} Ω este admisă doar în încăperi uscate și neconductoare"
+        },
+        "nonHouseholdTooHigh": {
+          "message": "Rezistența prizei de pământ de {{ohm}} Ω depășește 500 Ω"
+        },
+        "nonHousehold": {
+          "details": "Cu protecție diferențială într-o instalație necasnică, rezistența prizei de pământ nu poate depăși 500 Ω în încăperi uscate cu pardoseli și pereți neconductori (AD1, BB1, BC1) și 250 Ω în alte încăperi."
+        },
+        "householdTooHigh": {
+          "message": "Rezistența prizei de pământ de {{ohm}} Ω nu este sub 100 Ω",
+          "details": "Priza de pământ a unei instalații casnice trebuie să aibă o rezistență sub 100 Ω."
+        },
+        "householdSplitRcd": {
+          "message": "O rezistență a prizei de pământ de {{ohm}} Ω necesită cel puțin două dispozitive diferențiale de 30 mA",
+          "details": "Peste 30 Ω, o instalație casnică necesită cel puțin două dispozitive diferențiale de înaltă sensibilitate (30 mA), fiecare cu cel mult 16 prize sau aparate fixe asimilate."
+        },
+        "householdOutlets": {
+          "message": "Peste 16 prize după: {{labels}}"
+        }
+      },
+      "nonHouseholdEarthResistanceEntered": {
+        "message": "Rezistența prizei de pământ nu este introdusă",
+        "details": "Într-o instalație necasnică TT, rezistența prizei de pământ determină ce sensibilitate diferențială protejează la atingere indirectă (IΔn × RE ≤ UL)."
+      },
+      "nonHouseholdTtIndirectContact": {
+        "missing": {
+          "message": "Circuitul {{circuitCode}} nu are protecție diferențială în rețeaua TT",
+          "details": "În rețeaua TT, dispozitivele de protecție la supracurent singure nu deconectează la timp un defect la pământ. Protejați circuitul cu un dispozitiv diferențial sau RCBO ori folosiți echipamente de clasa II, TFJS sau separare electrică."
+        },
+        "insensitive": {
+          "message": "Circuitul {{circuitCode}}: dispozitivul diferențial de {{sensitivityMa}} mA nu este suficient de sensibil pentru rezistența prizei de pământ",
+          "details": "IΔn × RE nu poate depăși 50 V. La {{ohm}} Ω folosiți un dispozitiv diferențial de cel mult {{maxSensitivityMa}} mA. În condiții umede (BB2) limita este 25 V."
+        }
+      },
+      "nonHouseholdBoardShortCircuitStated": {
+        "message": "Tabloul {{panelName}} nu are curent de scurtcircuit prezumat",
+        "details": "Schemele și marcajele tablourilor necasnice indică curentul de scurtcircuit maxim prezumat când depășește 3000 A. Este necesar și pentru verificarea capacităților de rupere."
+      },
+      "nonHouseholdBreakingCapacity": {
+        "message": "Capacitate de rupere sub {{ka}} kA: {{labels}}",
+        "details": "Curentul de scurtcircuit prezumat la acest tablou este de {{ka}} kA. Fiecare dispozitiv de protecție la supracurent necesită cel puțin această capacitate de rupere, cu excepția cazului în care un aparat din amonte îl acoperă prin protecție în cascadă conform tabelelor producătorului."
+      },
+      "nonHouseholdBreakingCapacityShown": {
+        "message": "Capacitatea de rupere nu este introdusă: {{labels}}",
+        "details": "Schemele circuitelor necasnice indică capacitatea de rupere a fiecărui dispozitiv de protecție."
+      },
+      "nonHouseholdSupplyTransformerDocumented": {
+        "message": "Lipsește puterea sau tensiunea de scurtcircuit a transformatorului de alimentare",
+        "details": "Schemele necasnice indică caracteristicile surselor, inclusiv puterea aparentă și impedanța unui transformator de alimentare."
       }
     },
     "citations": {
@@ -2711,7 +3010,13 @@
     "export": "Export",
     "errorTitle": "Exportul etichetei nu a reușit",
     "errorMessage": "Exportul etichetei nu a putut fi creat. Vă rugăm să încercați din nou.",
-    "generatedDescription": "{{type}} pentru {{items}}"
+    "generatedDescription": "{{type}} pentru {{items}}",
+    "mainRoleSwitch": "Întrerupător general",
+    "mainRoleRcd": "Diferențial general",
+    "mainRoleProtection": "Protecție generală",
+    "boardLabels": "Etichete tablou",
+    "boardLabel": "Etichetă tablou",
+    "boardFedFromCircuit": "Alimentat din {{source}}, circuitul {{circuit}}"
   },
   "panelRelationOverview": "Prezentare generală a relațiilor dintre panouri",
   "properties": {
@@ -2844,7 +3149,7 @@
     "categoryDomotica": "Home automation / Smart home",
     "categoryStove": "Distribuitor aragaz",
     "categoryPanels": "plăci de distribuție",
-    "categoryWires": "Fire",
+    "categoryWires": "Cabluri",
     "wireLengthTotal": "{{length}} total",
     "wireLengthEstimate": "Estimare aproximativă bazată pe planul de etaj: {{length}}",
     "wireLengthEstimateShort": "estimare {{length}}",
@@ -2874,6 +3179,7 @@
     "csvDetails": "Detalii"
   },
   "wires": {
+    "wireTypeLabel": "Tip de conductor",
     "cableDefault": "Standard",
     "makeCableDefault": "Faceți standard",
     "useCableDefault": "Utilizați standard",
@@ -3557,6 +3863,31 @@
     },
     "bridgeThroughRail": "Pământarea este deja conectată prin șină",
     "shapeOf": "Formă"
+  },
+  "materialListExport": {
+    "cableMargin": "Rezervă de cablu (%)",
+    "invalidCableMargin": "Introduceți un procent valid mai mare sau egal cu 0.",
+    "skipSupplyPanel": "Omite elementele din tabloul de rețea",
+    "title": "Exportă lista de materiale",
+    "menu": "Antemăsurătoare / lista de materiale",
+    "export": "Exportă",
+    "searchAliases": "Excel CSV Robaws antemăsurătoare cantități materiale",
+    "preset": "Presetare",
+    "standard": "Standard",
+    "format": "Format fișier",
+    "categories": "Categorii",
+    "description": "Descriere",
+    "quantity": "Cantitate",
+    "unit": "Unitate",
+    "piece": "buc.",
+    "estimated": "Lungime estimată",
+    "partialLength": "Lungime parțială",
+    "includePlanEstimates": "Include lungimile de cablu estimate pe plan",
+    "roundCableLengths": "Rotunjește lungimile de cablu în sus la metri întregi",
+    "missingLengths": "Traseele de cablu fără lungime sunt omise. Totalurile incomplete sunt marcate ca parțiale.",
+    "robawsImport": "Într-o ofertă Robaws, alege importul și asociază Omschrijving, Aantal și Eenheid. Adaugă prețurile în Robaws.",
+    "empty": "Niciun material selectat.",
+    "error": "Fișierul de export nu a putut fi creat. Încearcă din nou."
   },
   "oneWireReference": {
     "title": "Pagină scanată",

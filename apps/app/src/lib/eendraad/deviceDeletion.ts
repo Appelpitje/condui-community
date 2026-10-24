@@ -1,10 +1,7 @@
 import type { ProjectV2 } from '@/types/projectV2'
 import { syncSequentialEndpointBranchLabelsToCircuit } from '@/lib/eendraad/automaticEndpointBranchNaming'
 import { pruneEendraadFrames } from '@/lib/eendraad/frameContent'
-import {
-  collectAllGroundTrunkDevices,
-  findGroundTrunkDeviceOwner,
-} from '@/lib/eendraad/panelGround'
+import { findGroundTrunkDeviceOwner } from '@/lib/eendraad/panelGround'
 import {
   cleanupPanelGridSlotsForDevice,
   findCircuitById,
@@ -13,7 +10,6 @@ import {
   getAllCircuits,
   pruneStaleElectricalEndpointRecords,
 } from '@/lib/eendraad/projectElectricalDomain'
-import { ensureInstallationFeedTopology } from '@/lib/feedTopology'
 import { supportsCircuitConverterDcConnections } from '@/lib/layout/circuitConverterGeometry'
 import {
   reconcileInvalidPanelFeedOrganizationsInProject,
@@ -21,6 +17,7 @@ import {
 } from '@/lib/panel/panelFeedOrganization'
 import { syncPanelAndSituationPlanDeviceVisibility } from '@/lib/plan/panelPlanPlacementVisibility'
 import { healPlanWiring } from '@/lib/plan/planWiring'
+import { pruneOrphanJunctionPanelPlacements } from '@/lib/plan/sharedJunctionPlacements'
 import {
   editProjectSupplyAssemblies,
   getEditableProjectElectricalInstallation,
@@ -138,9 +135,7 @@ export function deleteTrunkDeviceInProject(
   let changed = false
   if (project) {
     // Project is supplied by the caller
-    const installation = getProjectElectricalInstallation(project)
     const panels = getProjectElectricalPanels(project)
-    let removedLabel: string | undefined
     for (const panel of panels) {
       const result = findCircuitById(panel, circuitId)
       if (result) {
@@ -250,9 +245,6 @@ export function deleteTrunkDeviceInProject(
               delete endpoint.converterDcConnection
             }
           }
-          if (removed?.type === 'junction_panel') {
-            removedLabel = removed.label
-          }
           const deviceRef: PanelGridModuleRef = {
             kind: 'trunkDevice',
             id: deviceId,
@@ -275,29 +267,7 @@ export function deleteTrunkDeviceInProject(
         }
       }
     }
-    if (removedLabel && installation?.junctionPanelPlacements) {
-      const remainingDevices: { label?: string }[] = []
-      installation.mainSupply?.supplyTrunkDevices?.forEach((d) => {
-        if (d.type === 'junction_panel') remainingDevices.push({ label: d.label })
-      })
-      for (const device of collectAllGroundTrunkDevices(panels, installation)) {
-        if (device.type === 'junction_panel') remainingDevices.push({ label: device.label })
-      }
-      for (const panel of panels) {
-        const circuits = getAllCircuits(panel)
-        circuits.forEach((c) =>
-          c.trunkDevices?.forEach((d) => {
-            if (d.type === 'junction_panel') remainingDevices.push({ label: d.label })
-          })
-        )
-      }
-      const stillUsed = remainingDevices.some((d) => d.label === removedLabel)
-      if (!stillUsed) {
-        installation.junctionPanelPlacements = installation.junctionPanelPlacements.filter(
-          (jp) => jp.label !== removedLabel
-        )
-      }
-    }
+    if (changed) pruneOrphanJunctionPanelPlacements(project)
   }
 
   return changed
@@ -310,7 +280,6 @@ export function deleteSupplyTrunkDeviceInProject(project: ProjectV2, deviceId: s
     const installation = getProjectElectricalInstallation(project)
     const panels = getProjectElectricalPanels(project)
     if (!installation) return false
-    let removedLabel: string | undefined
     const container = findSupplyDeviceContainer(project, deviceId)
     const devices = container?.devices
     if (devices) {
@@ -430,9 +399,6 @@ export function deleteSupplyTrunkDeviceInProject(project: ProjectV2, deviceId: s
             }
           }
         }
-        if (removed?.type === 'junction_panel') {
-          removedLabel = removed.label
-        }
         if (
           owningPanel &&
           (removed?.supplyPath === 'backup-output' ||
@@ -471,34 +437,7 @@ export function deleteSupplyTrunkDeviceInProject(project: ProjectV2, deviceId: s
         changed = true
       }
     }
-    if (removedLabel && installation.junctionPanelPlacements) {
-      const remainingDevices: { label?: string }[] = []
-      ensureInstallationFeedTopology(installation, panels).sharedFeed.trunkDevices?.forEach((d) => {
-        if (d.type === 'junction_panel') remainingDevices.push({ label: d.label })
-      })
-      ensureInstallationFeedTopology(installation, panels).rootFeeds.forEach((feed) =>
-        (feed.trunkDevices ?? []).forEach((d) => {
-          if (d.type === 'junction_panel') remainingDevices.push({ label: d.label })
-        })
-      )
-      for (const device of collectAllGroundTrunkDevices(panels, installation)) {
-        if (device.type === 'junction_panel') remainingDevices.push({ label: device.label })
-      }
-      for (const panel of panels) {
-        const circuits = getAllCircuits(panel)
-        circuits.forEach((c) =>
-          c.trunkDevices?.forEach((d) => {
-            if (d.type === 'junction_panel') remainingDevices.push({ label: d.label })
-          })
-        )
-      }
-      const stillUsed = remainingDevices.some((d) => d.label === removedLabel)
-      if (!stillUsed) {
-        installation.junctionPanelPlacements = installation.junctionPanelPlacements.filter(
-          (jp) => jp.label !== removedLabel
-        )
-      }
-    }
+    if (changed) pruneOrphanJunctionPanelPlacements(project)
   }
 
   return changed
@@ -521,7 +460,6 @@ export function deleteGroundTrunkDeviceInProject(project: ProjectV2, deviceId: s
   } else {
     installation.groundTrunkDevices = owner.devices.filter((device) => !idsToDelete.has(device.id))
   }
-  const removedLabel = removed.find((device) => device.type === 'junction_panel')?.label
   for (const removedId of idsToDelete) {
     cleanupPanelGridSlotsForDevice(panels, {
       kind: 'trunkDevice',
@@ -531,29 +469,7 @@ export function deleteGroundTrunkDeviceInProject(project: ProjectV2, deviceId: s
   }
   pruneEendraadFrames(project, { removedMemberIds: [...idsToDelete] })
   changed = true
-  if (removedLabel && installation.junctionPanelPlacements) {
-    const remainingDevices: { label?: string }[] = []
-    installation.mainSupply?.supplyTrunkDevices?.forEach((d) => {
-      if (d.type === 'junction_panel') remainingDevices.push({ label: d.label })
-    })
-    for (const device of collectAllGroundTrunkDevices(panels, installation)) {
-      if (device.type === 'junction_panel') remainingDevices.push({ label: device.label })
-    }
-    for (const panel of panels) {
-      const circuits = getAllCircuits(panel)
-      circuits.forEach((c) =>
-        c.trunkDevices?.forEach((d) => {
-          if (d.type === 'junction_panel') remainingDevices.push({ label: d.label })
-        })
-      )
-    }
-    const stillUsed = remainingDevices.some((d) => d.label === removedLabel)
-    if (!stillUsed) {
-      installation.junctionPanelPlacements = installation.junctionPanelPlacements.filter(
-        (jp) => jp.label !== removedLabel
-      )
-    }
-  }
+  if (changed) pruneOrphanJunctionPanelPlacements(project)
 
   return changed
 }

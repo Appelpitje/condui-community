@@ -177,57 +177,59 @@ export function SupplyWireProperties({
         </button>
       </div>
 
-      {/* Wire Type, Conductors, Thickness - Single line with headers */}
       <div className="space-y-2">
-        {/* Headers */}
-        <div className="grid grid-cols-3 gap-2 text-xs font-medium text-gray-600 dark:text-gray-400">
-          <div>{t('wires.type', 'Type')}</div>
-          <div>{t('wires.conductors', 'Conductors')}</div>
-          <div>{t('wires.thickness', 'Thickness')}</div>
-        </div>
-
-        {/* Controls */}
-        <div className="grid grid-cols-3 gap-2">
-          {/* Wire Type */}
-          <CustomDropdown
-            value={supplyCable.kind}
-            onChange={(nextValue) =>
-              handleCableChange(applyCableKindChange(supplyCable, nextValue as CableSpec['kind']))
-            }
-            options={wireTypes.map((type) => ({ value: type.value, label: type.label }))}
-            className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-          />
-
-          <CustomDropdown
-            value={selectedConductorValue}
-            onChange={(nextValue) => {
-              const selected = conductorOptions.find((opt) => opt.value === nextValue)
-              if (selected) {
-                handleCableChange({
-                  conductors: selected.conductors,
-                  hasPE: selected.hasPE,
-                })
+        <div className="grid grid-cols-2 gap-2">
+          <div className="col-span-2 space-y-1">
+            <div className="text-xs font-medium text-gray-600 dark:text-gray-400">{t('wires.type', 'Type')}</div>
+            <CustomDropdown
+              wrapLabels
+              ariaLabel={t('wires.type', 'Type')}
+              value={supplyCable.kind}
+              onChange={(nextValue) =>
+                handleCableChange(applyCableKindChange(supplyCable, nextValue as CableSpec['kind']))
               }
-            }}
-            options={conductorOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
-            className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-          />
-
-          {/* Thickness */}
-          <CustomDropdown
-            value={String(supplyCable.sectionMm2)}
-            onChange={(nextValue) => {
-              const value = parseFloat(nextValue)
-              if (!isNaN(value) && value > 0) {
-                handleCableChange({ sectionMm2: value })
-              }
-            }}
-            options={thicknessOptions.map((thickness) => ({
-              value: String(thickness),
-              label: `${thickness} mm²`,
-            }))}
-            className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-          />
+              options={wireTypes.map((type) => ({ value: type.value, label: type.label }))}
+              className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-gray-600 dark:text-gray-400">{t('wires.conductors', 'Conductors')}</div>
+            <CustomDropdown
+              wrapLabels
+              ariaLabel={t('wires.conductors', 'Conductors')}
+              value={selectedConductorValue}
+              onChange={(nextValue) => {
+                const selected = conductorOptions.find((opt) => opt.value === nextValue)
+                if (selected) {
+                  handleCableChange({
+                    conductors: selected.conductors,
+                    hasPE: selected.hasPE,
+                  })
+                }
+              }}
+              options={conductorOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
+              className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-gray-600 dark:text-gray-400">{t('wires.thickness', 'Thickness')}</div>
+            <CustomDropdown
+              wrapLabels
+              ariaLabel={t('wires.thickness', 'Thickness')}
+              value={String(supplyCable.sectionMm2)}
+              onChange={(nextValue) => {
+                const value = parseFloat(nextValue)
+                if (!isNaN(value) && value > 0) {
+                  handleCableChange({ sectionMm2: value })
+                }
+              }}
+              options={thicknessOptions.map((thickness) => ({
+                value: String(thickness),
+                label: `${thickness} mm²`,
+              }))}
+              className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+            />
+          </div>
         </div>
         {supplyCable.kind === 'other' && (
           <DebouncedTextInput
@@ -331,6 +333,8 @@ export function GroundWireProperties({
         <div className="grid grid-cols-2 gap-2">
           {/* Wire Type */}
           <CustomDropdown
+            wrapLabels
+            ariaLabel={t('wires.type', 'Type')}
             value={groundCable.kind}
             onChange={(nextValue) =>
               handleCableChange(applyCableKindChange(groundCable, nextValue as CableSpec['kind']))
@@ -341,6 +345,8 @@ export function GroundWireProperties({
 
           {/* Thickness */}
           <CustomDropdown
+            wrapLabels
+            ariaLabel={t('wires.thickness', 'Thickness')}
             value={String(groundCable.sectionMm2)}
             onChange={(nextValue) => {
               const value = parseFloat(nextValue)

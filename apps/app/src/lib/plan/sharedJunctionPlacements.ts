@@ -105,13 +105,17 @@ export function collectSharedJunctions(
       for (const endpoint of circuit.endpoints) {
         visit({ kind: 'endpoint', entity: endpoint, circuitId: circuit.id })
       }
-      for (const device of circuit.trunkDevices ?? []) {
+      for (const device of [
+        ...(circuit.trunkDevices ?? []),
+        ...(circuit.branches ?? []).flatMap((branch) => branch.branchDevices ?? []),
+      ]) {
         visit({ kind: 'trunkDevice', entity: device, circuitId: circuit.id })
       }
     }
   }
   const installation = selectProjectElectricalInstallation(project)
-  for (const device of queryAllSupplyTrunkDevices(project)) visit({ kind: 'trunkDevice', entity: device })
+  for (const device of queryAllSupplyTrunkDevices(project))
+    visit({ kind: 'trunkDevice', entity: device })
   for (const device of collectAllGroundTrunkDevices(panels, installation)) {
     visit({ kind: 'trunkDevice', entity: device })
   }
@@ -124,6 +128,22 @@ export function collectSharedJunctions(
     junction.placements = [...junction.placements, panelPlacementAsPlacement(placement)]
   }
   return junctions
+}
+
+/** A panel's plan location is valid only while at least one electrical occurrence owns it. */
+export function pruneOrphanJunctionPanelPlacements(
+  project: ProjectWithOptionalV2Electrical
+): boolean {
+  const installation = selectProjectElectricalInstallation(project)
+  const placements = installation?.junctionPanelPlacements
+  if (!installation || !placements?.length) return false
+  const junctions = collectSharedJunctions(project)
+  const retained = placements.filter((placement) =>
+    junctions.has(`junction_panel|${placement.label.trim().toLocaleUpperCase('en-US')}`)
+  )
+  if (retained.length === placements.length) return false
+  installation.junctionPanelPlacements = retained
+  return true
 }
 
 /**

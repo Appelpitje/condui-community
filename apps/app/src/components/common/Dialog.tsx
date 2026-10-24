@@ -100,6 +100,7 @@ function Dialog() {
     md: 'max-w-md',
     lg: 'max-w-lg',
     xl: 'max-w-2xl',
+    wide: 'max-w-5xl',
   }
 
   const size = dialog.size || 'md'

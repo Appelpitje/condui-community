@@ -85,12 +85,16 @@ const NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS: BreakingCapacityDropdownOption[] 
   { value: '36', label: '36 kA', ka: 36 },
 ]
 
+/** Household devices use framed amp markings; keep a stored kA choice editable. */
 export function getBreakerBreakingCapacityOptions(
-  profile: InstallationProfile = 'household'
+  profile: InstallationProfile = 'household',
+  currentValue?: string,
 ): readonly BreakingCapacityDropdownOption[] {
   return profile === 'non_household'
     ? NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS
-    : MCB_RCBO_BREAKING_CAPACITY_OPTIONS
+    : NON_HOUSEHOLD_BREAKING_CAPACITY_OPTIONS.filter(
+        ({ value }) => BREAKING_CAPACITY_AMP_OPTION_VALUES.has(value) || value === currentValue,
+      )
 }
 
 export function breakingCapacityKaFromSelectValue(value: string): number | undefined {
@@ -202,6 +206,8 @@ export function protectionCreationTemplateFromDevice(
     curve: protection.curve,
     sensitivityMa: protection.sensitivityMa,
     residualCurrentType: protection.residualCurrentType,
+    selective: protection.selective,
+    superImmunized: protection.superImmunized,
     breakingCapacityKa: protection.breakingCapacityKa,
     breakingCapacityOption: protection.breakingCapacityOption,
     surgeProtectionKind: protection.surgeProtectionKind,

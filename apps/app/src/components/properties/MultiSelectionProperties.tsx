@@ -1,6 +1,7 @@
 import { useMemo, useRef, useEffect } from 'react'
 import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import { getProtectionCurveOptions } from './protectionCurveOptions'
+import { getProtectionResidualTypeOptions } from './protectionResidualTypeOptions'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import CustomDropdown, { type CustomDropdownOption } from '@/components/common/CustomDropdown'
@@ -76,11 +77,13 @@ function MixedDropdown({
   options,
   onChange,
   ariaLabel,
+  wrapLabels,
 }: {
   shared: SharedValue<string>
   options: CustomDropdownOption[]
   onChange: (value: string) => void
   ariaLabel?: string
+  wrapLabels?: boolean
 }) {
   const { t } = useTranslation()
   const mixed = t('properties.mixedValue', 'Mixed')
@@ -90,6 +93,7 @@ function MixedDropdown({
       options={options}
       onChange={onChange}
       ariaLabel={ariaLabel}
+      wrapLabels={wrapLabels}
       placeholder={mixed}
       renderValue={(option) =>
         shared.mixed ? (
@@ -242,6 +246,13 @@ function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[
   const allSpd = allTypesMatch(['SPD'])
   const allBreakers = allTypesMatch(['MCB', 'RCBO'])
   const showBreakingCapacity = allSpd || allBreakers
+  const sharedBreakingCapacity = resolveSharedValue(
+    protections.map((item) =>
+      allSpd
+        ? String(item.breakingCapacityKa ?? '')
+        : resolveBreakingCapacitySelectValue(item.breakingCapacityOption, item.breakingCapacityKa)
+    )
+  )
   const showDeviceNotes = protections.every((item) => !item.circuits?.length)
   const typeOptions = useMemo(() => getProtectionTypeDropdownOptions(panelStringT(t), 'panel'), [t])
   return (
@@ -360,23 +371,17 @@ function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[
             {t('protections.breakingCapacity', 'Breaking capacity')}
           </label>
           <MixedDropdown
-            shared={resolveSharedValue(
-              protections.map((item) =>
-                allSpd
-                  ? String(item.breakingCapacityKa ?? '')
-                  : resolveBreakingCapacitySelectValue(
-                      item.breakingCapacityOption,
-                      item.breakingCapacityKa
-                    )
-              )
-            )}
+            shared={sharedBreakingCapacity}
             options={
               allSpd
                 ? protectionBreakingCapacityKaOptions(true).map((kA) => ({
                     value: String(kA),
                     label: `${kA} kA`,
                   }))
-                : getBreakerBreakingCapacityOptions(installationProfile).map(({ value, label }) => ({ value, label }))
+                : getBreakerBreakingCapacityOptions(
+                    installationProfile,
+                    sharedBreakingCapacity.mixed ? undefined : sharedBreakingCapacity.value,
+                  ).map(({ value, label }) => ({ value, label }))
             }
             onChange={(value) => {
               if (allSpd) {
@@ -430,12 +435,8 @@ function ProtectionMultiEditor({ protections }: { protections: ProtectionDevice[
               shared={resolveSharedValue(
                 protections.map((item) => item.residualCurrentType ?? '')
               )}
-              options={[
-                { value: 'AC', label: t('protections.residualType_AC', 'AC (sinusoidal)') },
-                { value: 'A', label: t('protections.residualType_A', 'A (pulsating DC)') },
-                { value: 'F', label: t('protections.residualType_F', 'F (mixed frequency)') },
-                { value: 'B', label: t('protections.residualType_B', 'B (smooth DC)') },
-              ]}
+              options={getProtectionResidualTypeOptions(t)}
+              wrapLabels
               onChange={(value) =>
                 apply(() => ({
                   residualCurrentType: value as ProtectionDevice['residualCurrentType'],
@@ -750,14 +751,14 @@ function EndpointMultiEditor({ endpoints }: { endpoints: Endpoint[] }) {
       {allSolarPanels && (
         <div className="space-y-2 border-t border-gray-200 pt-2 dark:border-gray-700">
           <MixedNumberField
-            label={t('endpoints.solarPanel.wattage', 'Wattage (Wp)')}
+            label={t('endpoints.solarPanel.wattageProperty', 'Wattage (Pmax) (Wp)')}
             shared={shared((item) => item.solarPanelProps?.wattageW ?? 1000)}
             onCommit={(value) =>
               apply((item) => patchNested(item, 'solarPanelProps', { wattageW: value }))
             }
           />
           <MixedNumberField
-            label={t('endpoints.solarPanel.voltage', 'Voltage (V)')}
+            label={t('endpoints.solarPanel.voltageProperty', 'Voltage (Umax) (V)')}
             shared={shared((item) => item.solarPanelProps?.voltageV)}
             onCommit={(value) =>
               apply((item) => patchNested(item, 'solarPanelProps', { voltageV: value }))

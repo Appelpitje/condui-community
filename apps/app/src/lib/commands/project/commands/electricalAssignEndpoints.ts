@@ -7,6 +7,7 @@ import {
 } from '@/lib/eendraad/endpointMutations'
 import { findCircuitById, findEndpointById } from '@/lib/eendraad/projectElectricalDomain'
 import { isMainPanelDistributionEndpoint } from '@/lib/plan/panelDistributionEndpoint'
+import { isDomoticaPanelFeedEndpoint } from '@/lib/eendraad/panelSupplyLink'
 import { circuitContainsJunctionPanelIdentity, getJunctionIdentity } from '@/lib/junctionIdentity'
 import { getEditableProjectElectricalPanels } from '@/lib/projectV2/electrical'
 
@@ -46,6 +47,10 @@ export const electricalAssignEndpoints = defineProjectCommand({
     const endpoints = endpointIds.map((id) => findEndpoint(project, id))
     if (endpoints.some((entry) => !entry)) {
       return { ok: false, code: 'endpoint_not_found', message: 'An endpoint no longer exists' }
+    }
+    if (endpoints.some((owner) => owner && isDomoticaPanelFeedEndpoint(owner.endpoint) &&
+      owner.circuit.id !== input.targetCircuitId)) {
+      return { ok: false, code: 'output_feed', message: 'A domotica output feeding a panel cannot be moved to another circuit.' }
     }
     const sourceCircuitIds = new Set(endpoints.map((entry) => entry!.circuit.id))
     if (sourceCircuitIds.size > 1) {

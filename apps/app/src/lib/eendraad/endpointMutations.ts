@@ -3,6 +3,7 @@ import type { Circuit, Endpoint, Panel, Placement, ProtectionDevice } from '@/ty
 import { syncSequentialEndpointBranchLabelsToCircuit } from '@/lib/eendraad/automaticEndpointBranchNaming'
 import { syncDerivedEndpointFlags } from '@/lib/eendraad/endpointInsertAfter'
 import { deleteEndpointsFromProject } from '@/lib/eendraad/endpointDeletion'
+import { isDomoticaPanelFeedEndpoint } from '@/lib/eendraad/panelSupplyLink'
 import {
   EENDRAAD_NAMING_DEBUG,
   findCircuitById,
@@ -308,6 +309,8 @@ export function assignEndpointsToCircuitInProject(
     return null
   })
   if (sources.some((source) => !source)) return null
+  if (sources.some((source) => source && isDomoticaPanelFeedEndpoint(source.endpoint) &&
+    source.circuit.id !== targetCircuitId)) return null
 
   const movableIds = uniqueIds.filter((_, index) => sources[index]!.circuit.id !== targetCircuitId)
   if (movableIds.length === 0) return null

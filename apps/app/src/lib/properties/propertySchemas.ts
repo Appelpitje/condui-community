@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { symbols } from '@/lib/symbols'
-import type { SymbolKey } from '@/types/schema'
+import type { LabelScheme, SymbolKey } from '@/types/schema'
+import { CONTROL_SYSTEMS } from '@/types/schema'
+import { MAX_PANEL_PREFIX_LENGTH } from '@/lib/eendraad/labelScheme'
 import { addressCountrySchema } from './addressCountry'
 
 const nullable = <T extends z.ZodType>(schema: T) => schema.nullable()
@@ -69,9 +71,9 @@ export const symbolLabelDisplay = patchObject({
 
 const panelLabelCell = z
   .object({
-    source: z.enum(['label', 'notes', 'labelNotes', 'technical']).optional(),
+    source: z.enum(['label', 'notes', 'labelNotes', 'technical', 'feeds']).optional(),
     sources: z
-      .array(z.enum(['label', 'notes', 'labelNotes', 'technical']))
+      .array(z.enum(['label', 'notes', 'labelNotes', 'technical', 'feeds']))
       .nullable()
       .optional(),
     alignment: z.enum(['left', 'center', 'right', 'justify']).nullable().optional(),
@@ -80,6 +82,7 @@ const panelLabelCell = z
 export const panelLabel = patchObject({
   top: panelLabelCell.nullable(),
   bottom: panelLabelCell.nullable(),
+  main: bool,
 })
 
 export const certification = patchObject({
@@ -121,15 +124,28 @@ const lightPointProps = patchObject({
   onWall: bool,
   waterproof: bool,
 })
+const controlButtonAddresses = z.array(z.object({
+  buttonIndex: z.number().int().nonnegative(),
+  channel: z.string().optional(),
+  groups: z.array(z.string()).optional(),
+}).strict()).refine(
+  (entries) => new Set(entries.map(({ buttonIndex }) => buttonIndex)).size === entries.length,
+  'Button indices must be unique',
+).nullable()
 const domoticaChildProps = patchObject({
   parentEndpointId: str,
   outputGroup: enumOrNull(['control', 'endpoint']),
   outputIndex: count,
   channel: str,
   groups: stringArray,
+  buttonAddresses: controlButtonAddresses,
 })
-const controlLink = patchObject({ deviceId: str, channel: str, groups: stringArray })
-const domoticaOutputWire = patchObject({
+const controlLink = patchObject({ deviceId: str, channel: str, groups: stringArray, buttonAddresses: controlButtonAddresses })
+export const domoticaOutputWire = patchObject({
+  connectionType: z.literal('bus').nullable(),
+  busName: str,
+  busSystem: enumOrNull(CONTROL_SYSTEMS),
+  showBusLabel: bool,
   cable: cableSpec.nullable(),
   phaseAssignment: phaseAssignment.nullable(),
   showPhaseLabel: bool,
@@ -142,8 +158,8 @@ const domoticaOutputWire = patchObject({
   showWireLengthLabel: bool,
 })
 export const domoticaProps = patchObject({
-  system: enumOrNull(['knx', 'niko_hc', 'dali', 'loxone', 'other']),
-  outputSystem: enumOrNull(['knx', 'niko_hc', 'dali', 'loxone', 'other']),
+  system: enumOrNull(CONTROL_SYSTEMS),
+  outputSystem: enumOrNull(CONTROL_SYSTEMS),
   deviceAddress: str,
   line: str,
   channelCount: count,
@@ -215,6 +231,7 @@ export const endpointPropSchemas = {
   }).nullable(),
   domoticaProps: domoticaProps.nullable(),
   domoticaChildProps: domoticaChildProps.nullable(),
+  busDeviceProps: patchObject({ deviceAddress: str }).nullable(),
   domoticaRowLabel: z
     .discriminatedUnion('kind', [
       z.object({ kind: z.literal('tail'), tail: z.string() }).strict(),
@@ -275,6 +292,8 @@ export const protectionPatchSchema = patchObject({
   curve: enumOrNull(['B', 'C', 'D', 'F', 'K', 'MA', 'Z', 'unknown']),
   sensitivityMa: num,
   residualCurrentType: enumOrNull(['AC', 'A', 'F', 'B']),
+  selective: bool,
+  superImmunized: bool,
   breakingCapacityKa: num,
   breakingCapacityOption: str,
   surgeProtectionKind: enumOrNull(['standard', 'sparkGap']),
@@ -345,6 +364,7 @@ export const endpointPatchSchema = patchObject({
         'switch_2p_twoway',
         'switch_dimmer',
         'switch_1p_changeover',
+        'switch_shutter',
         'switch_1p_pull',
         'contact',
         'switch_impulse',
@@ -429,6 +449,25 @@ export const installationDatePatchSchema = patchObject({
 })
 export const installDatePatchSchema = installationDatePatchSchema
 
+// Preserve extension fields accepted by the stored-scheme parser, while keeping
+// this complete replacement discoverable through the property command's JSON Schema.
+const labelSchemeProperties: z.ZodType<LabelScheme, LabelScheme> = z.object({
+  version: z.literal(1),
+  separator: z.enum(['.', '-', '/']),
+  panel: z.object({
+    prefix: z.string().max(MAX_PANEL_PREFIX_LENGTH).regex(/^[^\s0-9]*$/),
+    style: z.enum(['number', 'number2', 'upper']),
+    start: z.union([z.literal(0), z.literal(1)]),
+    nested: z.boolean(),
+  }).passthrough(),
+  circuit: z.object({
+    style: z.enum(['upper', 'lower', 'number', 'number2']),
+    panelPart: z.enum(['none', 'number', 'full']),
+    joinPanel: z.boolean(),
+  }).passthrough(),
+  branch: z.object({ join: z.boolean() }).passthrough(),
+}).passthrough()
+
 export const installationPropertiesSchema = patchObject({
   installationProfile: enumOrNull(['household', 'non_household']),
   connectionCurrentA: z.number().finite().int().positive().nullable(),
@@ -464,12 +503,17 @@ export const installationPropertiesSchema = patchObject({
   }),
   groundCable: cableSpec.nullable(),
   hasGround: bool,
+  earthResistanceOhm: num,
   notes: str,
   defaultCableKind: cableSpec.shape.kind.nullable(),
   circuitNotesOrientation: enumOrNull(['horizontal', 'vertical']),
   supplyTrunkNotesOrientation: enumOrNull(['horizontal', 'vertical']),
   panelNumberingEnabled: bool,
   panelNetTypeLabelsEnabled: bool,
+  // A complete scheme replaces the stored one; null returns to the classic scheme.
+  labelScheme: nullable(
+    labelSchemeProperties
+  ),
   eendraadAutomaticNaming: bool,
   eendraadAutoNamingHideFeederLetters: bool,
   eendraadAutoNamingSkipParentCircuits: bool,

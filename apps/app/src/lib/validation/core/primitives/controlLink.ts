@@ -43,7 +43,7 @@ function controlLinkIntegrity(context: CheckContext): Issue[] {
     key: string,
     anchorId: string,
     offenderIds: string[],
-    kind: 'dangling' | 'duplicateChannel' | 'invalidAddress',
+    kind: 'dangling' | 'duplicateChannel' | 'invalidAddress' | 'duplicateBusDeviceAddress',
     values: Record<string, string>
   ) => {
     if (!onBoard.has(anchorId)) return
@@ -72,16 +72,24 @@ function controlLinkIntegrity(context: CheckContext): Issue[] {
       push(issue, `${issue.deviceId}:${issue.direction}:${issue.channel}`, issue.deviceId, [issue.deviceId, ...issue.endpointIds], 'duplicateChannel', {
         device: name(device),
         channel: issue.channel,
-        count: String(issue.endpointIds.length),
+        count: String(issue.connectionIds?.length ?? issue.endpointIds.length),
+      })
+    } else if (issue.kind === 'duplicate-bus-device-address') {
+      push(issue, `${issue.busKey}:${issue.address}`, issue.endpointIds[0]!, issue.endpointIds, 'duplicateBusDeviceAddress', {
+        device: name(device), address: issue.address, count: String(issue.endpointIds.length),
+      })
+    } else if (issue.kind === 'invalid-bus-device-address') {
+      push(issue, `${issue.endpointId}:${issue.address}`, issue.endpointId, [issue.endpointId], 'invalidAddress', {
+        device: name(device), endpoint: name(byId.get(issue.endpointId)), address: issue.address,
       })
     } else if (issue.kind === 'invalid-channel') {
-      push(issue, `${issue.endpointId}:${issue.channel}`, issue.endpointId, [issue.endpointId], 'invalidAddress', {
+      push(issue, `${issue.endpointId}${issue.buttonIndex == null ? '' : `:button:${issue.buttonIndex}`}:${issue.channel}`, issue.endpointId, [issue.endpointId], 'invalidAddress', {
         device: name(device),
         endpoint: name(byId.get(issue.endpointId)),
         address: issue.channel,
       })
     } else if (issue.kind === 'invalid-group') {
-      push(issue, `${issue.endpointId}:${issue.group}`, issue.endpointId, [issue.endpointId], 'invalidAddress', {
+      push(issue, `${issue.endpointId}${issue.buttonIndex == null ? '' : `:button:${issue.buttonIndex}`}:${issue.group}`, issue.endpointId, [issue.endpointId], 'invalidAddress', {
         device: name(device),
         endpoint: name(byId.get(issue.endpointId)),
         address: issue.group,

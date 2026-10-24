@@ -33,6 +33,7 @@ export function getEndpointTypeFromSymbol(symbol: SymbolMetadata): EndpointType 
     id === 'switch_2p_twoway' ||
     id === 'switch_dimmer' ||
     id === 'switch_1p_changeover' ||
+    id === 'switch_shutter' ||
     id === 'switch_1p_pull' ||
     id === 'contact' ||
     id === 'switch_impulse' ||
@@ -160,6 +161,7 @@ export function getSymbolKeyFromSymbol(symbol: SymbolMetadata): SymbolKey | unde
     id === 'switch_2p_twoway' ||
     id === 'switch_dimmer' ||
     id === 'switch_1p_changeover' ||
+    id === 'switch_shutter' ||
     id === 'switch_1p_pull' ||
     id === 'contact' ||
     id === 'switch_impulse' ||
@@ -254,6 +256,7 @@ export function isSwitchSymbol(symbol: SymbolMetadata): boolean {
     id === 'switch_2p_twoway' ||
     id === 'switch_dimmer' ||
     id === 'switch_1p_changeover' ||
+    id === 'switch_shutter' ||
     id === 'switch_1p_pull' ||
     id === 'contact' ||
     id === 'switch_impulse' ||
@@ -297,6 +300,7 @@ export function isInBetweenDevice(symbol: SymbolMetadata): boolean {
     id === 'switch_2p_twoway' ||
     id === 'switch_dimmer' ||
     id === 'switch_1p_changeover' ||
+    id === 'switch_shutter' ||
     id === 'switch_1p_pull' ||
     id === 'contact' ||
     id === 'switch_impulse' ||

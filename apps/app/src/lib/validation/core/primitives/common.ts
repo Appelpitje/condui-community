@@ -119,11 +119,11 @@ export function projectPanels(project: ValidationProject): Panel[] {
   return getProjectElectricalPanels(project)
 }
 
-/** A board's own plan occurrence is stored in a carrier, not an outgoing feed. */
+/** A board's own plan occurrence is a carrier, including its incoming isolator. */
 export function isPanelPlacementCarrierCircuit(query: InstallationQueryAPI, circuitId: string): boolean {
   const circuit = query.getCircuitById(circuitId)
   if (!circuit || circuit.code !== 'PANEL' || circuit.endpoints.length === 0) return false
-  if ((circuit.trunkDevices?.length ?? 0) > 0 || (circuit.subCircuitIds?.length ?? 0) > 0) return false
+  if ((circuit.subCircuitIds?.length ?? 0) > 0) return false
   return query.getBoards().some((panel) =>
     panel.circuits.some((candidate) => candidate.id === circuitId) &&
     circuit.endpoints.every((endpoint) => isPanelDistributionEndpointForPanel(endpoint, panel)),

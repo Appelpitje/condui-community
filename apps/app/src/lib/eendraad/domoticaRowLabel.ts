@@ -5,16 +5,25 @@ import type {
   SymbolLabelDisplayConfig,
 } from '@/types/schema'
 import { isSymbolLabelVisible } from '@/lib/symbolLabels'
-import { getScopedRowAddress } from '@/lib/controlLink/controlLinkNoteContext'
+import { formatBranchLabel, formatDomoticaOutputLabel } from '@/lib/eendraad/labelScheme'
+import { getActiveLabelScheme } from '@/lib/eendraad/labelSchemeContext'
+import { getScopedBusRowLabel } from '@/lib/controlLink/controlLinkNoteContext'
 
 const ROW_ADDRESS_SEPARATOR = ' · '
 
 export const DOMOTICA_ROW_LABEL_VISIBILITY_KEY = 'domoticaRowLabel'
 
-/** Label stem that output row labels are generated from (`{stem}.{n}`). */
+/**
+ * Label stem that output row labels are generated from (`{stem}.{n}`): the module's own label,
+ * which is the branch label it sits on (F1 → F1.1, F1.2) or, for a nested module, its row label.
+ */
 export function getDomoticaOutputBaseLabel(parent: Endpoint, circuitCode: string): string {
-  const parentLabel = parent.label?.trim() || `${circuitCode}1`
-  return parent.domoticaChildProps ? parentLabel : parentLabel.replace(/\.\d+$/, '')
+  return parent.label?.trim() || formatBranchLabel(getActiveLabelScheme(), circuitCode, 1)
+}
+
+/** Text between the module label and the output number (`.` unless the scheme says otherwise). */
+export function getDomoticaOutputSeparator(): string {
+  return getActiveLabelScheme().separator
 }
 
 export function resolveDomoticaRowLabel(
@@ -25,7 +34,7 @@ export function resolveDomoticaRowLabel(
   if (override?.kind === 'tail' && typeof override.tail === 'string') return `${base}${override.tail}`
   if (override?.kind === 'literal' && typeof override.text === 'string' && override.text.trim())
     return override.text
-  return `${base}.${outputIndex + 1}`
+  return formatDomoticaOutputLabel(getActiveLabelScheme(), base, outputIndex + 1)
 }
 
 /** Turns text typed into an output row's label field into a stored override (or none). */
@@ -41,12 +50,25 @@ export function deriveDomoticaRowLabelOverride(
 }
 
 /** Root endpoint of the output row that `endpoint` belongs to (carries the override). */
-export function findDomoticaRowRoot(circuit: Circuit, endpoint: Endpoint): Endpoint | undefined {
+export function findDomoticaRowRoot(circuit: Pick<Circuit, 'endpoints'>, endpoint: Endpoint): Endpoint | undefined {
   const ref = endpoint.domoticaChildProps
   if (!ref) return undefined
   const parent = circuit.endpoints.find((e) => e.id === ref.parentEndpointId)
   const rootId = parent?.domoticaProps?.endpointChildEndpointIds?.[ref.outputIndex]
   return (rootId ? circuit.endpoints.find((e) => e.id === rootId) : undefined) ?? endpoint
+}
+
+/** Output identity stays independent of the connected appliance or board's own name. */
+export function getDomoticaEndpointOutputLabel(circuit: Pick<Circuit, 'code' | 'endpoints'>, endpoint: Endpoint): string {
+  const ref = endpoint.domoticaChildProps
+  if (!ref) return ''
+  const parent = circuit.endpoints.find((candidate) => candidate.id === ref.parentEndpointId)
+  if (!parent) return ''
+  return resolveDomoticaRowLabel(
+    getDomoticaOutputBaseLabel(parent, circuit.code),
+    ref.outputIndex,
+    findDomoticaRowRoot(circuit, endpoint)?.domoticaRowLabel,
+  )
 }
 
 /**
@@ -94,14 +116,21 @@ export function isDomoticaRowLabelShown(endpoints: Endpoint[], endpoint: Endpoin
 }
 
 /**
- * Text painted next to a domotica output row: the row label, followed by the row's address
- * (channel) once one is entered. Measurement, envelopes and rendering all use this one text.
+ * Text painted next to a domotica output row. Connected boards keep their name and
+ * output reference together, and a bus output keeps its bus name. Configured channels of
+ * wired outputs are rendered below the row's final symbol instead.
  */
 export function getDomoticaRowDisplayLabel(
-  endpoint: Pick<Endpoint, 'id' | 'label'>
+  endpoint: Pick<Endpoint, 'id' | 'label'> & Partial<Pick<Endpoint, 'symbol' | 'domoticaChildProps'>>,
+  circuit?: Pick<Circuit, 'code' | 'endpoints'>,
 ): string {
-  const label = endpoint.label?.trim() ?? ''
+  let label = endpoint.label?.trim() ?? ''
   if (!label) return ''
-  const address = getScopedRowAddress(endpoint.id)
-  return address ? `${label}${ROW_ADDRESS_SEPARATOR}${address}` : label
+  if (endpoint.symbol === 'panel_distribution' && endpoint.domoticaChildProps && circuit) {
+    const actualEndpoint = circuit.endpoints.find((candidate) => candidate.id === endpoint.id)
+    const outputLabel = actualEndpoint ? getDomoticaEndpointOutputLabel(circuit, actualEndpoint) : ''
+    if (outputLabel && outputLabel !== label) label = `${label}${ROW_ADDRESS_SEPARATOR}${outputLabel}`
+  }
+  const busName = getScopedBusRowLabel(endpoint.id)
+  return busName ? `${label}${ROW_ADDRESS_SEPARATOR}${busName}` : label
 }

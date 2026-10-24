@@ -130,7 +130,18 @@ export function reconcileConductors(
 
 /** Deep copy for a run fork: the copy keeps the same core ids, so `(wireAnchor, coreId)` still resolves. */
 export function copyConductorsForFork(conductors: readonly WireConductor[]): WireConductor[] {
-  return conductors.map((conductor) => structuredClone(conductor))
+  return conductors.map((conductor) => ({
+    ...conductor,
+    ...(conductor.assignment
+      ? {
+          assignment: {
+            ...conductor.assignment,
+            ...(conductor.assignment.port ? { port: { ...conductor.assignment.port } } : {}),
+          },
+        }
+      : {}),
+    ...(conductor.signal ? { signal: { ...conductor.signal } } : {}),
+  }))
 }
 
 function uniqueKeyIndex(conductors: readonly WireConductor[]): Map<string, WireConductor | null> {

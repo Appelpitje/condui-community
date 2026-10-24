@@ -12,6 +12,8 @@ export const DOMOTICA_BRANCH_LEAD = 25
 export const DOMOTICA_BRANCH_CONTROL_LEAD = 15
 /** Gap between the rightmost output symbol and its row label. */
 export const DOMOTICA_CHILD_LABEL_GAP = 8
+/** Space below a nested module reserved for its output-row identity. */
+export const DOMOTICA_CHILD_NOTE_ROW_RESERVE = 23
 export const DOMOTICA_ENDPOINT_OUTPUT_START_Y = 0
 export const DOMOTICA_CONTROL_OUTPUT_Y = 0
 export const DOMOTICA_MIN_ENDPOINT_OUTPUTS = 1

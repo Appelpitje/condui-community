@@ -4,6 +4,7 @@ import { Group, Image, Rect, Text } from 'react-konva'
 import type Konva from 'konva'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useProjectStore } from '@/stores/projectStore'
+import { useUIStore } from '@/stores/uiStore'
 import { getSymbolById } from '@/lib/symbols'
 import { protectionTypeToSymbolKey } from '@/lib/protectionKind'
 import { SYMBOL_EXPORT_ATTR_SVG_PATH, loadProcessedSymbol } from '@/lib/symbolImage'
@@ -293,6 +294,24 @@ export function ProtectionSymbol({
       e.cancelBubble = true
 
       if (e.evt.button != null && e.evt.button !== 0) {
+        return
+      }
+
+      if (e.evt.shiftKey) {
+        const { selection } = useUIStore.getState()
+        if (selection.type === 'protection' && !selection.ids.includes(protection.id)) {
+          setSelection({ type: 'protection', ids: [...selection.ids, protection.id] })
+        } else if (selection.type !== 'protection') {
+          setSelection({ type: 'protection', ids: [protection.id] })
+        }
+        return
+      } else if (e.evt.altKey || e.evt.ctrlKey || e.evt.metaKey) {
+        const { selection } = useUIStore.getState()
+        if (selection.type === 'protection' && selection.ids.includes(protection.id)) {
+          const ids = selection.ids.filter((id) => id !== protection.id)
+          if (ids.length === 0) useUIStore.getState().clearSelection()
+          else setSelection({ type: 'protection', ids })
+        }
         return
       }
 

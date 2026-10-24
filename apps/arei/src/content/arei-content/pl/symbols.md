@@ -105,6 +105,9 @@ Zwykły łącznik włącza i wyłącza punkt świetlny lub urządzenie z jednego
 ### [switch_1p_changeover]
 Łącznik świecznikowy steruje dwoma obwodami osobno z jednego miejsca, na przykład lampą sufitową i reflektorkami w salonie.
 
+### [switch_shutter]
+Łącznik roletowy steruje podnoszeniem i opuszczaniem rolety lub żaluzji. Napędzający silnik należy przedstawić jako osobne urządzenie.
+
 ### [switch_1p_pull]
 Łącznik pociągany obsługuje się sznurkiem, głównie w starszych łazienkach.
 

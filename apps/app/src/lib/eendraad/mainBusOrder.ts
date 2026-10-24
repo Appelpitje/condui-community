@@ -330,6 +330,8 @@ export function protectionDeviceToSubPanelIncomingTrunkDevice(
     curve: protection.curve ?? defaults.curve,
     sensitivityMa: protection.sensitivityMa ?? defaults.sensitivityMa,
     residualCurrentType: protection.residualCurrentType ?? defaults.residualCurrentType,
+    selective: protection.selective,
+    superImmunized: protection.superImmunized,
     breakingCapacityKa: protection.breakingCapacityKa ?? defaults.breakingCapacityKa,
     breakingCapacityOption: protection.breakingCapacityOption ?? defaults.breakingCapacityOption,
     polesConfig: protection.polesConfig ?? defaults.polesConfig,

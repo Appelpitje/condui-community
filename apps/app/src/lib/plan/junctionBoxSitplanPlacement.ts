@@ -10,7 +10,11 @@ import {
 } from '@/lib/projectV2/electrical'
 import { generateId } from '@/utils/project'
 import { buildAutoSitplanPlacement } from './autoSitplanPlacement'
-import { collectSharedJunctions, type JunctionOccurrence } from './sharedJunctionPlacements'
+import {
+  collectSharedJunctions,
+  pruneOrphanJunctionPanelPlacements,
+  type JunctionOccurrence,
+} from './sharedJunctionPlacements'
 import { resolveCircuitSitplanTargetFloorId } from './sitplanTargetFloor'
 
 type JunctionBoxSitplanProject = ProjectWithOptionalV2Building &
@@ -22,12 +26,14 @@ type JunctionBoxSitplanProject = ProjectWithOptionalV2Building &
  * Backfills situation-plan placements for junction boxes and junction panels created before
  * they became situation-plan symbols. A junction box or panel is one physical object however
  * often the one-wire draws it, so each identity gets one placement: occurrences sharing an
- * identity with a placed box stay unplaced. Existing placements are left untouched.
+ * identity with a placed box stay unplaced. Valid placements stay untouched; junction-panel
+ * locations with no remaining electrical occurrence are removed.
  */
 export function healJunctionBoxSitplanPlacements(project: JunctionBoxSitplanProject): boolean {
+  let changed = pruneOrphanJunctionPanelPlacements(project)
   const floors = selectProjectBuildingFloors(project)
   const fallbackFloorId = floors[0]?.id
-  if (!fallbackFloorId) return false
+  if (!fallbackFloorId) return changed
 
   const placementFor = (circuitId: string | undefined) => {
     if (!circuitId) return null
@@ -46,7 +52,6 @@ export function healJunctionBoxSitplanPlacements(project: JunctionBoxSitplanProj
     return true
   }
 
-  let changed = false
   const grouped = new Set<string>()
   for (const junction of collectSharedJunctions(project).values()) {
     for (const occurrence of junction.occurrences) grouped.add(occurrence.entity.id)
@@ -98,7 +103,9 @@ function collectUnnamedJunctionBoxes(
   return result
 }
 
-function collectAllJunctionBoxOccurrences(project: JunctionBoxSitplanProject): JunctionOccurrence[] {
+function collectAllJunctionBoxOccurrences(
+  project: JunctionBoxSitplanProject
+): JunctionOccurrence[] {
   const result: JunctionOccurrence[] = []
   for (const circuit of selectProjectElectricalPanels(project).flatMap(getAllCircuits)) {
     for (const endpoint of circuit.endpoints) {

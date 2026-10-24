@@ -279,6 +279,7 @@
     "zoom": "Zoom"
   },
   "commandPalette": {
+    "addPanelAtDomoticaOutput": "Add panel at output",
     "addSupplyTransformer": "Add supply transformer",
     "placeholder": "Search commands",
     "empty": "No matching commands",
@@ -298,6 +299,7 @@
     "apply": "Apply",
     "unavailable": "Cannot apply this change. Check the values or reopen the action.",
     "fields": {
+      "output": "Output",
       "circuit": "Circuit",
       "position": "Position",
       "row": "Row",
@@ -954,7 +956,8 @@
     "voltage_1x230": "1×230V",
     "lineToNeutral": "Line-to-Neutral (V)",
     "lineToLine": "Line-to-Line (V)",
-    "notes": "Notes"
+    "notes": "Notes",
+    "earthResistance": "Earth resistance"
   },
   "panels": {
     "title": "Distribution boards",
@@ -971,9 +974,8 @@
     "secondaryPanel": "Distribution board {{number}}",
     "diagramLabels": "Diagram labels",
     "panelNumbering": "Panel numbering",
-    "panelNumberingHint": "Adds B01, B02, … in order from the main panel through sub-panels on the one-wire diagram.",
+    "panelNumber": "Panel number",
     "panelNetTypeLabels": "Net type on diagram",
-    "panelNetTypeLabelsHint": "Adds supply, voltage, and earthing lines on the one-wire panel header when an earthing system is set.",
     "earthingSystemLabel": "Earthing system",
     "earthingSystemGridLabel": "Earthing system (grid)",
     "earthingSystemBackupLabel": "Earthing system (backup)",
@@ -993,7 +995,9 @@
     "diagramNetWithEarthing": "Net: {{net}} – {{earthing}}",
     "diagramEarthingSystem": "Earthing system: {{earthing}}",
     "diagramEarthingSystemGrid": "Earthing system (grid): {{earthing}}",
-    "diagramEarthingSystemBackup": "Earthing system (backup): {{earthing}}"
+    "diagramEarthingSystemBackup": "Earthing system (backup): {{earthing}}",
+    "expectedShortCircuit": "Expected max. short-circuit current",
+    "diagramShortCircuit": "Ik max: {{ka}} kA"
   },
   "panel": {
     "deleteConfirmTitle": "Delete Panel(s)?",
@@ -1015,6 +1019,8 @@
     "poles": "Poles",
     "polesConfig": "Pole configuration",
     "residualCurrentType": "Residual current type",
+    "selective": "Selective (S)",
+    "superImmunized": "Super immunized (SI)",
     "breakingCapacity": "Breaking capacity",
     "spdKind": "SPD type",
     "spdStandard": "Lightning protection",
@@ -1025,10 +1031,14 @@
     "poles_3P": "3P",
     "poles_3P_N": "3P+N",
     "poles_4P": "4P (3L+N)",
-    "residualType_AC": "AC (sinusoidal)",
-    "residualType_A": "A (pulsating DC)",
-    "residualType_F": "F (mixed frequency)",
-    "residualType_B": "B (smooth DC)",
+    "residualType_AC": "AC (loads without electronics)",
+    "residualTypeHelp_AC": "Sinusoidal AC only. Check whether type AC is permitted for this installation.",
+    "residualType_A": "A (household circuits)",
+    "residualTypeHelp_A": "AC and pulsating DC. Commonly used for household circuits.",
+    "residualType_F": "F (variable-speed appliances)",
+    "residualTypeHelp_F": "Also mixed frequencies, for example single-phase motor drives. Follow the equipment requirements.",
+    "residualType_B": "B (some EV / PV systems)",
+    "residualTypeHelp_B": "Also smooth DC. Not every EV charger or PV inverter requires type B; check equipment requirements and built-in DC leakage protection.",
     "description": "Description",
     "type_MCB": "Circuit breaker",
     "type_RCD": "Residual current device",
@@ -1222,6 +1232,21 @@
       "field": "Field"
     },
     "controlLink": {
+      "busDevices": "Bus devices",
+      "connection": "Connection",
+      "standard": "Standard",
+      "bus": "Bus",
+      "busName": "Bus name",
+      "busSystem": "Bus system",
+      "moduleSystem": "Module system",
+      "showBusLabel": "Show bus label",
+      "serialNumber": "Serial number",
+      "duplicateDeviceAddress": "Device address already used on this bus",
+      "functions": "Functions",
+      "buttonAddresses": "Button addresses",
+      "buttonNumber": "Button {{number}}",
+      "previousButtons": "Previous",
+      "nextButtons": "Next",
       "section": "Domotics",
       "controlSection": "Control",
       "operates": "Operates",
@@ -1264,6 +1289,7 @@
         "niko_hc": "Niko Home Control",
         "dali": "DALI",
         "loxone": "Loxone",
+        "qbus": "Qbus",
         "other": "Other"
       },
       "controlArea": "Control",
@@ -1289,7 +1315,9 @@
       "count": "Number of panels",
       "groupTitle": "Brand and model",
       "wattage": "Wattage (Wp)",
-      "voltage": "Voltage (V)"
+      "voltage": "Voltage (V)",
+      "wattageProperty": "Wattage (Pmax) (Wp)",
+      "voltageProperty": "Voltage (Umax) (V)"
     },
     "battery": {
       "voltage": "Voltage (V)",
@@ -1456,6 +1484,8 @@
     "labelSourceNotes": "Notes",
     "labelSourceExtra": "Extra",
     "labelSourceTechnical": "Technical",
+    "labelSourceFeeds": "Feeds",
+    "labelSourceMain": "Main",
     "labelCellPlaceholder": "Label",
     "notesCellPlaceholder": "Notes",
     "extraCellPlaceholder": "Add label notes",
@@ -1515,9 +1545,9 @@
       "customStatus": "Custom",
       "setCustomLabel": "Set custom label",
       "useAutomaticLabel": "Use automatic label",
-      "customLabelNonStandardWarning": "This custom label is outside the A, B, C… sequence.",
+      "customLabelNonStandardWarning": "This custom label is outside the automatic sequence.",
       "customLabelDuplicateWarning": "This label is also used by another circuit on this panel.",
-      "customLabelBothWarnings": "This custom label is outside the A, B, C… sequence and is also used by another circuit on this panel.",
+      "customLabelBothWarnings": "This custom label is outside the automatic sequence and is also used by another circuit on this panel.",
       "resetAllLabels": "Reset all labels",
       "resetAllTooltip": "Remove every custom label and return all circuits to automatic naming.",
       "resetAllConfirmTitle": "Reset all custom labels?",
@@ -1525,7 +1555,59 @@
       "resetAllConfirm": "Reset labels",
       "confirmOverwriteTitle": "Replace circuit letters?",
       "confirmOverwriteMessage": "Automatic naming will replace current letters with A, B, C… by row order on each panel. Continue?",
-      "confirmOverwriteConfirm": "Continue"
+      "confirmOverwriteConfirm": "Continue",
+      "scheme": {
+        "searchAliases": "label style numbering circuit letters panel numbers naming",
+        "dialogTitle": "Automatic labels",
+        "style": "Style",
+        "conduiStyles": "Condui styles",
+        "myStyles": "My styles",
+        "customStyle": "Custom (not saved)",
+        "styleClassic": "Classic",
+        "stylePanelLetterLetter": "Panel letter + letter",
+        "styleNumbers": "Numbers",
+        "stylePanelLetterNumber": "Panel letter + number",
+        "stylePanelDotCircuit": "Panel.circuit",
+        "saveStyle": "Save as my style",
+        "updateStyle": "Update “{{name}}”",
+        "deleteStyle": "Delete style",
+        "styleName": "Style name",
+        "separator": "Separator",
+        "prefix": "Prefix",
+        "subPanels": "Sub-panels",
+        "ownNumber": "Own number",
+        "underParent": "Under parent",
+        "circuits": "Circuits",
+        "sequence": "Sequence",
+        "panelInLabel": "Panel in label",
+        "panelPartNone": "None",
+        "panelPartNumber": "Number",
+        "panelPartFull": "Full",
+        "joined": "Joined",
+        "separated": "Separated",
+        "numbersSeparated": "Two numbers are always separated.",
+        "lettersRunTogether": "Past 26 circuits, panel and circuit letters can no longer be told apart.",
+        "branches": "Branches",
+        "changeCount_one": "{{count}} label changes",
+        "changeCount_few": "{{count}} labels change",
+        "changeCount_many": "{{count}} labels change",
+        "changeCount_other": "{{count}} labels change",
+        "apply": "Apply",
+        "customize": "Customize…",
+        "startsAt": "Starts at",
+        "betweenPanelAndCircuit": "Between panel and circuit",
+        "betweenCircuitAndBranch": "Between circuit and branch",
+        "separatorHelp": "Written between the parts of a label wherever they are separated, as in A1.1.",
+        "subPanelsHelp": "Own number continues the sequence; under parent numbers a sub-panel after the panel that feeds it.",
+        "panelInLabelHelp": "What of the panel number starts each circuit label: nothing, the number only, or the full number with prefix.",
+        "numberingHelp": "Numbers boards in residential and non-residential installations.",
+        "prefixHelp": "Letters before each board number, such as B in B1.",
+        "panelSequenceHelp": "Use numbers, padded numbers or letters for boards.",
+        "startHelp": "The first board number. Letter sequences start at A.",
+        "circuitSequenceHelp": "Use uppercase letters, lowercase letters or numbers for circuits.",
+        "betweenPanelAndCircuitHelp": "Join the board and circuit codes or put the separator between them.",
+        "betweenCircuitAndBranchHelp": "Join the circuit code and branch number or put the separator between them."
+      }
     }
   },
   "planImport": {
@@ -1664,6 +1746,7 @@
     "movePoint": "Move wall point",
     "insertDoor": "Insert door",
     "insertWindow": "Insert window",
+    "curvedWallOpeningHint": "Doors and windows cannot be placed on curved walls.",
     "drawStair": "Draw stairs",
     "placeNote": "Note",
     "graphicElements": "Graphic elements",
@@ -1811,6 +1894,11 @@
     "library": "Symbol library",
     "recent": "Recent",
     "favorites": "Favorites",
+    "jump": {
+      "filterOnly": "Ctrl/Cmd+click: show only this",
+      "filterAdd": "Ctrl/Cmd+Shift+click: add to filter",
+      "clearFilter": "Show all categories"
+    },
     "armed": {
       "placing": "Placing: {{name}}",
       "stop": "Stop placing"
@@ -1826,6 +1914,7 @@
     "switch_2p_twoway": "Two-way switch (2-pole)",
     "switch_dimmer": "Dimmer",
     "switch_1p_changeover": "Changeover switch",
+    "switch_shutter": "Roller Shutter Switch",
     "switch_1p_pull": "Pull switch",
     "contact": "Contact",
     "switch_impulse": "Impulse/Push switch",
@@ -1911,6 +2000,7 @@
       "switch_cross": "Cross Switch",
       "switch_dimmer": "Dimmer",
       "switch_1p_changeover": "Changeover Switch",
+      "switch_shutter": "Roller Shutter Switch",
       "switch_1p_pull": "Pull Switch",
       "switch_impulse": "Impulse/Push Switch",
       "motion_detector": "Motion detector",
@@ -2025,6 +2115,75 @@
     "endpoint": "Endpoint"
   },
   "validation": {
+    "incompleteChecks": {
+      "message": "Some checks could not be completed",
+      "details": "Some checks lack information or do not support this installation.",
+      "showChecks": "Checks not completed ({{total}})",
+      "affected": "Affected: {{total}}",
+      "missing": "Missing: {{information}}",
+      "unavailable": "Unavailable: {{information}}",
+      "unknown": "Check information unavailable",
+      "checks": {
+        "supplyRcdCircuitCount": "Circuits per RCD",
+        "cableHasCrossSection": "Cable cross-section",
+        "breakerSizeMatchesCrossSection": "Breaker and cable sizing",
+        "minimumCrossSection": "Minimum cross-section",
+        "dcCrossSectionHeuristic": "DC cable sizing",
+        "protectionPhaseCompatibility": "Poles and supply phases",
+        "earthResistanceWithinLimits": "Earth resistance",
+        "nonHouseholdEarthResistanceEntered": "Earth resistance data",
+        "circuitHasRcdProtection": "RCD protection",
+        "nonHouseholdTtIndirectContact": "TT indirect-contact protection",
+        "rcdHasTooManyCircuits": "Circuits per RCD",
+        "circuitHasTooManyEndpoints": "Points per circuit",
+        "circuitWithinMaximumProtectedLength": "Maximum protected cable length",
+        "circuitShortCircuitProtectionVerifiable": "Short-circuit protection",
+        "nonHouseholdBreakingCapacity": "Breaking capacity",
+        "nonHouseholdBoardShortCircuitStated": "Board short-circuit current",
+        "householdSocketProtection": "Socket circuit protection"
+      },
+      "facts": {
+        "cable-path-conductor-segments": "Cable path / conductor segments",
+        "cable-installation-method": "Cable installation method",
+        "cable-cross-section": "Cable cross-section",
+        "design-current-and-admissible-current-iz-for-the-installation-method": "Design current and allowable current Iz",
+        "upstream-protection-rating": "Upstream protection rating",
+        "validated-ampacity-for-this-cross-section-and-installation-method": "Supported current capacity for this section and installation method",
+        "design-current": "Design current",
+        "dc-cable-cross-section": "DC cable cross-section",
+        "validated-dc-ampacity-for-this-cross-section": "Supported DC current capacity for this section",
+        "dc-design-power-current": "DC design power/current",
+        "dc-operating-voltage": "DC operating voltage",
+        "dc-cable-installation-method": "DC cable installation method",
+        "earth-electrode-resistance": "Earth electrode resistance",
+        "upstream-rcd-rcbo-residual-current-sensitivity-ma": "Upstream RCD/RCBO sensitivity (mA)",
+        "rcd-sensitivity-ma": "RCD sensitivity (mA)",
+        "rcd-sensitivity": "RCD sensitivity",
+        "upstream-main-rcd-and-its-sensitivity": "Upstream main RCD and its sensitivity",
+        "panel-record": "Board data",
+        "circuit-record": "Circuit data",
+        "nominal-voltage-system": "Nominal voltage system",
+        "supported-explicit-phase-system": "Supported supply phase configuration",
+        "protection-pole-configuration-or-incoming-phase-assignment": "Protection poles or incoming phases",
+        "upstream-protective-device": "Upstream protective device",
+        "supported-protective-device-curve-model": "Supported trip-curve model",
+        "protective-device-current-rating": "Protection current rating",
+        "modeled-cable-path": "Cable path",
+        "complete-route-length-connected-cable-anchors": "Complete route length / connected cable anchors",
+        "cable-edge-length": "Cable segment length",
+        "protective-device-trip-curve": "Protection trip curve",
+        "conductor-material": "Conductor material",
+        "expected-maximum-short-circuit-current-at-the-board": "Expected board short-circuit current",
+        "socket-circuit-overcurrent-protection-rating": "Socket circuit protection rating"
+      },
+      "reasons": {
+        "unknown-primitive": "Check not available",
+        "unknown-skip-condition-primitive": "Prerequisite check not available",
+        "no-rule-pack-loaded": "No validation rules loaded",
+        "no-rule-pack-for-jurisdiction": "No rules for this jurisdiction",
+        "prerequisite-could-not-be-evaluated": "Prerequisite could not be checked"
+      }
+    },
     "title": "AREI Validation",
     "disabledOutsideBelgium": "Validation disabled outside Belgium.",
     "belgianRulesOnly": "The app currently only checks AREI rules for Belgium.",
@@ -2123,8 +2282,8 @@
         "rcd-grouping": {
           "shortTitle": "Too many circuits per RCD",
           "message": "Too many circuits under one 30 mA RCD",
-          "details": "A 30 mA RCD should protect at most 8 circuits (RCBO-protected circuits are excluded from this count) to reduce nuisance tripping and limit leakage current accumulation.",
-          "remediation": "Reduce the number of circuits under this RCD or split into multiple RCDs. Circuits protected by an RCBO do not count toward the limit."
+          "details": "A downstream household RCD of at most 30 mA may protect at most 8 final circuits, including circuits with an RCBO and final circuits in sub-boards. The origin RCD itself is outside this limit.",
+          "remediation": "Distribute the final circuits across multiple downstream RCDs, with at most eight per RCD. Include circuits protected by an RCBO in the count."
         },
         "rcd-selectivity": {
           "shortTitle": "RCD selectivity incorrect",
@@ -2284,6 +2443,48 @@
           "message": "A protection or endpoint on the backup supply is not labeled",
           "details": "Backup-supply items are outside the main bus and are not named automatically.",
           "remediation": "Add a clear manual label to every protection and endpoint on the inverter backup branch."
+        },
+        "earth-resistance": {
+          "shortTitle": "Earth resistance too high",
+          "message": "Earth resistance exceeds the AREI limit",
+          "details": "Domestic installations need less than 100 Ω, and above 30 Ω two 30 mA RCDs with at most 16 outlets each. Non-domestic TT installations allow at most 250 Ω, or 500 Ω in dry rooms with non-conductive floors and walls.",
+          "remediation": "Improve the earth electrode, or add RCDs as described."
+        },
+        "nonhousehold-earth-resistance-entered": {
+          "shortTitle": "Earth resistance missing",
+          "message": "Earth resistance is not entered",
+          "details": "The earth resistance is needed to verify protection against indirect contact in a non-domestic TT installation.",
+          "remediation": "Select the earthing symbol and enter the earth resistance."
+        },
+        "nonhousehold-tt-indirect-contact": {
+          "shortTitle": "TT circuit not protected",
+          "message": "Circuit is not protected against indirect contact",
+          "details": "On a TT network, automatic disconnection needs an RCD whose sensitivity satisfies IΔn × RE ≤ UL (50 V in dry conditions).",
+          "remediation": "Add an RCD or RCBO with a suitable sensitivity, or use class II equipment, SELV or electrical separation."
+        },
+        "nonhousehold-board-short-circuit-current": {
+          "shortTitle": "Short-circuit current missing",
+          "message": "Board has no expected short-circuit current",
+          "details": "Non-domestic diagrams and board markings state the expected maximum short-circuit current when it exceeds 3000 A.",
+          "remediation": "Open the board properties and enter the expected maximum short-circuit current."
+        },
+        "nonhousehold-breaking-capacity": {
+          "shortTitle": "Breaking capacity too low",
+          "message": "Breaking capacity is below the expected short-circuit current",
+          "details": "Each overcurrent device needs a breaking capacity of at least the expected short-circuit current where it is installed.",
+          "remediation": "Choose devices with a higher breaking capacity, or confirm cascading with the manufacturer's tables."
+        },
+        "nonhousehold-breaking-capacity-shown": {
+          "shortTitle": "Breaking capacity missing",
+          "message": "Breaking capacity is not entered",
+          "details": "Non-domestic circuit diagrams state the breaking capacity of every protective device.",
+          "remediation": "Select each listed device and choose its breaking capacity."
+        },
+        "nonhousehold-supply-transformer": {
+          "shortTitle": "Transformer data missing",
+          "message": "Supply transformer data is incomplete",
+          "details": "Non-domestic diagrams state the characteristics of the sources, including the apparent power and short-circuit voltage of a supply transformer.",
+          "remediation": "Select the supply transformer and enter its rated power and short-circuit voltage."
         }
       }
     },
@@ -2310,6 +2511,48 @@
       "branchMultiplierEndpointsSplit": "Circuit {{circuitCode}}: branch \"{{branchLabel}}\" lists {{absorbCount}} extra multiplier symbol(s) (e.g. lights) as separate endpoints; they should be one endpoint with multiple plan placements. Use Repair in the Orphan Inspector."
     },
     "primitives": {
+      "feedbackSafety": {
+        "rcdOverload": {
+          "message": "RCD current rating is too low",
+          "details": "The marked RCD can carry more than its rated current from the connected sources. Check its rating and the overcurrent devices limiting that path. A pure RCD does not provide overload protection."
+        },
+        "rcdType": {
+          "message": "Household RCD must be type A, F or B",
+          "details": "Replace the type AC device with a suitable type A, F or B RCD."
+        },
+        "breakingCapacity": {
+          "message": "Breaking capacity not specified",
+          "details": "Enter the confirmed breaking capacity of each overcurrent device, including supply devices. An unknown value cannot be validated."
+        },
+        "earthingSeparator": {
+          "message": "Earthing disconnector missing",
+          "details": "Add an earthing disconnector to each earth-electrode connection so its resistance can be measured."
+        },
+        "socketSafety": {
+          "message": "Socket lacks earth contact or child protection",
+          "details": "Ordinary household sockets need a protective-earth contact and child protection. Confirm any documented exception for existing installations."
+        },
+        "socketProtection": {
+          "message": "Ordinary socket protection exceeds its limit",
+          "details": "Use a circuit breaker of at most 20 A or a fuse of at most 16 A for ordinary household sockets. A larger cable alone does not permit a larger protective device."
+        },
+        "placement": {
+          "message": "Cable installation method not specified",
+          "details": "Enter the cable route or installation method to complete the diagram and verify cable sizing."
+        },
+        "fireClass": {
+          "message": "Cable fire class not specified",
+          "details": "Enter the verified cable fire class. Its suitability depends on the building and installation context; an unknown class is incomplete information."
+        },
+        "evCoordination": {
+          "message": "Check upstream RCD DC coordination for EV charging",
+          "details": "Several chargers with 6 mA DC detection, or a downstream type B RCD, can expose an upstream type A RCD to excessive DC. Use type B upstream or verify the manufacturer’s permitted combination and charger count."
+        },
+        "rcdCircuitCount": {
+          "message": "Supply RCD protects more than eight final circuits",
+          "details": "A downstream household RCD of at most 30 mA may protect at most 8 final circuits, including circuits with an RCBO and final circuits in sub-boards. The origin RCD itself is outside this limit."
+        }
+      },
       "supplyModePaths": {
         "message": "No valid grid/backup path for {{phases}}",
         "details": "The one-line topology does not provide a complete, coordinated grid and backup path for {{phases}}.",
@@ -2325,6 +2568,10 @@
         "details": "Duplicate protection names on the same panel (main bus, secondary bus, or supply) make circuits hard to identify. Rename one protection or enable automatic naming."
       },
       "controlLinkIntegrity": {
+        "duplicateBusDeviceAddress": {
+          "message": "Device address {{address}} is already used on this bus",
+          "details": "Assign each device on this bus a unique address."
+        },
         "dangling": {
           "message": "{{endpoint}} is operated by a device that no longer exists",
           "details": "Pick another device in Operated by, or clear the link."
@@ -2501,7 +2748,7 @@
       },
       "rcdHasTooManyCircuits": {
         "message": "RCD has too many circuits ({{circuitCount}} > {{threshold}})",
-        "details": "Circuits under one 30 mA RCD should respect a maximum count ({{threshold}}) to reduce nuisance tripping and limit leakage current accumulation. RCBO-protected circuits are excluded."
+        "details": "A downstream household RCD of at most 30 mA may protect at most {{threshold}} final circuits, including circuits with an RCBO and final circuits in sub-boards. The origin RCD itself is outside this limit."
       },
       "rcdSelectivity": {
         "message": "RCD selectivity: upstream RCD must be less sensitive than downstream (e.g. 300 mA main, 30 mA sub)",
@@ -2589,6 +2836,58 @@
       "fixedApplianceDedicatedCircuitHint": {
         "message": "Fixed appliance(s) {{applianceLabels}} on circuit {{circuitCode}} share the circuit with other loads",
         "details": "Fixed appliances are often placed on their own circuit so the cable size and protection match the appliance and possible future replacements. Consider moving these appliances to their own circuit without extra sockets, lights or other loads."
+      },
+      "earthResistanceWithinLimits": {
+        "nonHouseholdDryOnly": {
+          "message": "Earth resistance {{ohm}} Ω is only allowed in dry, non-conductive rooms"
+        },
+        "nonHouseholdTooHigh": {
+          "message": "Earth resistance {{ohm}} Ω is above 500 Ω"
+        },
+        "nonHousehold": {
+          "details": "With residual-current protection in a non-domestic installation, the earth resistance may not exceed 500 Ω in dry rooms with non-conductive floors and walls (AD1, BB1, BC1) and 250 Ω in other rooms."
+        },
+        "householdTooHigh": {
+          "message": "Earth resistance {{ohm}} Ω is not below 100 Ω",
+          "details": "The earth electrode of a domestic installation must have a resistance below 100 Ω."
+        },
+        "householdSplitRcd": {
+          "message": "Earth resistance {{ohm}} Ω needs at least two 30 mA RCDs",
+          "details": "Above 30 Ω, a domestic installation needs at least two high-sensitivity RCDs (30 mA), each with at most 16 socket outlets or equivalent fixed appliances."
+        },
+        "householdOutlets": {
+          "message": "More than 16 outlets behind: {{labels}}"
+        }
+      },
+      "nonHouseholdEarthResistanceEntered": {
+        "message": "Earth resistance is not entered",
+        "details": "In a non-domestic TT installation, the earth resistance decides which RCD sensitivity protects against indirect contact (IΔn × RE ≤ UL)."
+      },
+      "nonHouseholdTtIndirectContact": {
+        "missing": {
+          "message": "Circuit {{circuitCode}} has no residual-current protection on a TT network",
+          "details": "On a TT network, overcurrent devices alone do not disconnect an earth fault in time. Protect the circuit with an RCD or RCBO, or use class II equipment, SELV or electrical separation."
+        },
+        "insensitive": {
+          "message": "Circuit {{circuitCode}}: {{sensitivityMa}} mA RCD is not sensitive enough for the earth resistance",
+          "details": "IΔn × RE must not exceed 50 V. With {{ohm}} Ω, use an RCD of at most {{maxSensitivityMa}} mA. In wet conditions (BB2) the limit is 25 V."
+        }
+      },
+      "nonHouseholdBoardShortCircuitStated": {
+        "message": "Board {{panelName}} has no expected short-circuit current",
+        "details": "Non-domestic diagrams and board markings state the expected maximum short-circuit current when it exceeds 3000 A. It is also needed to verify breaking capacities."
+      },
+      "nonHouseholdBreakingCapacity": {
+        "message": "Breaking capacity below {{ka}} kA: {{labels}}",
+        "details": "The expected short-circuit current at this board is {{ka}} kA. Each overcurrent device needs at least that breaking capacity, unless an upstream device covers it by cascading (filiation) according to the manufacturer's tables."
+      },
+      "nonHouseholdBreakingCapacityShown": {
+        "message": "Breaking capacity not entered: {{labels}}",
+        "details": "Non-domestic circuit diagrams state the breaking capacity of every protective device."
+      },
+      "nonHouseholdSupplyTransformerDocumented": {
+        "message": "Supply transformer power or short-circuit voltage is missing",
+        "details": "Non-domestic diagrams state the characteristics of the sources, including the apparent power and impedance of a supply transformer."
       }
     },
     "citations": {
@@ -2711,7 +3010,13 @@
     "export": "Export",
     "errorTitle": "Label export failed",
     "errorMessage": "The label export could not be created. Please try again.",
-    "generatedDescription": "{{type}} feeding {{items}}"
+    "generatedDescription": "{{type}} feeding {{items}}",
+    "mainRoleSwitch": "Main switch",
+    "mainRoleRcd": "Main RCD",
+    "mainRoleProtection": "Main protection",
+    "boardLabels": "Board labels",
+    "boardLabel": "Board label",
+    "boardFedFromCircuit": "Fed from {{source}}, circuit {{circuit}}"
   },
   "panelRelationOverview": "Panel relation overview",
   "properties": {
@@ -2844,7 +3149,7 @@
     "categoryDomotica": "Smarthome / Domotica",
     "categoryStove": "Stove junction boxes",
     "categoryPanels": "Distribution boards",
-    "categoryWires": "Wires",
+    "categoryWires": "Cables",
     "wireLengthTotal": "{{length}} total",
     "wireLengthEstimate": "Rough plan estimate: {{length}}",
     "wireLengthEstimateShort": "est. {{length}}",
@@ -2874,6 +3179,7 @@
     "csvDetails": "Details"
   },
   "wires": {
+    "wireTypeLabel": "Wire type",
     "cableDefault": "Default",
     "makeCableDefault": "Make default",
     "useCableDefault": "Use default",
@@ -3557,6 +3863,31 @@
     },
     "bridgeThroughRail": "Earth is already joined through the rail",
     "shapeOf": "Shape"
+  },
+  "materialListExport": {
+    "cableMargin": "Cable margin (%)",
+    "invalidCableMargin": "Enter a valid percentage of 0 or more.",
+    "skipSupplyPanel": "Skip items in the grid panel",
+    "title": "Export material list",
+    "menu": "Material list",
+    "export": "Export",
+    "searchAliases": "Excel CSV Robaws bill of materials quantities",
+    "preset": "Preset",
+    "standard": "Standard",
+    "format": "File format",
+    "categories": "Categories",
+    "description": "Description",
+    "quantity": "Quantity",
+    "unit": "Unit",
+    "piece": "pcs",
+    "estimated": "Estimated length",
+    "partialLength": "Partial length",
+    "includePlanEstimates": "Include plan-based cable estimates",
+    "roundCableLengths": "Round cable lengths up to whole metres",
+    "missingLengths": "Cable runs without a length are omitted. Incomplete totals are marked as partial.",
+    "robawsImport": "In a Robaws offer, choose Upload and map Omschrijving, Aantal and Eenheid. Add prices in Robaws.",
+    "empty": "No materials selected.",
+    "error": "The export could not be created. Please try again."
   },
   "oneWireReference": {
     "title": "Scanned page",

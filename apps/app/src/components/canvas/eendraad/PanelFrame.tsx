@@ -1,6 +1,12 @@
+import { LabelPreviewText } from './LabelPreviewText'
 import { useCallback, useDeferredValue, useMemo } from 'react'
+import {
+  useOneWireAccessProjectId,
+  useOneWireHidesInfoBlock,
+  useOneWireProjectSelector,
+} from './oneWireRenderProject'
 import { ZOOM_100 } from '@/constants/canvasConstants'
-import { Group, Rect, Text } from 'react-konva'
+import { Group, Rect } from 'react-konva'
 import { useTranslation } from 'react-i18next'
 import { useUIStore } from '@/stores/uiStore'
 import {
@@ -11,7 +17,6 @@ import {
   useSetSelection,
 } from '@/editions/community/communityHooks'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { getEendraadRenderProjectRevision } from '@/lib/layout/eendraadDerivedLayout'
 import { useEffectiveInstallerProfile } from '@/hooks/useEffectiveInstallerProfile'
 import { useCanvasFontFamily, useEffectiveCanvasZoom } from '@/editions/community/communityHooks'
@@ -40,14 +45,14 @@ import {
 } from '@/lib/infoBlockLayout'
 import {
   buildPanelDiagramHeaderLines,
-  buildPanelNumberIndexById,
+  buildPanelCodeById,
   buildSupplyDiagramHeaderLines,
   findParentPanel,
   PANEL_DIAGRAM_HEADER_LINE_HEIGHT,
   PANEL_FRAME_HEADER_TOP_INSET,
 } from '@/lib/panel/panelDiagramLabels'
 import type { BottomUpPanelLayout } from '@/lib/layout/bottomUpLayout'
-import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
+import { getProjectElectricalInstallation, getProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import { panelHasBackupOutput } from '@/lib/panel/panelFeedOrganization'
 import { findPanelById } from '@/lib/panel/panelTree'
 
@@ -77,11 +82,14 @@ export function PanelFrame({ panelLayout, children }: PanelFrameProps) {
   const isSelected = isVirtualSupplyFrame ? supplyIsSelected : panelIsSelected
   const isHovered = !isVirtualSupplyFrame && panelIsHovered
   const canvasZoom = useEffectiveCanvasZoom(ZOOM_100, 'eendraad')
-  const liveProject = useProjectStore((s: ProjectState) =>
+  const liveProject = useOneWireProjectSelector((s) =>
     s.currentProject ? getEendraadRenderProjectRevision(s.currentProject) : null
   )
   const currentProject = useDeferredValue(liveProject)
-  const { advancedPanelLabels } = useEditionFeatureAvailability(currentProject?.project.id)
+  const hideInfoBlock = useOneWireHidesInfoBlock()
+  const { advancedPanelLabels } = useEditionFeatureAvailability(
+    useOneWireAccessProjectId(currentProject?.project.id)
+  )
   const { profile } = useEffectiveInstallerProfile(currentProject ?? null)
   const isDark = theme.mode === 'dark'
   const frameColor = getFrameColor(isDark)
@@ -107,12 +115,12 @@ export function PanelFrame({ panelLayout, children }: PanelFrameProps) {
     if (!currentProject) {
       return [{ text: panelLayout.panel.name, variant: 'title' as const }]
     }
-    const numberIndexById = buildPanelNumberIndexById(rootPanels)
+    const panelCodeById = buildPanelCodeById(rootPanels, getProjectElectricalInstallation(currentProject))
     const parentPanel = findParentPanel(rootPanels, panelLayout.panel.id)
     return buildPanelDiagramHeaderLines(currentProject, panelLayout.panel, t, {
       advancedLabelsEnabled: advancedPanelLabels,
       parentPanel,
-      numberIndexById,
+      panelCodeById,
       backupFeedActive,
     })
   }, [
@@ -326,7 +334,7 @@ export function PanelFrame({ panelLayout, children }: PanelFrameProps) {
       />
 
       {headerLines.map((line, index) => (
-        <Text
+        <LabelPreviewText section="panels"
           key={`panel-header-${index}`}
           name="export-strip-frame"
           x={titleX}
@@ -342,14 +350,16 @@ export function PanelFrame({ panelLayout, children }: PanelFrameProps) {
 
       {children}
 
-      <InfoBlock
-        x={infoBlockX}
-        y={infoBlockY}
-        viewTitle={t('infoBlock.viewTitle.oneWire', 'One-wire diagram')}
-        project={currentProject ?? null}
-        profile={profile}
-        interactive={true}
-      />
+      {hideInfoBlock ? null : (
+        <InfoBlock
+          x={infoBlockX}
+          y={infoBlockY}
+          viewTitle={t('infoBlock.viewTitle.oneWire', 'One-wire diagram')}
+          project={currentProject ?? null}
+          profile={profile}
+          interactive={true}
+        />
+      )}
     </Group>
   )
 }

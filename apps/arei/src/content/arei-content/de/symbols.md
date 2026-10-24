@@ -105,6 +105,9 @@ Ein Dimmer regelt die Helligkeit eines Lichtauslasses.
 ### [switch_1p_changeover]
 Ein Serienschalter bedient zwei Stromkreise getrennt von einer Stelle aus, etwa Deckenlicht und Spots im Wohnzimmer.
 
+### [switch_shutter]
+Ein Rollladenschalter steuert die Auf- und Abbewegung eines Rollladens oder einer Jalousie. Stellen Sie den angetriebenen Motor als separates Gerät dar.
+
 ### [switch_1p_pull]
 Ein Zugschalter wird über eine Schnur bedient, vor allem in älteren Badezimmern.
 

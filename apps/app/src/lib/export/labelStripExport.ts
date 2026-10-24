@@ -19,15 +19,23 @@ import {
   getProjectElectricalPanels,
   selectProjectAuxiliaryElectricalEnclosures,
 } from '@/lib/projectV2/electrical'
-import { resolveModuleWidthCols } from '@/lib/panel/panelGridLayout'
+import { getPanelGridPlacements, resolveModuleWidthCols } from '@/lib/panel/panelGridLayout'
+import { getSharedSupplyFrameDevices } from '@/lib/panel/sharedSupplyFrame'
 import { DEFAULT_PANEL_GRID_COLUMNS } from '@/lib/panel/panelGridDefaults'
 import { RESIDUAL_CURRENT_DELTA } from '@/lib/protectionLabels'
 import {
   getPanelLabelSources,
+  getPanelLabelSourceText,
   getPanelLabelText,
   getPanelLabelValues,
 } from '@/lib/panel/panelLabelContent'
+import {
+  getPanelMainProtectionRole,
+  panelMainProtectionRoleText,
+  panelMainProtectionSide,
+} from '@/lib/panel/panelMainProtection'
 import { getPanelCanvasOverflowModuleKeys } from './labelStripReadiness'
+import { buildBoardLabels, type BoardLabel } from './boardLabels'
 import { panelGridModuleRefKey } from '@/lib/panel/panelGridLayout'
 import { exportLog } from './exportLogger'
 import conduiLogoSvg from '../../../public/logos/Condui_logo.svg?raw'
@@ -87,6 +95,8 @@ export interface LabelStripExportOptions {
   includeTerminalStrips: boolean
   skipEmptyRows: boolean
   selectedSourceKeys: string[]
+  /** Adds an identification label for the outside of each selected board. */
+  includeBoardLabels?: boolean
 }
 
 export interface LabelStripModule {
@@ -111,11 +121,16 @@ export interface LabelStripSegment {
   bottomParts?: LabelStripContentPart[]
   topAlignment?: 'left' | 'center' | 'right' | 'justify'
   bottomAlignment?: 'left' | 'center' | 'right' | 'justify'
+  /** Inverted band naming the board's main protection, printed on `mainSide` in double mode. */
+  mainRole?: string
+  mainSide?: 'top' | 'bottom'
 }
 
 interface LabelStripContentPart {
   source: string
   text: string
+  /** Range form of a downstream-circuit list, for printers with less room. */
+  compactText?: string
   technicalParts?: Array<{ text: string; framed?: boolean }>
 }
 
@@ -164,6 +179,7 @@ interface PageSpec {
 interface PackedPage {
   spec: PageSpec
   items: Array<{ item: LayoutItem; x: number; y: number }>
+  boards: Array<{ board: BoardLabel; x: number; y: number }>
 }
 
 const PAGE_MARGIN_MM = 15
@@ -285,16 +301,40 @@ function segmentForModule(
     technical,
   })
   const widthCols = resolveModuleWidthCols(primary, project, module.slot)
-  const partsForSide = (side: 'top' | 'bottom') =>
-    getPanelLabelSources(values.config, side)
+  const mainRole = getPanelMainProtectionRole(primary, project, values.config)
+  const mainSide = panelMainProtectionSide(
+    getPanelLabelSources(values.config, 'top'),
+    getPanelLabelSources(values.config, 'bottom')
+  )
+  const [firstHeight, secondHeight] = heightPair(include)
+  const partsForSide = (side: 'top' | 'bottom') => {
+    const sources = getPanelLabelSources(values.config, side)
+    const double = include.stripMode === 'double'
+    const cellHeight = double && side === 'bottom' ? secondHeight : firstHeight
+    const bandHeight =
+      mainRole && (!double || mainSide === side) ? mainBandHeightMm(cellHeight) : 0
+    const otherLines = sources.filter((source) => source !== 'feeds' && values[source]).length
+    // Downstream circuits print as a list when the whole list fits, otherwise as ranges.
+    const feedsText = () =>
+      !sources.includes('label') &&
+      fitsLines(
+        values.feeds,
+        widthCols * MODULE_WIDTH_MM - 2,
+        cellHeight - bandHeight - otherLines * 4
+      )
+        ? values.feeds
+        : values.feedsCompact
+    return sources
       .map((source) => ({
         source,
-        text: values[source],
+        text: source === 'feeds' ? feedsText() : getPanelLabelSourceText(source, sources, values),
+        ...(source === 'feeds' ? { compactText: values.feedsCompact } : {}),
         ...(source === 'technical' && values.technicalParts
           ? { technicalParts: values.technicalParts }
           : {}),
       }))
       .filter((part) => part.text.length > 0)
+  }
   return {
     identifier: getPanelLabelText(values.config, 'top', values),
     description: getPanelLabelText(values.config, 'bottom', values),
@@ -303,6 +343,16 @@ function segmentForModule(
     topAlignment: values.config?.top?.alignment ?? 'center',
     bottomAlignment: values.config?.bottom?.alignment ?? 'center',
     widthMm: Math.max(6, widthCols * MODULE_WIDTH_MM),
+    ...(mainRole
+      ? {
+          mainRole: panelMainProtectionRoleText(
+            mainRole,
+            (key, defaultValue) => i18n.t(key, { defaultValue }),
+            i18n.language
+          ),
+          mainSide,
+        }
+      : {}),
   }
 }
 
@@ -315,16 +365,64 @@ function moduleIsIncluded(
   return segmentForModule(module, project, index, options) !== null
 }
 
-function modulesForPanel(
-  panelId: string,
-  provider: LabelStripModuleProvider,
-  project: ProjectWithOptionalV2Electrical,
-  index: EntityIndex,
-  options: LabelStripExportOptions
+/** The main board's supply band, laid out exactly as the panel canvas draws it. */
+function sharedSupplyModules(
+  panel: Panel,
+  project: ProjectWithOptionalV2Electrical
 ): LabelStripModule[] {
-  return provider(panelId).filter(
-    (module) => module.inSupplyPanel !== true && moduleIsIncluded(module, project, index, options)
+  const refs: PanelGridModuleRef[] = getSharedSupplyFrameDevices(project).map((device) => ({
+    kind: 'trunkDevice',
+    id: device.id,
+    scope: 'supply',
+  }))
+  const keys = new Set(refs.map(panelGridModuleRefKey))
+  const slots = new Map(
+    (panel.gridView?.supplyPanelSlots ?? [])
+      .filter((slot) => keys.has(panelGridModuleRefKey(slot.module)))
+      .map((slot) => [panelGridModuleRefKey(slot.module), slot] as const)
   )
+  const layoutPanel: Panel = {
+    ...panel,
+    gridView: {
+      rows: 1,
+      columns: panel.gridView?.columns ?? DEFAULT_PANEL_GRID_COLUMNS,
+      feedFromTop: panel.gridView?.feedFromTop ?? false,
+      slots: [...slots.values()],
+    },
+  }
+  return getPanelGridPlacements(
+    layoutPanel,
+    project,
+    refs.map((ref) => ({ ref, slot: slots.get(panelGridModuleRefKey(ref)) }))
+  ).map((placement) => {
+    const slot = slots.get(panelGridModuleRefKey(placement.ref))
+    return {
+      ref: placement.ref,
+      slot: {
+        row: placement.row,
+        col: placement.col,
+        moduleWidth: slot?.moduleWidth,
+        moduleWidthManual: slot?.moduleWidthManual,
+      },
+      inSupplyPanel: true,
+    }
+  })
+}
+
+/** Modules the panel canvas draws; earthing devices never appear on it. */
+function canvasModules(
+  panel: Panel,
+  project: ProjectWithOptionalV2Electrical,
+  provider: LabelStripModuleProvider
+): LabelStripModule[] {
+  const modules = provider(panel.id).filter(
+    (module) => !(module.ref.kind === 'trunkDevice' && module.ref.scope === 'ground')
+  )
+  if (!panel.isMain) return modules
+  return [
+    ...modules.filter((module) => module.inSupplyPanel !== true),
+    ...sharedSupplyModules(panel, project),
+  ]
 }
 
 function modulesForVirtual(enclosure: AuxiliaryElectricalEnclosure): LabelStripModule[] {
@@ -347,13 +445,15 @@ function buildSourceRows(
   const panels = flattenPanels(getProjectElectricalPanels(project))
   for (const panel of panels) {
     if (!selected.has(sourceKey('panel', panel.id))) continue
-    const providedModules = provider(panel.id).filter((module) => module.inSupplyPanel !== true)
+    const providedModules = canvasModules(panel, project, provider)
     const overflowModuleKeys = getPanelCanvasOverflowModuleKeys(
       panel,
       project,
       providedModules
     )
-    const exportableModules = modulesForPanel(panel.id, provider, project, index, options)
+    const exportableModules = providedModules.filter((module) =>
+      moduleIsIncluded(module, project, index, options)
+    )
     const modules = exportableModules.filter(
       (module) => !overflowModuleKeys.has(panelGridModuleRefKey(module.ref))
     )
@@ -400,26 +500,43 @@ function buildSourceRows(
       group.modules.push(module)
       grouped.set(key, group)
     }
-    const configuredRows = panel.gridView?.rows ?? 0
-    const occupiedRows = [...grouped.values()]
-    const rowCount = Math.max(configuredRows, ...occupiedRows.map((group) => group.row + 1), 0)
-    const groups = options.skipEmptyRows
-      ? occupiedRows.sort((left, right) => left.row - right.row)
-      : Array.from(
-          { length: rowCount },
-          (_, row) => grouped.get(`main:${row}`) ?? { row, inSupplyPanel: false, modules: [] }
-        )
+    const areaGroups = (inSupplyPanel: boolean) => {
+      const area = inSupplyPanel ? 'supply' : 'main'
+      const occupied = [...grouped.values()].filter(
+        (group) => group.inSupplyPanel === inSupplyPanel
+      )
+      if (options.skipEmptyRows) return occupied.sort((left, right) => left.row - right.row)
+      // The supply area only exists on the canvas once a module has been placed in it.
+      const configuredRows = inSupplyPanel
+        ? occupied.length > 0
+          ? (panel.gridView?.supplyPanelRows ?? 0)
+          : 0
+        : (panel.gridView?.rows ?? 0)
+      const rowCount = Math.max(configuredRows, ...occupied.map((group) => group.row + 1), 0)
+      return Array.from(
+        { length: rowCount },
+        (_, row) => grouped.get(`${area}:${row}`) ?? { row, inSupplyPanel, modules: [] }
+      )
+    }
+    const supplyLabel = `${panel.name} · ${i18n.t('panelCanvas.supplyPanel', { defaultValue: 'Grid panel' })}`
+    // Print in the order the canvas shows: the supply area sits above the board when it is
+    // the main board or fed from the top, otherwise below it.
+    const supplyFirst = panel.isMain === true || panel.gridView?.feedFromTop === true
+    const groups = supplyFirst
+      ? [...areaGroups(true), ...areaGroups(false)]
+      : [...areaGroups(false), ...areaGroups(true)]
     for (const group of groups) {
       if (group.modules.length > 0 || !options.skipEmptyRows) {
         rows.push({
-          sourceLabel: panel.name,
+          sourceLabel: group.inSupplyPanel ? supplyLabel : panel.name,
           row: group.row,
           modules: group.modules,
-          columnCount: group.inSupplyPanel
-            ? (panel.gridView?.supplyPanelColumns ??
-              panel.gridView?.columns ??
-              DEFAULT_PANEL_GRID_COLUMNS)
-            : (panel.gridView?.columns ?? DEFAULT_PANEL_GRID_COLUMNS),
+          columnCount:
+            group.inSupplyPanel && !panel.isMain
+              ? (panel.gridView?.supplyPanelColumns ??
+                panel.gridView?.columns ??
+                DEFAULT_PANEL_GRID_COLUMNS)
+              : (panel.gridView?.columns ?? DEFAULT_PANEL_GRID_COLUMNS),
         })
       }
     }
@@ -636,6 +753,36 @@ function renderCellText(
   )
 }
 
+const FITTED_TEXT_SIZES_MM = [3.2, 2.8, 2.5, 2.2]
+
+function wrappedLineCount(value: string, width: number, size: number): number {
+  return wrapText(value, Math.max(3, Math.floor(width / (size * 0.62))), Number.MAX_SAFE_INTEGER)
+    .length
+}
+
+/** True when every line fits at the smallest printable size. */
+function fitsLines(value: string, width: number, height: number): boolean {
+  const size = FITTED_TEXT_SIZES_MM.at(-1)!
+  return wrappedLineCount(value, width, size) * size * 1.2 <= height - 2
+}
+
+/** Multi-line text at the largest size that keeps every line inside the cell. */
+function renderFittedText(
+  value: string,
+  cellX: number,
+  y: number,
+  width: number,
+  height: number,
+  alignment: 'left' | 'center' | 'right' | 'justify'
+): string {
+  const size =
+    FITTED_TEXT_SIZES_MM.find(
+      (candidate) => wrappedLineCount(value, width, candidate) * candidate * 1.2 <= height - 2
+    ) ?? FITTED_TEXT_SIZES_MM.at(-1)!
+  const maxLines = Math.max(1, Math.floor((height - 2) / (size * 1.2)))
+  return textSvg(value, cellX + width / 2, y, width, height, maxLines, false, [size], alignment)
+}
+
 function renderCellParts(
   parts: LabelStripContentPart[] | undefined,
   fallback: string,
@@ -655,6 +802,9 @@ function renderCellParts(
     .map((part) => part.text)
     .filter(Boolean)
     .join('\n')
+  if (!label && parts?.some((part) => part.source === 'feeds')) {
+    return renderFittedText(secondary, cellX, y, cellWidth, height, alignment)
+  }
   if (!label) return renderCellText(secondary || fallback, cellX, y, cellWidth, height, false, alignment)
   if (!secondary) return renderCellText(label, cellX, y, cellWidth, height, true, alignment)
 
@@ -732,6 +882,26 @@ function technicalPartsSvg(
       return `${frame}${triangle}<text x="${residualTextX.toFixed(2)}" y="${baseline.toFixed(2)}" text-anchor="start" font-family="Arial, sans-serif" font-size="${size}" font-weight="400" fill="#111827">${escapeXml(plainText)}</text>`
     })
     .join('')
+}
+
+const MAIN_BAND_MAX_HEIGHT_MM = 6.2
+
+function mainBandHeightMm(stripHeight: number): number {
+  return Math.min(MAIN_BAND_MAX_HEIGHT_MM, stripHeight * 0.26)
+}
+
+/** Black band with white text across the full module; returns the height it takes. */
+function mainBandSvg(
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  stripHeight: number
+): { svg: string; height: number } {
+  const height = mainBandHeightMm(stripHeight)
+  const fontSize = Math.min(height * 0.62, (width - 2) / Math.max(1, text.length * 0.74))
+  const svg = `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${width.toFixed(2)}" height="${height.toFixed(2)}" fill="#111827"/><text x="${(x + width / 2).toFixed(2)}" y="${(y + height / 2 + fontSize * 0.36).toFixed(2)}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${fontSize.toFixed(2)}" font-weight="700" fill="#ffffff">${escapeXml(text)}</text>`
+  return { svg, height }
 }
 
 function dimensionLabel(
@@ -845,21 +1015,34 @@ function renderStrip(
     result += `</g>${horizontalCutLine(x, top + stripHeight + HORIZONTAL_CUT_OFFSET_MM, totalWidth, top + stripHeight)}`
     return result
   }
+  const withMainBand = (
+    segment: LabelStripSegment,
+    side: 'top' | 'bottom',
+    cellX: number,
+    top: number,
+    stripHeight: number,
+    content: (contentTop: number, contentHeight: number) => string
+  ) => {
+    const showBand = segment.mainRole && (!doubleMode || (segment.mainSide ?? 'bottom') === side)
+    if (!showBand) return content(top, stripHeight)
+    const band = mainBandSvg(segment.mainRole!, cellX - 1, top, segment.widthMm, stripHeight)
+    return `${band.svg}${content(top + band.height, stripHeight - band.height)}`
+  }
   const first = renderOne(
     y,
     height,
-    (segment, cellX) => {
-      const value = doubleMode ? segment.identifier : segment.description
-      return renderCellParts(
-        doubleMode ? segment.topParts : segment.bottomParts,
-        value,
-        cellX,
-        y,
-        segment.widthMm - 2,
-        height,
-        doubleMode ? segment.topAlignment : segment.bottomAlignment
-      )
-    },
+    (segment, cellX) =>
+      withMainBand(segment, doubleMode ? 'top' : 'bottom', cellX, y, height, (top, cellHeight) =>
+        renderCellParts(
+          doubleMode ? segment.topParts : segment.bottomParts,
+          doubleMode ? segment.identifier : segment.description,
+          cellX,
+          top,
+          segment.widthMm - 2,
+          cellHeight,
+          doubleMode ? segment.topAlignment : segment.bottomAlignment
+        )
+      ),
     `${totalWidth} mm`
   )
   if (!doubleMode) return first
@@ -867,18 +1050,18 @@ function renderStrip(
   const second = renderOne(
     secondY,
     secondHeight,
-    (segment, cellX) => {
-      const value = segment.description
-      return renderCellParts(
-        segment.bottomParts,
-        value,
-        cellX,
-        secondY,
-        segment.widthMm - 2,
-        secondHeight,
-        segment.bottomAlignment
-      )
-    },
+    (segment, cellX) =>
+      withMainBand(segment, 'bottom', cellX, secondY, secondHeight, (top, cellHeight) =>
+        renderCellParts(
+          segment.bottomParts,
+          segment.description,
+          cellX,
+          top,
+          segment.widthMm - 2,
+          cellHeight,
+          segment.bottomAlignment
+        )
+      ),
     `${totalWidth} mm`,
     false
   )
@@ -950,13 +1133,14 @@ function layoutItemWidth(item: LayoutItem): number {
 function packItems(
   strips: LabelStrip[],
   spec: PageSpec,
-  options: LabelStripExportOptions
+  options: LabelStripExportOptions,
+  boards: BoardLabel[] = []
 ): PackedPage[] {
   const maxWidth = spec.width - PAGE_MARGIN_MM * 2
   const [firstHeight, secondHeight] = heightPair(options)
   const items = strips.flatMap((strip) => splitStripForWidth(strip, maxWidth))
   const pages: PackedPage[] = []
-  let page: PackedPage = { spec, items: [] }
+  let page: PackedPage = { spec, items: [], boards: [] }
   let x = PAGE_MARGIN_MM
   let y = PAGE_MARGIN_MM
   const itemHeight =
@@ -965,7 +1149,7 @@ function packItems(
     (options.stripMode === 'double' ? 5 + secondHeight : 0) +
     CUT_MARK_MM * 2
   const startPage = () => {
-    page = { spec, items: [] }
+    page = { spec, items: [], boards: [] }
     pages.push(page)
     x = PAGE_MARGIN_MM
     y = PAGE_MARGIN_MM
@@ -981,7 +1165,70 @@ function packItems(
     page.items.push({ item, x, y })
     x += width + COLUMN_GAP_MM
   }
-  return pages.filter((candidate) => candidate.items.length > 0)
+  // Board labels follow the strips, starting on a fresh row.
+  const boardHeight = CAPTION_HEIGHT_MM + BOARD_LABEL_HEIGHT_MM
+  if (page.items.length > 0 && boards.length > 0) {
+    x = PAGE_MARGIN_MM
+    y += itemHeight + ROW_GAP_MM
+  }
+  for (const board of boards) {
+    if (x > PAGE_MARGIN_MM && x + BOARD_LABEL_WIDTH_MM > spec.width - PAGE_MARGIN_MM) {
+      x = PAGE_MARGIN_MM
+      y += boardHeight + ROW_GAP_MM
+    }
+    if (y + boardHeight > spec.height - PAGE_MARGIN_MM) startPage()
+    page.boards.push({ board, x, y })
+    x += BOARD_LABEL_WIDTH_MM + COLUMN_GAP_MM
+  }
+  return pages.filter((candidate) => candidate.items.length > 0 || candidate.boards.length > 0)
+}
+
+/** Board labels for the boards ticked in the export dialog, when requested. */
+export function selectedBoardLabels(
+  project: ProjectWithOptionalV2Electrical,
+  options: LabelStripExportOptions
+): BoardLabel[] {
+  if (!options.includeBoardLabels) return []
+  const panelIds = options.selectedSourceKeys
+    .filter((key) => key.startsWith('panel:'))
+    .map((key) => key.slice('panel:'.length))
+  return buildBoardLabels(project, panelIds, i18n.t)
+}
+
+const BOARD_LABEL_WIDTH_MM = 90
+const BOARD_LABEL_HEIGHT_MM = 36
+
+/** Board number as the hero with name, feed and supply beside it; the name leads without a number. */
+function boardLabelSvg(board: BoardLabel, x: number, y: number): string {
+  let svg = `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${BOARD_LABEL_WIDTH_MM}" height="${BOARD_LABEL_HEIGHT_MM}" fill="#ffffff" stroke="#111827" stroke-width="0.4"/>`
+  const heroWidth = board.code ? 30 : 0
+  if (board.code) {
+    svg += textSvg(board.code, x + heroWidth / 2, y, heroWidth, BOARD_LABEL_HEIGHT_MM, 1, true, [16, 13, 11, 9, 7])
+    svg += `<line x1="${(x + heroWidth).toFixed(2)}" y1="${(y + 5).toFixed(2)}" x2="${(x + heroWidth).toFixed(2)}" y2="${(y + BOARD_LABEL_HEIGHT_MM - 5).toFixed(2)}" stroke="#111827" stroke-width="0.3"/>`
+  }
+  const columnX = x + heroWidth + 2
+  const columnWidth = BOARD_LABEL_WIDTH_MM - heroWidth - 4
+  const titleHeight = board.code ? 10 : 13
+  const lineHeight = 6
+  const blockHeight = titleHeight + board.lines.length * lineHeight
+  let cursor = y + Math.max(2, (BOARD_LABEL_HEIGHT_MM - blockHeight) / 2)
+  svg += textSvg(
+    board.name,
+    columnX + columnWidth / 2,
+    cursor,
+    columnWidth,
+    titleHeight,
+    1,
+    true,
+    board.code ? [4.6, 4.2, 3.8, 3.4, 3] : [7, 6.2, 5.4, 4.6, 4],
+    'left'
+  )
+  cursor += titleHeight
+  for (const line of board.lines) {
+    svg += textSvg(line, columnX + columnWidth / 2, cursor, columnWidth, lineHeight, 1, false, [3.2, 2.9, 2.6, 2.3], 'left')
+    cursor += lineHeight
+  }
+  return svg
 }
 
 function buildConduiLink(): string {
@@ -1050,6 +1297,11 @@ function renderPage(page: PackedPage, options: LabelStripExportOptions, qrSvg: s
       secondHeight
     )
   }
+  const boardCaption = i18n.t('labelStripExport.boardLabel', { defaultValue: 'Board label' })
+  for (const { board, x, y } of page.boards) {
+    body += `<text x="${x.toFixed(2)}" y="${(y + 3).toFixed(2)}" font-family="Arial, sans-serif" font-size="2.5" fill="#4b5563">${escapeXml(`${board.name} - ${boardCaption}`)}</text>`
+    body += boardLabelSvg(board, x, y + CAPTION_HEIGHT_MM)
+  }
   const rightGuideX = page.items.reduce(
     (right, placement) =>
       Math.max(right, placement.x + layoutItemWidth(placement.item) + CUT_OFFSET_MM),
@@ -1097,12 +1349,13 @@ export async function exportLabelStripsToPdf(
   const qrCode = QRCode.create(buildConduiLink(), { errorCorrectionLevel: 'M' })
   const qrSvg = qrCodeToSvg(qrCode.modules.size, qrCode.modules.data)
   const strips = buildLabelStripModel(project, options, provider)
-  if (strips.length === 0)
+  const boards = selectedBoardLabels(project, options)
+  if (strips.length === 0 && boards.length === 0)
     throw new Error('No label strips can be generated from the selected modules.')
 
   const candidates = pageSpecs(options.paperSize).map((spec) => ({
     spec,
-    pages: packItems(strips, spec, options),
+    pages: packItems(strips, spec, options, boards),
   }))
   candidates.sort(
     (left, right) =>
