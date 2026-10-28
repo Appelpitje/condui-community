@@ -49,25 +49,25 @@ export default function CopyFloorPlanSelectionDialog({
         {availableFloors.map((floor) => {
           const selected = selectedFloorIds.includes(floor.id)
           return (
-            <li
-              key={floor.id}
-              className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors ${
-                selected
-                  ? 'bg-sky-100 dark:bg-sky-900/40 border border-sky-300 dark:border-sky-700 ring-1 ring-sky-200 dark:ring-sky-800'
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
-              }`}
-              onClick={() => toggleFloor(floor.id)}
-            >
-              <input
-                type="checkbox"
-                checked={selected}
-                onChange={() => toggleFloor(floor.id)}
-                onClick={(e) => e.stopPropagation()}
-                className="w-4 h-4 text-sky-600 rounded"
-              />
-              <span className="flex-1 min-w-0 truncate font-medium text-gray-900 dark:text-white">
-                {floor.name}
-              </span>
+            <li key={floor.id}>
+              <label
+                className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors ${
+                  selected
+                    ? 'bg-sky-100 dark:bg-sky-900/40 border border-sky-300 dark:border-sky-700 ring-1 ring-sky-200 dark:ring-sky-800'
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={() => toggleFloor(floor.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-4 h-4 text-sky-600 rounded"
+                />
+                <span className="flex-1 min-w-0 truncate font-medium text-gray-900 dark:text-white">
+                  {floor.name}
+                </span>
+              </label>
             </li>
           )
         })}

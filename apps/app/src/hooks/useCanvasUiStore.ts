@@ -63,7 +63,7 @@ export function useCommitSelection() {
     return () => {
       pendingSelectionRef.current = null
       flushScheduledRef.current = false
-      commitGenerationRef.current++
+      commitGenerationRef.current = commitGenerationRef.current + 1
     }
   }, [])
   return useCallback(

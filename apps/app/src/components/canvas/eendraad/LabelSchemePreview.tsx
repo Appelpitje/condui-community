@@ -107,10 +107,11 @@ export function LabelSchemePreview({
     // drawing can use the dialog's full width.
     let cursorY = 0
     let width = 0
-    const panels = layout.panels.flatMap((panelLayout) => {
+    const panels = []
+    for (const panelLayout of layout.panels) {
       const diagramId = getPanelDiagramId(panelLayout)
       const node = layoutTree.panels.find((candidate) => candidate.diagramId === diagramId)
-      if (!node) return []
+      if (!node) continue
       const { frame } = panelLayout
       const content = descendantBounds(node)
       const trimmed = content
@@ -123,15 +124,13 @@ export function LabelSchemePreview({
       const offset = { x: -frame.x, y: cursorY - frame.y }
       cursorY += trimmed.height + PANEL_GAP
       width = Math.max(width, trimmed.width)
-      return [
-        {
-          diagramId,
-          offset,
-          panelLayout: { ...panelLayout, frame: trimmed },
-          node: { ...node, bounds: trimmed },
-        },
-      ]
-    })
+      panels.push({
+        diagramId,
+        offset,
+        panelLayout: { ...panelLayout, frame: trimmed },
+        node: { ...node, bounds: trimmed },
+      })
+    }
     return {
       panels,
       wireSegments,

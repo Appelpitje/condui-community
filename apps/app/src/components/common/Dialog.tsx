@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useId, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useDialogStore } from '@/stores/dialogStore'
@@ -7,6 +7,14 @@ import { registerDialogWindow } from '@/lib/ui/dialogOwner'
 import { CanvasWindowContext } from '@/components/viewport/ViewportContext'
 import { X, AlertTriangle, Info, CheckCircle, AlertCircle } from 'lucide-react'
 
+function preventBodyScroll(ownerDocument: Document): () => void {
+  const previousOverflow = ownerDocument.body.style.overflow
+  ownerDocument.body.style.overflow = 'hidden'
+  return () => {
+    ownerDocument.body.style.overflow = previousOverflow
+  }
+}
+
 function Dialog() {
   const { t } = useTranslation()
   const dialog = useDialogStore((state) => state.dialog)
@@ -14,8 +22,18 @@ function Dialog() {
   const dialogDocument = useDialogStore((state) => state.ownerDocument)
   const ownerDocument = dialogDocument ?? (typeof document === 'undefined' ? null : document)
   const ownerWindow = ownerDocument?.defaultView ?? null
-  const [promptValue, setPromptValue] = useState('')
+  const titleId = useId()
+  const promptInputId = useId()
+  const [promptValue, setPromptValue] = useState(() => dialog?.type === 'prompt' ? dialog.inputValue || '' : '')
   const [promptError, setPromptError] = useState<string | null>(null)
+  const [previousDialog, setPreviousDialog] = useState(dialog)
+  if (previousDialog !== dialog) {
+    setPreviousDialog(dialog)
+    if (dialog?.type === 'prompt') {
+      setPromptValue(dialog.inputValue || '')
+      setPromptError(null)
+    }
+  }
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogOpenedAtRef = useRef(0)
   useEffect(() => registerDialogWindow(window), [])
@@ -27,14 +45,12 @@ function Dialog() {
     closeDialog()
   }, [dialog, closeDialog])
 
-  // Reset prompt value when dialog opens/closes
+  // Keep opening guards and delayed prompt focus tied to the dialog lifetime.
   useEffect(() => {
     if (dialog) {
       dialogOpenedAtRef.current = Date.now()
     }
     if (dialog?.type === 'prompt') {
-      setPromptValue(dialog.inputValue || '')
-      setPromptError(null)
       // Focus input after a short delay to ensure dialog is rendered
       const timer = setTimeout(() => {
         inputRef.current?.focus()
@@ -64,16 +80,16 @@ function Dialog() {
   // Prevent body scroll when dialog is open
   useEffect(() => {
     if (!dialog || !ownerDocument) return
-    const previousOverflow = ownerDocument.body.style.overflow
-    ownerDocument.body.style.overflow = 'hidden'
-    return () => {
-      ownerDocument.body.style.overflow = previousOverflow
-    }
+    return preventBodyScroll(ownerDocument)
   }, [dialog, ownerDocument])
 
   if (!dialog) return null
 
   const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target !== e.currentTarget) {
+      e.stopPropagation()
+      return
+    }
     if (e.target === e.currentTarget) {
       // Prevent "open then instantly close" when the same pointer/click sequence
       // that triggered opening the dialog also lands on the backdrop.
@@ -170,6 +186,7 @@ function Dialog() {
 
   const content = createPortal(
     <div
+      role="presentation"
       {...{ [APP_MODAL_BACKDROP_ATTR]: 'true' }}
       className="fixed inset-0 z-[1100] flex items-stretch justify-center bg-black/50 p-2 backdrop-blur-sm transition-opacity duration-200 sm:items-center sm:p-4"
       onPointerDown={(e) => e.stopPropagation()}
@@ -177,8 +194,10 @@ function Dialog() {
     >
       <div
         data-testid="app-dialog-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={dialog.title ? titleId : undefined}
         className={`flex min-h-0 w-full ${sizeClasses[size]} max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-md bg-white shadow-2xl transition-all duration-200 dark:bg-gray-800 sm:max-h-[95dvh]`}
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         {(dialog.title || dialog.showCloseButton !== false) && (
@@ -192,7 +211,7 @@ function Dialog() {
                 </div>
               )}
               {dialog.title && (
-                <h2 className="min-w-0 truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">
+                <h2 id={titleId} className="min-w-0 truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">
                   {dialog.title}
                 </h2>
               )}
@@ -230,10 +249,11 @@ function Dialog() {
 
                 {dialog.type === 'prompt' && (
                   <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor={promptInputId} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       {dialog.inputLabel || t('dialog.inputLabel')}
                     </label>
                     <input
+                      id={promptInputId}
                       ref={inputRef}
                       type={dialog.inputType || 'text'}
                       value={promptValue}

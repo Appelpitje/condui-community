@@ -220,6 +220,8 @@ export function addTrunkDeviceToProject(
     if (!result) continue
     if (!result.circuit.trunkDevices) result.circuit.trunkDevices = []
     ensureRcboSensitivityOnTrunkDevice(device)
+    // The properties panel must not initialize a newly selected converter as a second edit.
+    if (device.type === 'conversion') device.conversionProps ??= {}
     const insertIdx = result.circuit.trunkDevices.findIndex(
       (candidate) => candidate.trunkPosition > device.trunkPosition
     )

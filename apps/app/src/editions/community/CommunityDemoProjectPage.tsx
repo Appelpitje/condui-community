@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
 import { logger } from '@/lib/logger'
@@ -57,8 +57,6 @@ function DemoOpeningOverlay({ phase }: { phase: DemoLoadPhase }) {
 
 export default function CommunityDemoProjectPage() {
   const [loadPhase, setLoadPhase] = useState<DemoLoadPhase>('opening')
-
-  useLayoutEffect(() => setLoadPhase('opening'), [])
 
   useEffect(() => startDemoProjectExpiry(), [])
 

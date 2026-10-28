@@ -69,7 +69,7 @@ export async function exportStageSVG(
   const layer = layers[layerIndex]!;
 
   // Call the 'onBefore' callback function if provided, passing in the stage and layer
-  onBefore && onBefore([stage, layer]);
+  onBefore?.([stage, layer]);
 
   // Asynchronously sleep for 200 milliseconds
   await sleep(200);
@@ -96,7 +96,7 @@ export async function exportStageSVG(
   canvasContext._context = oldContext;
 
   // Call the 'onAfter' callback function if provided, passing in the stage and layer
-  onAfter && onAfter([stage, layer]);
+  onAfter?.([stage, layer]);
 
   // Asynchronously sleep for 200 milliseconds
   await sleep(200);

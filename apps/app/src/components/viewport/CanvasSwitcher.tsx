@@ -30,9 +30,11 @@ export function CanvasSwitcher({
   const rootRef = useRef<HTMLDivElement>(null)
 
   // Close menu whenever the current canvas type changes (e.g. via swap)
-  useEffect(() => {
+  const [previousCanvas, setPreviousCanvas] = useState({ currentCanvas, panelIndex })
+  if (previousCanvas.currentCanvas !== currentCanvas || previousCanvas.panelIndex !== panelIndex) {
+    setPreviousCanvas({ currentCanvas, panelIndex })
     setOpen(false)
-  }, [currentCanvas, panelIndex])
+  }
 
   // Close on outside pointer so the menu does not stay open over the canvas or other panels
   useEffect(() => {

@@ -1,19 +1,19 @@
 import { Line, Text } from 'react-konva'
 
-interface ImpulseSwitchCountMarkerProps {
+interface PushbuttonCountMarkerProps {
   count: number
   size: number
   color: string
   fontFamily: string
 }
 
-/** Lower-right slash and count for impulse switches; positioned clear of the multiplier badge. */
-export function ImpulseSwitchCountMarker({
+/** Lower-right slash and count for pushbuttons; positioned clear of the multiplier badge. */
+export function PushbuttonCountMarker({
   count,
   size,
   color,
   fontFamily,
-}: ImpulseSwitchCountMarkerProps) {
+}: PushbuttonCountMarkerProps) {
   if (!Number.isFinite(count) || count <= 1) return null
 
   const fontSize = Math.max(5, size * 0.17)

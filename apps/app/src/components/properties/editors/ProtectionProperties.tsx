@@ -65,7 +65,8 @@ export function ProtectionProperties({
   const hasCircuits = Boolean(circuitsOfProtection?.length)
   const firstCircuit = circuitsOfProtection?.[0] ? getCircuitById(circuitsOfProtection[0].id) : null
   const labelInputRef = useRef<HTMLInputElement>(null)
-  const [focusCustomLabel, setFocusCustomLabel] = useState(false)
+  const [focusRequest, setFocusRequest] = useState(0)
+  const consumedFocusRequest = useRef(0)
   const [customLabelDraft, setCustomLabelDraft] = useState(false)
   const [labelDraft, setLabelDraft] = useState(protection?.label ?? '')
   const protectionTypeOptions = useMemo(() => getProtectionTypeDropdownOptions(panelStringT(t), 'panel'), [t])
@@ -107,16 +108,18 @@ export function ProtectionProperties({
       : undefined
 
   useEffect(() => {
-    if (!focusCustomLabel || !manualLabelOverride) return
+    if (focusRequest === consumedFocusRequest.current || !manualLabelOverride) return
     labelInputRef.current?.focus()
     labelInputRef.current?.select()
-    setFocusCustomLabel(false)
-  }, [focusCustomLabel, manualLabelOverride])
+    consumedFocusRequest.current = focusRequest
+  }, [focusRequest, manualLabelOverride])
 
-  useEffect(() => {
+  const [labelSource, setLabelSource] = useState({ protectionId, label: protection?.label })
+  if (labelSource.protectionId !== protectionId || labelSource.label !== protection?.label) {
+    setLabelSource({ protectionId, label: protection?.label })
     setLabelDraft(protection?.label ?? '')
     setCustomLabelDraft(false)
-  }, [protection?.label, protectionId])
+  }
 
   const setCustomLabel = (focusInput = true) => {
     const ids = (circuitsOfProtection ?? []).map((circuit) => circuit.id)
@@ -125,7 +128,7 @@ export function ProtectionProperties({
         edits: [{ kind: 'circuit', ids, set: { eendraadManualCodeLock: true } }],
       })
     }
-    if (focusInput) setFocusCustomLabel(true)
+    if (focusInput) setFocusRequest((request) => request + 1)
   }
 
   const useAutomaticLabel = () => {
@@ -337,18 +340,19 @@ export function ProtectionProperties({
             placeholder={t('protections.label', 'Label')}
           />
           {manualLabelOverride && (labelWarnings.nonStandard || labelWarnings.duplicate) ? (
-            <span
-              className="absolute right-3 top-1/2 -translate-y-1/2"
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2 border-0 bg-transparent p-0"
               title={labelWarningText}
               aria-label={labelWarningText}
-              role="img"
+              onClick={() => labelInputRef.current?.focus()}
               onMouseDown={(event) => {
                 event.preventDefault()
                 labelInputRef.current?.focus()
               }}
             >
               <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />
-            </span>
+            </button>
           ) : null}
         </div>
       </div>

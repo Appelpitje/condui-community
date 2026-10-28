@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useViewportWindowStore } from './ViewportWindowStore'
 import { ResizableDivider } from '@/components/layout/ResizableDivider'
 import { ViewportResizePreviewProvider } from '@/components/layout/ViewportResizePreviewContext'
@@ -38,6 +38,11 @@ export function ViewportGrid({
   const [previewRatios, setPreviewRatios] = useState<{ primary: number; secondary: number } | null>(
     null
   )
+  const [previousLayout, setPreviousLayout] = useState({ preset: layout.preset, panels: layout.panels, primary: layout.primaryRatio, secondary: layout.secondaryRatio })
+  if (previousLayout.preset !== layout.preset || previousLayout.panels !== layout.panels || previousLayout.primary !== layout.primaryRatio || previousLayout.secondary !== layout.secondaryRatio) {
+    setPreviousLayout({ preset: layout.preset, panels: layout.panels, primary: layout.primaryRatio, secondary: layout.secondaryRatio })
+    setPreviewRatios(null)
+  }
   const primaryRatio = previewRatios?.primary ?? layout.primaryRatio
   const secondaryRatio = previewRatios?.secondary ?? layout.secondaryRatio
   const layoutForRender = useMemo(() => {
@@ -62,10 +67,6 @@ export function ViewportGrid({
   }, [compact, compactOrientation, layout, primaryRatio, secondaryRatio])
   const panelZones = useMemo(() => getViewportPanelZones(layoutForRender), [layoutForRender])
   const dividerSpecs = useMemo(() => getViewportDividerSpecs(layoutForRender), [layoutForRender])
-
-  useEffect(() => {
-    setPreviewRatios(null)
-  }, [layout.preset, layout.panels, layout.primaryRatio, layout.secondaryRatio])
 
   const viewportResizePreviewActive = previewRatios != null || resizePreviewActive
 

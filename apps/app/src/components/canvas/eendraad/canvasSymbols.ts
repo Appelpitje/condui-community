@@ -22,8 +22,10 @@ import {
   SELECTION_OUTLINE_STROKE_PX_MIN,
 } from '@/constants/canvasConstants'
 import {
+  EENDRAAD_PANEL_SYMBOL_SCALE,
+  EENDRAAD_PANEL_SYMBOL_WIDTH,
+  EENDRAAD_PANEL_SYMBOL_HEIGHT,
   MULTI_SOCKET_OFFSET,
-  PANEL_SYMBOL_HEIGHT,
   PANEL_SYMBOL_WIDTH,
   PLAN_PANEL_VISUAL_SCALE,
   SYMBOL_SIZE,
@@ -31,16 +33,15 @@ import {
 
 // Symbol size, multi-socket offset and panel symbol size live in lib for headless plan logic.
 export {
+  EENDRAAD_PANEL_SYMBOL_SCALE,
+  EENDRAAD_PANEL_SYMBOL_WIDTH,
+  EENDRAAD_PANEL_SYMBOL_HEIGHT,
   MULTI_SOCKET_OFFSET,
   PANEL_SYMBOL_HEIGHT,
   PANEL_SYMBOL_WIDTH,
   PLAN_PANEL_VISUAL_SCALE,
   SYMBOL_SIZE,
-}
-/** One-wire panels need a little more visual weight than ordinary endpoint symbols. */
-export const EENDRAAD_PANEL_SYMBOL_SCALE = 1.25
-export const EENDRAAD_PANEL_SYMBOL_WIDTH = PANEL_SYMBOL_WIDTH * EENDRAAD_PANEL_SYMBOL_SCALE
-export const EENDRAAD_PANEL_SYMBOL_HEIGHT = PANEL_SYMBOL_HEIGHT * EENDRAAD_PANEL_SYMBOL_SCALE
+} from '@/lib/canvas/symbolGeometry'
 
 // Outline/highlight dimensions (independent of symbol size)
 // These control the size of hover and selection outlines

@@ -1,3 +1,4 @@
+import { useWallVolumeComponents } from './useWallVolumeComponents'
 import React from 'react'
 import { Group, Line, Circle, Rect, Arc } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
@@ -7,7 +8,6 @@ import { pointInPolygon, clamp } from '@/lib/geometry'
 import { WALL_POINT_HANDLE_KONVA_NAME } from '@/constants/planConstants'
 import type { ThemeWallColors } from '@/types/ui'
 import { getRoomPolygonsFromWalls } from '@/lib/plan/roomPolygons'
-import { logger } from '@/lib/logger'
 import {
   DRAW_TOOL_POINT_RADIUS_PX,
   DRAW_TOOL_POINT_RADIUS_PX_MAX,
@@ -37,11 +37,9 @@ import { getWallTotalLength, getWallPathBetweenDistances } from '@/handlers/plan
 import {
   buildSimpleWallFallbackPaths,
   buildOpeningCornerFusions,
-  buildWallVolumeComponents,
   extendSimpleWallPathEnds,
   isOpeningFrameCenterFused,
   resolveWallThicknessPx,
-  type WallVolumeComponent,
 } from '@/lib/plan/wallVolumeGeometry'
 import type { DistanceMeasurementInterval } from '@/lib/plan/segmentMeasurements'
 import { SegmentMeasurementOverlay } from './SegmentMeasurementOverlay'
@@ -203,11 +201,9 @@ function WallRendererInner({
   const pointHandleStrokeColor = '#0284c7'
   const windowColor = theme === 'dark' ? '#0284c7' : '#0284c7'
 
-  const [wallVolumeComponents, setWallVolumeComponents] = React.useState<
-    WallVolumeComponent[] | null
-  >(null)
-  const [wallVolumeFallbackActive, setWallVolumeFallbackActive] = React.useState(false)
-  const wallVolumeFallbackLoggedRef = React.useRef(false)
+  const { wallVolumeComponents, wallVolumeFallbackActive } = useWallVolumeComponents(
+    walls, doors, windows, masterWallThickness, pxPerMeter
+  )
 
   const simpleWallFallbackPaths = React.useMemo(
     () => buildSimpleWallFallbackPaths(walls, doors, windows, masterWallThickness, pxPerMeter),
@@ -331,43 +327,6 @@ function WallRendererInner({
   const baseBorderColor = customForMode?.fill ?? getThemeColor(theme, 'wallColor')
   const openingFrameColor = customForMode?.fill ?? getThemeColor(theme, 'wallColor')
   const wallOutlineStrokeWidth = getWallOutlineStrokeWidth(pxPerMeter)
-
-  React.useEffect(() => {
-    if (wallVolumeFallbackActive) return
-
-    if (walls.length === 0) {
-      setWallVolumeComponents([])
-      return
-    }
-
-    let cancelled = false
-
-    buildWallVolumeComponents(walls, doors, windows, masterWallThickness, pxPerMeter)
-      .then((components) => {
-        if (!cancelled) setWallVolumeComponents(components)
-      })
-      .catch((error) => {
-        if (!wallVolumeFallbackLoggedRef.current) {
-          wallVolumeFallbackLoggedRef.current = true
-          logger.warn(
-            '[WallRenderer] Merged wall volumes unavailable; using simple wall rendering.',
-            error
-          )
-        }
-        if (!cancelled) {
-          // Clipper2 is an enhancement for merged wall geometry, not a prerequisite for
-          // editing plans. Leave the regular per-wall renderer in charge when WASM is
-          // unavailable or blocked by the browser/security policy.
-          setWallVolumeComponents([])
-          setWallVolumeFallbackActive(true)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [doors, masterWallThickness, pxPerMeter, wallVolumeFallbackActive, walls, windows])
-
   const wallVolumeStyleByWallId = React.useMemo(() => {
     const styleByWallId = new Map<string, { fillColor: string; borderColor: string }>()
     if (!wallVolumeComponents) return styleByWallId

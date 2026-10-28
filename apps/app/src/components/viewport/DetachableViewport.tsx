@@ -97,10 +97,11 @@ export function ViewportWindows({
       {blocked && (
         <div
           role="status"
-          className="absolute bottom-16 right-4 z-[70] max-w-xs rounded bg-gray-900 p-3 text-sm text-white"
-          onClick={() => setBlocked(false)}
+          className="absolute bottom-16 right-4 z-[70] max-w-xs rounded bg-gray-900 text-sm text-white"
         >
-          {t('canvas.popupBlocked')}
+          <button type="button" className="block w-full p-3 text-left" onClick={() => setBlocked(false)}>
+            {t('canvas.popupBlocked')}
+          </button>
         </div>
       )}
       {sessions.map((session) => (

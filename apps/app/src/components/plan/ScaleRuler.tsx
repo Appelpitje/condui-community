@@ -45,8 +45,13 @@ function ScaleRuler({
   const [tempEndPoint, setTempEndPoint] = useState<Point2 | null>(null)
   const [meters, setMeters] = useState<number>(1)
   const [scale, setScale] = useState(1)
-  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null)
-  const [imageLoaded, setImageLoaded] = useState(false)
+  const [imageState, setImageState] = useState<{
+    source: string
+    size: { width: number; height: number } | null
+  }>({ source: imageDataUrl, size: null })
+  if (imageState.source !== imageDataUrl) setImageState({ source: imageDataUrl, size: null })
+  const imageSize = imageState.size
+  const imageLoaded = imageSize !== null
   const imageRef = useRef<HTMLImageElement | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const lastEmittedRef = useRef<string | null>(null)
@@ -111,15 +116,12 @@ function ScaleRuler({
   // Load image and set up canvas
   useEffect(() => {
     imageRef.current = null
-    setImageLoaded(false)
-    setImageSize(null)
     let cancelled = false
     const img = new Image()
     img.onload = () => {
       if (cancelled) return
       imageRef.current = img
-      setImageSize({ width: img.width, height: img.height })
-      setImageLoaded(true)
+      setImageState({ source: imageDataUrl, size: { width: img.width, height: img.height } })
     }
     img.src = imageDataUrl
 

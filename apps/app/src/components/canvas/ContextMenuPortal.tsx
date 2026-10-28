@@ -72,6 +72,8 @@ function ContextMenuPortal({ position, items, onClose }: ContextMenuPortalProps)
   return createPortal(
     <div
       ref={menuRef}
+      role="menu"
+      tabIndex={-1}
       data-canvas-context-menu="true"
       className="fixed z-50 min-w-[180px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg py-1"
       style={{
@@ -79,12 +81,26 @@ function ContextMenuPortal({ position, items, onClose }: ContextMenuPortalProps)
         top: `${adjustedPosition.y}px`,
       }}
       onClick={(e) => e.stopPropagation()}
+      onKeyDown={(event) => {
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+        const buttons = Array.from(
+          event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+        )
+        if (buttons.length === 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+          : event.key === 'ArrowDown' ? index + 1 : index < 0 ? buttons.length - 1 : index - 1
+        buttons[(next + buttons.length) % buttons.length]?.focus()
+      }}
     >
       {filteredItems.map((item, index) => {
         if (item.separator) {
           return (
             <div
               key={`separator-${index}`}
+              role="separator"
               className="my-1 border-t border-gray-200 dark:border-gray-700"
             />
           )
@@ -93,6 +109,8 @@ function ContextMenuPortal({ position, items, onClose }: ContextMenuPortalProps)
         return (
           <button
             key={index}
+            type="button"
+            role="menuitem"
             onPointerUp={(event) => {
               if (event.pointerType === 'mouse') return
               lastPointerActivationRef.current = performance.now()

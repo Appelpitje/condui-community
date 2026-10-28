@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight, Download, Ruler } from 'lucide-react'
 import {
@@ -217,20 +217,22 @@ export function CableSchedule() {
   const sidePaddingPx = useSidePaddingThatYields(listRef, tableRef, schedule.rows.length > 0)
   const pointerInsideRef = useRef(false)
   const stepRef = useRef<(delta: number) => boolean>(() => false)
-  stepRef.current = (delta) => {
-    const index = visibleRows.findIndex((row) => row.anchor === selectedAnchor)
-    if (index < 0) return false
-    for (let next = index + delta; next >= 0 && next < visibleRows.length; next += delta) {
-      const row = visibleRows[next]!
-      if (!row.cable) continue
-      select(row)
-      listRef.current
-        ?.querySelector(`[data-anchor="${CSS.escape(row.anchor)}"]`)
-        ?.scrollIntoView({ block: 'nearest' })
+  useLayoutEffect(() => {
+    stepRef.current = (delta) => {
+      const index = visibleRows.findIndex((row) => row.anchor === selectedAnchor)
+      if (index < 0) return false
+      for (let next = index + delta; next >= 0 && next < visibleRows.length; next += delta) {
+        const row = visibleRows[next]!
+        if (!row.cable) continue
+        select(row)
+        listRef.current
+          ?.querySelector(`[data-anchor="${CSS.escape(row.anchor)}"]`)
+          ?.scrollIntoView({ block: 'nearest' })
+        return true
+      }
       return true
     }
-    return true
-  }
+  })
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
@@ -254,8 +256,6 @@ export function CableSchedule() {
     t('cableSchedule.length', 'Length (m)'),
     t('cableSchedule.sourceHeader', 'Source'),
   ]
-
-  let previousBoard: string | undefined
 
   return (
     <div
@@ -292,9 +292,8 @@ export function CableSchedule() {
             </tr>
           </thead>
           <tbody>
-            {groups.map((group) => {
-              const boardHeader = group.boardName !== previousBoard
-              previousBoard = group.boardName
+            {groups.map((group, groupIndex) => {
+              const boardHeader = group.boardName !== groups[groupIndex - 1]?.boardName
               const open = !collapsed.has(group.key)
               // A collapsed circuit holding the selected cable shows the selection on its row.
               const holdsSelection =

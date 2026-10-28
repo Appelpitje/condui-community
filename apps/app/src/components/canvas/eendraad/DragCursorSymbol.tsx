@@ -21,13 +21,15 @@ interface DragCursorSymbolProps {
 export function DragCursorSymbol({ position, symbolData }: DragCursorSymbolProps) {
   const theme = useSettingsStore((s) => s.theme)
   const [image, setImage] = useState<HTMLImageElement | null>(null)
+  const [source, setSource] = useState({ id: symbolData.id, mode: theme?.mode })
+  if (source.id !== symbolData.id || source.mode !== theme?.mode) {
+    setSource({ id: symbolData.id, mode: theme?.mode })
+    if (!getSymbolById(symbolData.id)?.svgPath) setImage(null)
+  }
 
   useEffect(() => {
     const sym = getSymbolById(symbolData.id)
-    if (!sym?.svgPath) {
-      setImage(null)
-      return
-    }
+    if (!sym?.svgPath) return
     const isDark = theme?.mode === 'dark'
     let cancelled = false
     loadProcessedSymbol(sym.svgPath, isDark)

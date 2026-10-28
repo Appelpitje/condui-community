@@ -1,5 +1,5 @@
-import type { Endpoint, SymbolKey } from '@/types/schema'
-import { getSymbolsByCategory } from '@/lib/symbols'
+import type { DomoticaControlKey, Endpoint, SymbolKey } from '@/types/schema'
+import { getSymbolsByCategory, symbols } from '@/lib/symbols'
 import { isInBetweenEndpoint } from '@/utils/symbolMapping'
 
 export const APPLIANCE_SYMBOLS = [
@@ -7,6 +7,27 @@ export const APPLIANCE_SYMBOLS = [
   ...getSymbolsByCategory('hvac'),
   ...getSymbolsByCategory('sound'),
 ]
+
+export const DOMOTICA_CONTROL_KEYS: DomoticaControlKey[] = [
+  'programmed_control',
+  'wireless_control',
+  'detection_control',
+  'button_control',
+] as const
+
+// Dynamically derive switch type symbol keys from the symbols catalog (excludes relay)
+export const SWITCH_TYPE_SYMBOLS: SymbolKey[] = symbols
+  .filter(
+    (s) =>
+      s.category === 'switches' &&
+      s.id !== 'relay' &&
+      (s.id === 'switch' ||
+        s.id.startsWith('switch_') ||
+        s.id === 'contact' ||
+        s.id === 'motion_detector' ||
+        s.id === 'smoke_detector')
+  )
+  .map((s) => s.id as SymbolKey)
 
 /** HVAC-only symbol keys, used to limit the appliance-type dropdown for HVAC-chained units. */
 export const HVAC_TYPE_SYMBOLS: SymbolKey[] = getSymbolsByCategory('hvac').map(

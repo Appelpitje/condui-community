@@ -82,9 +82,10 @@ const variantConfigs: Record<ClipperVariant, { loadFactory: () => Promise<Clippe
 
 const modulePromises = new Map<ClipperVariant, Promise<ClipperModule>>()
 
+/** The CSP-safe glue unless a build explicitly opts back into the original (VITE_CSP_MODE=current). */
 export function getConfiguredClipperVariant(): ClipperVariant {
   const requested = import.meta.env.VITE_CLIPPER2_VARIANT
-  return requested === 'csp-experimental' ? 'csp-experimental' : 'current'
+  return requested === 'current' ? 'current' : 'csp-experimental'
 }
 
 export function loadClipperModule(variant: ClipperVariant = getConfiguredClipperVariant()): Promise<ClipperModule> {

@@ -36,6 +36,13 @@ import {
 } from '@/lib/projectV2/electrical'
 import type { Selection } from '@/types/ui'
 import { skipSupplyPanelItems } from './skipSupplyPanelItems'
+import {
+  classifyEtimProtection,
+  classifyEtimEndpoint,
+  classifyEtimCable,
+  classifyEtimEnergyMeter,
+  type EtimClassification,
+} from './etimClassification'
 
 /** Selection payload to select this item in the app */
 export type TallyDetailSelection = Pick<Selection, 'type' | 'ids' | 'wireMetadata'>
@@ -55,6 +62,7 @@ export interface TallyDetail {
 
 /** One grouped line: e.g. "16A 2P MCB" with count and optional supply marking */
 export interface TallyGroup {
+  etim?: EtimClassification
   summaryLabel: string
   count: number
   details: TallyDetail[]
@@ -742,6 +750,7 @@ export function buildHardwareTally(
     for (const [, { details, hasSupply, representative }] of protectionMap) {
       const summaryLabel = protectionSummaryLabel(representative, t)
       groups.push({
+        etim: classifyEtimProtection(representative),
         summaryLabel,
         count: details.length,
         details,
@@ -812,6 +821,7 @@ export function buildHardwareTally(
     for (const [, { details, hasSupply, representative }] of energyMeterMap) {
       groups.push({
         summaryLabel: energyMeterSummaryLabel(representative, t),
+        etim: classifyEtimEnergyMeter(),
         count: details.length,
         details,
         hasSupply,
@@ -1000,6 +1010,7 @@ export function buildHardwareTally(
         details,
         hasSupply: false,
         specLines: buildSocketSpecLines(representative, t),
+        etim: classifyEtimEndpoint(representative),
       })
     }
     const total = groups.reduce((s, g) => s + g.count, 0)
@@ -1012,7 +1023,7 @@ export function buildHardwareTally(
     })
   }
 
-  // --- Switches (excluding impulse) ---
+  // --- Switches (excluding pushbuttons) ---
   const switchMap = new Map<
     string,
     { details: TallyDetail[]; summaryLabel: string; representative: Endpoint }
@@ -1055,6 +1066,7 @@ export function buildHardwareTally(
         details,
         hasSupply: false,
         specLines: buildSwitchSpecLines(representative, t),
+        etim: classifyEtimEndpoint(representative),
       })
     }
     const total = groups.reduce((s, g) => s + g.count, 0)
@@ -1067,8 +1079,8 @@ export function buildHardwareTally(
     })
   }
 
-  // --- Impulse switches ---
-  const impulseMap = new Map<
+  // --- Pushbuttons ---
+  const pushbuttonMap = new Map<
     string,
     { details: TallyDetail[]; summaryLabel: string; representative: Endpoint }
   >()
@@ -1078,7 +1090,7 @@ export function buildHardwareTally(
         if (ep.type !== 'switch' || ep.symbol !== 'switch_impulse') continue
         const key = switchGroupKey(ep)
         const branchLabel = getBranchLabelForEndpoint(circuit, ep.id)
-        const existing = impulseMap.get(key)
+        const existing = pushbuttonMap.get(key)
         const summaryLabel = switchSummaryLabel(ep, t)
         const detail: TallyDetail = {
           label: ep.label || branchLabel,
@@ -1096,25 +1108,26 @@ export function buildHardwareTally(
         if (existing) {
           existing.details.push(detail)
         } else {
-          impulseMap.set(key, { details: [detail], summaryLabel, representative: ep })
+          pushbuttonMap.set(key, { details: [detail], summaryLabel, representative: ep })
         }
       }
     }
   }
-  if (impulseMap.size > 0) {
+  if (pushbuttonMap.size > 0) {
     const groups: TallyGroup[] = []
-    for (const [, { details, summaryLabel, representative }] of impulseMap) {
+    for (const [, { details, summaryLabel, representative }] of pushbuttonMap) {
       groups.push({
         summaryLabel,
         count: details.length,
         details,
         hasSupply: false,
         specLines: buildSwitchSpecLines(representative, t),
+        etim: classifyEtimEndpoint(representative),
       })
     }
     const total = groups.reduce((s, g) => s + g.count, 0)
     categories.push({
-      id: 'impulse',
+      id: 'impulse', // Keep the legacy category id and translation key stable.
       labelKey: 'tally.categoryImpulse',
       totalDevices: total,
       typeCount: groups.length,
@@ -1379,6 +1392,7 @@ export function buildHardwareTally(
       totalLengthM: number
       includesEstimates: boolean
       missingLengthCount: number
+      etim?: EtimClassification
     }
   >()
   for (const segments of logicalWireRuns.values()) {
@@ -1416,6 +1430,7 @@ export function buildHardwareTally(
       if (estimatedLengthM != null) existing.includesEstimates = true
     } else {
       wireMap.set(key, {
+        etim: classifyEtimCable(segment.cable),
         details: [detail],
         summaryLabel,
         hasSupply: isSupply,
@@ -1427,7 +1442,15 @@ export function buildHardwareTally(
   }
   if (wireMap.size > 0) {
     const groups: TallyGroup[] = []
-    for (const [, { details, summaryLabel, hasSupply, totalLengthM, includesEstimates, missingLengthCount }] of wireMap) {
+    for (const [, {
+      details,
+      summaryLabel,
+      hasSupply,
+      totalLengthM,
+      includesEstimates,
+      missingLengthCount,
+      etim,
+    }] of wireMap) {
       const lengthText = `${includesEstimates ? '≈ ' : ''}${formatWireLengthMeters(totalLengthM, t)}`
       const specLines = [
         ...(totalLengthM > 0 ? [t('tally.wireLengthTotal', { length: lengthText })] : []),
@@ -1438,6 +1461,7 @@ export function buildHardwareTally(
         details,
         hasSupply,
         totalLengthM: totalLengthM > 0 ? totalLengthM : undefined,
+        etim,
         ...(totalLengthM > 0 && includesEstimates ? { lengthIncludesEstimates: true } : {}),
         ...(missingLengthCount > 0 ? { missingLengthCount } : {}),
         specLines: specLines.length > 0 ? specLines : undefined,

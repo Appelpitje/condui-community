@@ -193,6 +193,22 @@ export default function CustomDropdown({
   const [useNativeSelect, setUseNativeSelect] = useState(() => shouldUseNativeMobileSelect(ownerWindow))
   const containerRef = useRef<HTMLDivElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const [previousDisabled, setPreviousDisabled] = useState(disabled)
+  if (previousDisabled !== disabled) {
+    setPreviousDisabled(disabled)
+    if (disabled) setIsOpen(false)
+  }
+  const [previousOpen, setPreviousOpen] = useState(isOpen)
+  if (previousOpen !== isOpen) {
+    setPreviousOpen(isOpen)
+    if (!isOpen) {
+      setOpenUpward(false)
+      setMenuEnter(false)
+      setMenuShiftX(0)
+      setMenuMaxHeightPx(MENU_MAX_HEIGHT_PX)
+      setMenuFixedStyle(null)
+    }
+  }
 
   useEffect(() => {
     const updateMode = () => setUseNativeSelect(shouldUseNativeMobileSelect(ownerWindow))
@@ -206,20 +222,11 @@ export default function CustomDropdown({
   }, [ownerWindow])
 
   useEffect(() => {
-    if (disabled) setIsOpen(false)
-  }, [disabled])
-
-  useEffect(() => {
     if (!isOpen) onOptionHover?.(null)
   }, [isOpen, onOptionHover])
 
   useLayoutEffect(() => {
     if (!isOpen) {
-      setOpenUpward(false)
-      setMenuEnter(false)
-      setMenuShiftX(0)
-      setMenuMaxHeightPx(MENU_MAX_HEIGHT_PX)
-      setMenuFixedStyle(null)
       return
     }
 
@@ -401,6 +408,7 @@ export default function CustomDropdown({
     <div
       ref={menuRef}
       role="listbox"
+      tabIndex={-1}
       data-app-scroll="true"
       className={`${menuPortal ? 'fixed' : `absolute z-20 ${positionClass}`} ${menuClassName} transition-[opacity,transform] ease-out motion-reduce:transition-none ${
         menuEnter ? enterToClass : enterFromClass

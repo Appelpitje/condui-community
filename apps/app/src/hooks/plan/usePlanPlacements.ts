@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useState } from 'react'
 import { isAwaitingPlanPlacement } from '@/lib/plan/customPlacement'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { getSymbolCategory, SITPLAN_CATEGORY_VISIBILITY_KEYS } from '@/lib/plan/symbolCategories'
@@ -15,6 +15,11 @@ import {
 } from '@/lib/eendraad/panelGround'
 import { canSymbolAppearOnSituationPlan } from '@/lib/plan/situationPlanSymbolEligibility'
 import { endpointSymbolVisibleOnSitplan } from '@/lib/plan/planSymbolVisibility'
+import { usePlanSymbolElectricalProject } from './usePlanSymbolElectricalProject'
+import { getElectricalLookupIndex } from '@/lib/projectV2/electricalLookupIndex'
+import { findProjectTrunkDevice } from '@/lib/projectV2/trunkDeviceLookup'
+import { findCircuitForEndpointInPanel } from '@/lib/eendraad/findCircuitForEndpointInPanel'
+import { findPanelContainingCircuit } from '@/lib/eendraad/projectElectricalDomain'
 
 type SitplanPlacementRow = Placement & {
   endpointId?: string
@@ -75,9 +80,7 @@ export function usePlanPlacements(
   sitplanPanelFilterId: string | null,
   planVisibility: PlanVisibility
 ) {
-  const previousPlacementsRef = useRef<SitplanPlacementRow[]>([])
-  const previousVisiblePlacementsRef = useRef<SitplanPlacementRow[]>([])
-  const electrical = useProjectStore((state: ProjectState) => state.currentProject?.disciplines.electrical)
+  const electricalProject = usePlanSymbolElectricalProject(true)
   const projectId = useProjectStore((state: ProjectState) => state.currentProject?.project.id)
   const hiddenPlacementIdsInput = useProjectStore((state: ProjectState) =>
     activeFloorId ? state.getFloorById(activeFloorId)?.hiddenSitplanPlacementIds : undefined
@@ -85,13 +88,29 @@ export function usePlanPlacements(
   const getPlacementsByFloor = useProjectStore(
     (state: ProjectState) => state.getPlacementsByFloor
   )
-  const getEndpointById = useProjectStore((state: ProjectState) => state.getEndpointById)
-  const getTrunkDeviceById = useProjectStore(
-    (state: ProjectState) => state.getTrunkDeviceById
-  )
-  const findCircuitForEndpoint = useProjectStore(
-    (state: ProjectState) => state.findCircuitForEndpoint
-  )
+  const lookups = useMemo(() => {
+    if (!electricalProject) return null
+    const panels = selectProjectElectricalPanels(electricalProject)
+    const index = getElectricalLookupIndex(panels)
+    return {
+      endpoint: (id: string) => index.endpointsById.get(id)?.endpoint,
+      trunk: (id: string) => findProjectTrunkDevice(electricalProject, id),
+      endpointPanel: (id: string) => {
+        for (const panel of panels) {
+          const result = findCircuitForEndpointInPanel(panel, id)
+          if (result) return result.panel
+        }
+        return undefined
+      },
+      circuitPanel: (id: string) => {
+        for (const panel of panels) {
+          const result = findPanelContainingCircuit(panel, id)
+          if (result) return result
+        }
+        return undefined
+      },
+    }
+  }, [electricalProject])
 
   // Keep visibility filtering reactive even when placement rows are structurally unchanged.
   // The row-reuse optimization intentionally preserves the placements array identity, so a
@@ -103,9 +122,9 @@ export function usePlanPlacements(
 
   // Get placements for the active floor, filtered by scope and optional panel filter.
   // Defer this graph walk so a one-wire-only edit cannot extend its input event.
-  const placements = useMemo(() => {
-    const currentProject = useProjectStore.getState().currentProject
-    if (!activeFloorId || !currentProject) return []
+  const nextPlacements = useMemo(() => {
+    const currentProject = electricalProject
+    if (!activeFloorId || !currentProject || !projectId || !lookups) return []
     const floorPlacements = getPlacementsByFloor(activeFloorId)
     const hasGround = installationHasAnyEarthing(
       selectProjectElectricalPanels(currentProject),
@@ -114,9 +133,9 @@ export function usePlanPlacements(
     let filtered = floorPlacements.filter((placement: SitplanPlacementRow) => {
       if (placement.isEarthing) return hasGround
       if (placement.junctionPanelLabel != null || placement.enclosureId != null) return true
-      const endpoint = placement.endpointId ? getEndpointById(placement.endpointId) : undefined
+      const endpoint = placement.endpointId ? lookups.endpoint(placement.endpointId) : undefined
       const trunkInfo = placement.trunkDeviceId
-        ? getTrunkDeviceById(placement.trunkDeviceId)
+        ? lookups.trunk(placement.trunkDeviceId)
         : undefined
       const trunkDevice = trunkInfo?.device
       if (endpoint) return endpointSymbolVisibleOnSitplan(endpoint)
@@ -148,10 +167,10 @@ export function usePlanPlacements(
           return enclosure?.ownerPanelId === sitplanPanelFilterId
         }
         if (placement.endpointId) {
-          return findCircuitForEndpoint(placement.endpointId)?.panel.id === sitplanPanelFilterId
+          return lookups.endpointPanel(placement.endpointId)?.id === sitplanPanelFilterId
         }
         if (placement.trunkDeviceId) {
-          const trunkInfo = getTrunkDeviceById(placement.trunkDeviceId)
+          const trunkInfo = lookups.trunk(placement.trunkDeviceId)
           if (
             trunkInfo?.isSupplyDevice &&
             trunkInfo.device.type === 'energy_meter' &&
@@ -163,25 +182,26 @@ export function usePlanPlacements(
           }
           const circuitId = trunkInfo?.circuit?.id
           return circuitId
-            ? useProjectStore.getState().findPanelForCircuit(circuitId)?.id === sitplanPanelFilterId
+            ? lookups.circuitPanel(circuitId)?.id === sitplanPanelFilterId
             : false
         }
         return false
       })
     }
-    const stablePlacements = reusePlacementRows(previousPlacementsRef.current, filtered)
-    previousPlacementsRef.current = stablePlacements
-    return stablePlacements
+    return filtered
   }, [
     activeFloorId,
-    electrical,
+    electricalProject,
     projectId,
     getPlacementsByFloor,
-    getEndpointById,
-    getTrunkDeviceById,
-    findCircuitForEndpoint,
+    lookups,
     sitplanPanelFilterId,
   ])
+  const [placementRows, setPlacementRows] = useState({ source: nextPlacements, rows: nextPlacements })
+  if (placementRows.source !== nextPlacements) {
+    setPlacementRows({ source: nextPlacements, rows: reusePlacementRows(placementRows.rows, nextPlacements) })
+  }
+  const placements = placementRows.rows
 
   // Wire anchors remain eligible when symbol artwork or a symbol group is hidden.
   // Explicitly hidden and not-yet-placed items still cannot anchor visible wires.
@@ -194,15 +214,15 @@ export function usePlanPlacements(
   )
 
   // Filter placements by visibility (symbols master + per-category)
-  const visiblePlacements = useMemo(() => {
+  const nextVisiblePlacements = useMemo(() => {
     if (!planVisibility.symbolsVisible) return []
     const filtered = wirePlacements.filter((placement: SitplanPlacementRow) => {
       if (placement.isEarthing) return planVisibility.earthingVisible !== false
       if (placement.junctionPanelLabel != null) return planVisibility.panelsVisible
       if (placement.enclosureId != null) return planVisibility.panelsVisible
-      const endpoint = placement.endpointId ? getEndpointById(placement.endpointId) : undefined
+      const endpoint = placement.endpointId ? lookups?.endpoint(placement.endpointId) : undefined
       const trunkDevice = placement.trunkDeviceId
-        ? getTrunkDeviceById(placement.trunkDeviceId)?.device
+        ? lookups?.trunk(placement.trunkDeviceId)?.device
         : undefined
       const symbolKey = endpoint?.symbol ?? trunkDevice?.symbol
       if (!symbolKey) return false
@@ -210,16 +230,18 @@ export function usePlanPlacements(
       if (cat === null) return true
       return planVisibility[SITPLAN_CATEGORY_VISIBILITY_KEYS[cat]] !== false
     })
-    const stableVisiblePlacements = reuseMembers(previousVisiblePlacementsRef.current, filtered)
-    previousVisiblePlacementsRef.current = stableVisiblePlacements
-    return stableVisiblePlacements
+    return filtered
   }, [
     wirePlacements,
     planVisibility,
-    getEndpointById,
-    getTrunkDeviceById,
-    electrical,
+    lookups,
   ])
+  const [visibleRows, setVisibleRows] = useState({ source: nextVisiblePlacements, rows: nextVisiblePlacements })
+  if (visibleRows.source !== nextVisiblePlacements) {
+    setVisibleRows({ source: nextVisiblePlacements,
+      rows: planVisibility.symbolsVisible ? reuseMembers(visibleRows.rows, nextVisiblePlacements) : visibleRows.rows })
+  }
+  const visiblePlacements = planVisibility.symbolsVisible ? visibleRows.rows : nextVisiblePlacements
 
   return {
     placements,

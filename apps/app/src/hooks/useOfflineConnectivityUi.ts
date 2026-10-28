@@ -12,7 +12,12 @@ function readBannerDismissed(): boolean {
 export function useOfflineConnectivityUi(options?: { allowDismiss?: boolean }) {
   const allowDismiss = options?.allowDismiss ?? false
   const { isOffline } = useOnlineStatus()
-  const [bannerDismissed, setBannerDismissed] = useState(readBannerDismissed)
+  const [bannerDismissed, setBannerDismissed] = useState(() => isOffline && readBannerDismissed())
+  const [connectionSource, setConnectionSource] = useState(isOffline)
+  if (connectionSource !== isOffline) {
+    setConnectionSource(isOffline)
+    if (!isOffline) setBannerDismissed(false)
+  }
 
   useEffect(() => {
     const syncDismissed = () => setBannerDismissed(readBannerDismissed())
@@ -23,7 +28,6 @@ export function useOfflineConnectivityUi(options?: { allowDismiss?: boolean }) {
   useEffect(() => {
     if (!isOffline) {
       sessionStorage.removeItem(BANNER_DISMISSED_SESSION_KEY)
-      setBannerDismissed(false)
     }
   }, [isOffline])
 

@@ -351,10 +351,12 @@ export function PlanWiresLayer({
     waypointPreviewStore ? null : state.preview
   )
   const setDragWaypointPreview = (preview: PlanWireWaypointPreview | null) => waypointStore.setState({ preview })
+  if (drawingWire || activeWaypointRouteId) {
+    if (hoveredRouteId !== null) setHoveredRouteId(null)
+    if (hoverInsertPreview !== null) setHoverInsertPreview(null)
+  }
   useEffect(() => {
     if (!drawingWire && !activeWaypointRouteId) return
-    setHoveredRouteId(null)
-    setHoverInsertPreview(null)
     onHoverRoute?.(null)
   }, [drawingWire, activeWaypointRouteId, onHoverRoute])
   const [placingWaypoint, setPlacingWaypoint] = useState<PlacingWaypointSession | null>(null)
@@ -398,6 +400,8 @@ export function PlanWiresLayer({
 
   useEffect(() => {
     if (!placingWaypoint) return
+    const setDragWaypointPreview = (preview: PlanWireWaypointPreview | null) =>
+      waypointStore.setState({ preview })
     if (!active) {
       setPlacingWaypoint(null)
       setDragWaypointPreview(null)

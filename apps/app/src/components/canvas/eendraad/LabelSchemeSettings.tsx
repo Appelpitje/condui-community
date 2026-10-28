@@ -1,7 +1,6 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useId, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Info } from 'lucide-react'
-import type { TFunction } from 'i18next'
 import type {
   LabelScheme,
   LabelSeparator,
@@ -20,7 +19,6 @@ import {
   formatCircuitCode,
   formatLabelSequence,
   joinLabelParts,
-  labelSchemeForStorage,
   labelSchemesEqual,
   labelSchemeUsesPanelPart,
   matchBuiltInLabelStyle,
@@ -32,7 +30,7 @@ import {
 } from '@/lib/eendraad/labelScheme'
 import { countLabelChangesForScheme } from '@/lib/eendraad/labelSchemeChanges'
 import { getProjectElectricalInstallation } from '@/lib/projectV2/electrical'
-import { editProperties } from '@/handlers/properties/editProperties'
+import { applyLabelScheme } from '@/handlers/properties/applyLabelScheme'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useDialogStore } from '@/stores/dialogStore'
@@ -65,7 +63,7 @@ const SUB_PANEL_SAMPLE = [
 ] as unknown as Panel[]
 
 /** A few labels the scheme produces, for example `A1, A2, A1.1`. */
-export function labelSchemeExample(scheme: LabelScheme): string {
+function labelSchemeExample(scheme: LabelScheme): string {
   const panelPart = panelPartForCircuitLabels(
     scheme,
     buildPanelCodesById(SAMPLE_PANELS, scheme).get('sample')
@@ -95,20 +93,6 @@ function schemeForStyleKey(
   if (key.startsWith('saved:'))
     return saved.find((style) => style.id === key.slice(6))?.scheme ?? null
   return null
-}
-
-/**
- * Applies a scheme to the project as one undoable edit and relabels when automatic naming is on.
- * Panel numbering is left alone when `panelNumberingEnabled` is undefined (edition without it).
- */
-export function applyLabelScheme(scheme: LabelScheme, panelNumberingEnabled?: boolean): void {
-  editProperties({
-    installation: {
-      labelScheme: labelSchemeForStorage(scheme) ?? null,
-      ...(panelNumberingEnabled === undefined ? {} : { panelNumberingEnabled }),
-    },
-    refreshAutomaticNaming: true,
-  })
 }
 
 interface LabelStyleSelectProps {
@@ -215,26 +199,30 @@ function SegmentButtons<T extends string | number | boolean>({
   options: SegmentOption<T>[]
   onChange: (value: T) => void
 }) {
+  const helpIdPrefix = useId()
   return (
     <div
       role="radiogroup"
       aria-label={label}
       className="inline-flex w-fit max-w-full shrink-0 flex-wrap overflow-hidden rounded-md border border-gray-300 dark:border-gray-600"
     >
-      {options.map((option) => {
+      {options.map((option, index) => {
         const selected = option.value === value
+        const helpText = [help, option.title].filter(Boolean).join(' ')
+        const descriptionId = helpText ? `${helpIdPrefix}-${index}` : undefined
         return (
           <LabelSettingHelp
             key={String(option.value)}
             className="border-r border-gray-300 last:border-r-0 dark:border-gray-600"
-            text={[help, option.title].filter(Boolean).join(' ')}
+            text={helpText}
+            descriptionId={descriptionId}
           >
             <button
               type="button"
               role="radio"
               aria-checked={selected}
               disabled={option.disabled}
-              aria-description={[help, option.title].filter(Boolean).join(' ')}
+              aria-describedby={descriptionId}
               onClick={() => onChange(option.value)}
               className={`border-gray-300 px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 ${
                 selected
@@ -327,8 +315,10 @@ function Section({
 const isNumericCircuitStyle = (style: LabelSequenceStyle) =>
   style === 'number' || style === 'number2'
 
-function LabelSchemeDialogContent() {
+export function LabelSchemeDialogContent() {
   const { t } = useTranslation()
+  const numberingHelpId = useId()
+  const prefixHelpId = useId()
   const project = useProjectStore((state) => state.currentProject)
   const storageMode = useProjectStore((state) => state.currentProjectStorageMode)
   const { advancedPanelLabels } = useEditionFeatureAvailability(project?.project.id, {
@@ -600,14 +590,14 @@ function LabelSchemeDialogContent() {
                   </LabelSettingHelp>
                 }
                 aside={
-                  <LabelSettingHelp text={help.numberingHelp}>
+                  <LabelSettingHelp text={help.numberingHelp} descriptionId={numberingHelpId}>
                     <input
                       id="label-scheme-numbering"
                       type="checkbox"
                       checked={numbering}
                       onChange={(event) => setNumbering(event.target.checked)}
                       className="rounded border-gray-400"
-                      aria-description={help.numberingHelp}
+                      aria-describedby={numberingHelpId}
                     />
                   </LabelSettingHelp>
                 }
@@ -623,7 +613,7 @@ function LabelSchemeDialogContent() {
                           {t('canvas.eendraadNaming.scheme.prefix', 'Prefix')}
                         </label>
                       </LabelSettingHelp>
-                      <LabelSettingHelp text={help.prefixHelp}>
+                      <LabelSettingHelp text={help.prefixHelp} descriptionId={prefixHelpId}>
                         <input
                           id="label-scheme-prefix"
                           value={draft.panel.prefix}
@@ -634,7 +624,7 @@ function LabelSchemeDialogContent() {
                             update((scheme) => ({ ...scheme, panel: { ...scheme.panel, prefix } }))
                           }}
                           className="w-20 rounded-md border border-gray-300 bg-white px-2 py-1 font-mono text-sm dark:border-gray-600 dark:bg-gray-700"
-                          aria-description={help.prefixHelp}
+                          aria-describedby={prefixHelpId}
                         />
                       </LabelSettingHelp>
                     </div>
@@ -877,14 +867,4 @@ function LabelSchemeDialogContent() {
       </div>
     </SectionHoverContext.Provider>
   )
-}
-
-export function openLabelSchemeDialog(t: TFunction): void {
-  useDialogStore.getState().openDialog({
-    id: 'label-scheme',
-    type: 'custom',
-    title: t('canvas.eendraadNaming.scheme.dialogTitle', 'Automatic labels'),
-    size: 'wide',
-    content: <LabelSchemeDialogContent />,
-  })
 }

@@ -25,6 +25,14 @@ function FloorPlanDrawDimensionFieldInput({
   editor: FloorPlanDrawDimensionEditor
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const liveRef = useRef(field.live)
+  const replaceLiveValueRef = useRef<(text: string) => void>(() => undefined)
+  useLayoutEffect(() => {
+    liveRef.current = field.live
+    replaceLiveValueRef.current = (text) => {
+      if (isValidDimensionText(text)) editor.onChange(field.id, text)
+    }
+  }, [field.live, field.id, editor])
 
   useEffect(() => {
     if (!field.active) return
@@ -46,12 +54,6 @@ function FloorPlanDrawDimensionFieldInput({
 
   // The selection alone is not reliable: typing right after a pointer move can land
   // before the re-select. While the value is live, replace it outright instead.
-  const liveRef = useRef(field.live)
-  liveRef.current = field.live
-  const replaceLiveValueRef = useRef<(text: string) => void>(() => undefined)
-  replaceLiveValueRef.current = (text) => {
-    if (isValidDimensionText(text)) editor.onChange(field.id, text)
-  }
   useEffect(() => {
     const input = inputRef.current
     if (!input) return

@@ -49,7 +49,7 @@ function FloorSelectionDialog({
   const overlayByBase = useProjectStore((s: ProjectState) => s.planFloorOverlayVisibleByBaseFloorId)
   const openDialog = useDialogStore((s: ReturnType<typeof useDialogStore.getState>) => s.openDialog)
   const floors = currentProject ? readLegacyCompatibilityFloors(currentProject) : []
-  const [isCreatingNew, setIsCreatingNew] = useState(false)
+  const [isCreatingNew, setIsCreatingNew] = useState(() => !readOnly && floors.length === 0)
   const [newFloorName, setNewFloorName] = useState('')
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null)
   const [editingFloorName, setEditingFloorName] = useState('')
@@ -62,11 +62,11 @@ function FloorSelectionDialog({
   const inputRef = useRef<HTMLInputElement>(null)
 
   // When there are no floors, show create form
-  useEffect(() => {
-    if (!readOnly && floors.length === 0) {
-      setIsCreatingNew(true)
-    }
-  }, [floors.length, readOnly])
+  const [createSource, setCreateSource] = useState({ floorCount: floors.length, readOnly })
+  if (createSource.floorCount !== floors.length || createSource.readOnly !== readOnly) {
+    setCreateSource({ floorCount: floors.length, readOnly })
+    if (!readOnly && floors.length === 0) setIsCreatingNew(true)
+  }
 
   // Focus input when creating new floor
   useEffect(() => {
@@ -302,15 +302,11 @@ function FloorSelectionDialog({
             <li
               key={floor.id}
               data-floor-selection-row={allowFloorDuplication && !readOnly ? 'true' : undefined}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors ${
+              className={`relative flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors ${
                 isSelected
                   ? 'bg-sky-100 dark:bg-sky-900/40 border border-sky-300 dark:border-sky-700 ring-1 ring-sky-200 dark:ring-sky-800'
                   : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
               } ${isDragging ? 'ring-2 ring-sky-400/70 dark:ring-sky-700/80' : ''}`}
-              onClick={() => {
-                setFloorContextMenu(null)
-                onSelect(floor.id)
-              }}
               onContextMenu={(event) => handleFloorContextMenu(event, floor.id)}
               onDragOver={(e) => e.preventDefault()}
               onDragEnter={() => handleDragEnterRow(floor.id)}
@@ -320,6 +316,16 @@ function FloorSelectionDialog({
                 resetDragging()
               }}
             >
+              <button
+                type="button"
+                aria-label={floor.name}
+                aria-pressed={isSelected}
+                onClick={() => {
+                  setFloorContextMenu(null)
+                  onSelect(floor.id)
+                }}
+                className="absolute inset-0 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500"
+              />
               <div className="shrink-0">
                 <button
                   type="button"
@@ -328,7 +334,7 @@ function FloorSelectionDialog({
                   onDragEnd={resetDragging}
                   onClick={(e) => e.stopPropagation()}
                   disabled={readOnly || isEditing}
-                  className="p-1 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 cursor-grab active:cursor-grabbing disabled:opacity-30 disabled:pointer-events-none"
+                  className="relative z-10 p-1 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 cursor-grab active:cursor-grabbing disabled:opacity-30 disabled:pointer-events-none"
                   aria-label={t('floorSelection.reorder', 'Reorder floor')}
                   title={t('floorSelection.reorder', 'Reorder floor')}
                 >
@@ -355,7 +361,7 @@ function FloorSelectionDialog({
                       cancelRenameFloor()
                     }
                   }}
-                  className="flex-1 min-w-0 px-2 py-1 text-sm border border-sky-300 dark:border-sky-700 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                  className="relative z-10 flex-1 min-w-0 px-2 py-1 text-sm border border-sky-300 dark:border-sky-700 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-sky-500 focus:border-transparent"
                 />
               ) : (
                 <span className="flex-1 min-w-0 truncate font-medium text-gray-900 dark:text-white">
@@ -371,7 +377,7 @@ function FloorSelectionDialog({
                       commitRenameFloor()
                     }}
                     disabled={!editingFloorName.trim()}
-                    className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/30 disabled:opacity-40 disabled:pointer-events-none text-green-700 dark:text-green-400"
+                    className="relative z-10 p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/30 disabled:opacity-40 disabled:pointer-events-none text-green-700 dark:text-green-400"
                     aria-label={t('common.save')}
                   >
                     <Check className="w-4 h-4" />
@@ -382,7 +388,7 @@ function FloorSelectionDialog({
                       e.stopPropagation()
                       cancelRenameFloor()
                     }}
-                    className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300"
+                    className="relative z-10 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300"
                     aria-label={t('common.cancel')}
                   >
                     <X className="w-4 h-4" />
@@ -397,7 +403,7 @@ function FloorSelectionDialog({
                         e.stopPropagation()
                         togglePlanFloorOverlayFloor(currentFloorId, floor.id)
                       }}
-                      className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                      className={`relative z-10 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                         overlayOn
                           ? 'text-sky-600 dark:text-sky-400'
                           : 'text-gray-500 dark:text-gray-500'
@@ -423,7 +429,7 @@ function FloorSelectionDialog({
                         e.stopPropagation()
                         startRenameFloor(floor.id, floor.name)
                       }}
-                      className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400"
+                      className="relative z-10 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400"
                       aria-label={t('common.edit')}
                     >
                       <Pencil className="w-4 h-4" />
@@ -437,7 +443,7 @@ function FloorSelectionDialog({
                         handleDeleteFloorById(floor.id)
                       }}
                       disabled={isOnlyFloor}
-                      className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-35 disabled:pointer-events-none text-red-600 dark:text-red-400"
+                      className="relative z-10 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-35 disabled:pointer-events-none text-red-600 dark:text-red-400"
                       aria-label={t('floorSelection.delete')}
                       title={
                         isOnlyFloor

@@ -111,6 +111,13 @@ const hostedTemplateModulePaths = [
   'apps/app/src/lib/projectManagement.ts',
   'apps/app/src/lib/projectStorage/adapters/supabaseEditorCloudProjectAdapter.ts',
   'apps/app/src/pages/Home.tsx',
+  'apps/app/src/pages/createHomeCloudProjectActions.tsx',
+  'apps/app/src/pages/createHomeProjectImportActions.tsx',
+  'apps/app/src/pages/createHomeProjectCreationActions.ts',
+  'apps/app/src/pages/useHomeProjectUnlockCheckoutReturn.tsx',
+  'apps/app/src/pages/createHomeTemplateActions.ts',
+  'apps/app/src/pages/homeProjectUnlock.ts',
+  'apps/app/src/pages/HomeProjectUnlockPurchaseContent.tsx',
   'apps/app/src/pages/ProjectPage.tsx',
 ] as const
 
@@ -146,6 +153,7 @@ export function assertNoHostedDxfModules(moduleIds: Iterable<string>): void {
 const electricalVisionModulePrefixes = [
   'apps/app/src/components/vision/',
   'apps/app/src/lib/vision/',
+  'apps/app/src/components/canvas/plan/WallScanReview.tsx',
 ] as const
 
 export function assertNoElectricalVisionModules(moduleIds: Iterable<string>): void {
@@ -309,11 +317,16 @@ export function createCommunitySourceBoundaryPlugin() {
     resolveId(source: string) {
       return source === '/src/main.tsx' ? path.resolve(appRoot, 'src/main.community.tsx') : null
     },
-    transformIndexHtml(html: string) {
-      return html.replace(
-        /<!--\s*@community-strip-start\s*-->[\s\S]*?<!--\s*@community-strip-end\s*-->/g,
-        '',
-      )
+    transformIndexHtml: {
+      order: 'pre' as const,
+      handler(html: string) {
+        return html
+          .replace('/src/main.tsx', '/src/main.community.tsx')
+          .replace(
+            /<!--\s*@community-strip-start\s*-->[\s\S]*?<!--\s*@community-strip-end\s*-->/g,
+            '',
+          )
+      },
     },
     transform(source: string, id: string) {
       let code = stripDisabledElectricalVisionScanSource(source)
@@ -336,6 +349,7 @@ export function createCommunitySourceBoundaryPlugin() {
 }
 
 export default defineConfig({
+  cacheDir: 'node_modules/.vite-community',
   plugins: [
     createPdfjsWasmPlugin(),
     {
@@ -417,6 +431,9 @@ export default defineConfig({
     },
   ],
   worker: {
+    // Workers are created with `type: 'module'`; ES output lets them load locale
+    // catalogs on demand instead of inlining every language.
+    format: 'es',
     plugins: () => [createCommunitySourceBoundaryPlugin()],
   },
   resolve: {

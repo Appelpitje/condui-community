@@ -1,9 +1,12 @@
+import { useFloorPlanProjectionSnaps } from '@/components/canvas/plan/useFloorPlanProjectionSnaps'
+import { useFloorPlanOpeningPlacement } from '@/components/canvas/plan/useFloorPlanOpeningPlacement'
+import { useFloorPlanPointerCoordinates } from '@/components/canvas/plan/useFloorPlanPointerCoordinates'
+import { FloorPlanDrawingPreview, type FloorPlanInputEvent } from './FloorPlanDrawingPreview'
 import { isKeyboardTypingTarget } from '@/lib/ui/keyboardTypingTarget'
 import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import { useIsActiveViewport } from '@/components/viewport/ViewportUIStore'
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { Group, Line, Rect, Circle, Text } from 'react-konva'
-import type { KonvaEventObject } from 'konva/lib/Node'
+import { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react'
+import { Group, Rect } from 'react-konva'
 import { useViewportUIStore as useUIStore } from '@/components/viewport/ViewportUIStore'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { runProjectCommand } from '@/stores/liveProjectCommandSession'
@@ -12,46 +15,32 @@ import { snapToGrid } from '@/utils/plan/gridSnap'
 import {
   handleDrawWall,
   handleDrawWallRect,
-  handleInsertDoor,
-  handleInsertWindow,
-  validateOpeningPlacement,
-  resolveWindowInsertWidthPx,
   computeOpeningGeometry,
 } from '@/handlers/plan/wallDrawing'
-import {
-  openingWallNormalDeadzoneCanvas,
-  resolveDoorPlacementOrientation,
-} from '@/lib/plan/doorSwingFromPointer'
+
 import {
   computeOpeningDragPlacement,
-  fitOpeningPlacementForPreview,
   openingWidthCentimeters,
-  snapOpeningWidthToWholeCentimeters,
 } from '@/lib/plan/openingPlacementDrag'
+import { computeOpeningDragPreview, type OpeningDragGesture } from '@/lib/plan/openingDragPreview'
+import {
+  useFloorPlanDrawDimensions,
+  useFloorPlanDrawDimensionTimers,
+} from './useFloorPlanDrawDimensions'
 import type { ToolMode } from '../../plan/PlanImageTools'
 import type { Floor, Point2, Wall, Stair } from '@/types/schema'
 import {
   createQuarterCircleWallCurve,
   getCurvedWallToolHoverFeedback,
-  getCurveRenderMaxSegmentLength,
   getWallPathPoints,
   isCurvedWall,
 } from '@/lib/plan/wallCurve'
 import type { PlanView } from '@/stores/uiStore'
-import { readLegacyCompatibilityFloors } from '@/lib/projectV2/buildingFloors'
+
 import { resolvePlanCanvasPxPerMeter } from '@/hooks/plan'
 import { useCanvasFontFamily, useSetSelectionStore } from '@/editions/community/communityHooks'
 import {
   DRAW_TOOL_DASH_PX,
-  DRAW_TOOL_PROJECTION_SNAP_ZONE_PX,
-  DRAW_TOOL_PROJECTION_SNAP_ZONE_PX_MAX,
-  DRAW_TOOL_PROJECTION_SNAP_ZONE_PX_MIN,
-  DRAW_TOOL_LINE_SNAP_ZONE_PX,
-  DRAW_TOOL_LINE_SNAP_ZONE_PX_MAX,
-  DRAW_TOOL_LINE_SNAP_ZONE_PX_MIN,
-  OPENING_SPAN_CENTER_SNAP_ZONE_PX,
-  OPENING_SPAN_CENTER_SNAP_ZONE_PX_MAX,
-  OPENING_SPAN_CENTER_SNAP_ZONE_PX_MIN,
   DRAW_TOOL_HANDLE_RADIUS_PX,
   DRAW_TOOL_HANDLE_RADIUS_PX_MAX,
   DRAW_TOOL_HANDLE_RADIUS_PX_MIN,
@@ -63,7 +52,7 @@ import {
   DRAW_TOOL_STROKE_PX_MIN,
   screenPxToCanvasUnits,
 } from '@/constants/canvasConstants'
-import { resolveOpeningPositionSnap } from '@/lib/plan/openingPositionSnap'
+
 import {
   PLAN_STAIR_DEFAULT_STEP_DEPTH_CM,
   PLAN_STAIR_SPIRAL_POLE_DIAMETER_CM,
@@ -71,15 +60,10 @@ import {
 } from '@/constants/planConstants'
 import { buildStairGeometry } from '@/components/canvas/plan/StairRenderer'
 import { getStairRenderMetrics } from '@/lib/plan/stairPlanScale'
-import { PlanGraphicElementShape } from '@/components/canvas/plan/PlanGraphicElementRenderer'
 import { PlanProjectionGuides, type PlanProjectionGuide } from './PlanProjectionGuides'
 import { planFloorDrawingConsumesTabRef } from '@/lib/plan/planFloorDrawingKeyboardGate'
 import { resolveFloorPlanToolContextMenuAction } from '@/lib/plan/floorPlanToolContextMenu'
-import {
-  snapNearbyLineToGrid,
-  snapPointToNearbyLine,
-  type LineSnapSegment,
-} from '@/lib/plan/lineSnap'
+
 import {
   cloneFloorPlanDrawingSnapshot,
   isFloorPlanDrawingInProgress,
@@ -100,8 +84,6 @@ import {
 /** Second pointer-down / click inside this window and distance is treated as double-click. */
 const FLOOR_PLAN_DRAW_DOUBLE_CLICK_MS = 400
 const FLOOR_PLAN_DRAW_DOUBLE_CLICK_DISTANCE_PX = 8
-
-type FloorPlanInputEvent = KonvaEventObject<MouseEvent | TouchEvent | PointerEvent | DragEvent>
 
 interface FloorPlanModeProps {
   activeFloorId: string | null
@@ -198,16 +180,11 @@ export function FloorPlanMode({
   })
   const [currentMousePosition, setCurrentMousePosition] = useState<Point2 | null>(null)
   const [stairDrawingPoints, setStairDrawingPoints] = useState<Point2[]>([])
-  const [openingPointerState, setOpeningPointerState] = useState<{
-    kind: 'door' | 'window'
-    wall: Wall
-    anchor: Point2
-    current: Point2
-    dragSizingLatched: boolean
-  } | null>(null)
+  const [openingPointerState, setOpeningPointerState] = useState<OpeningDragGesture | null>(null)
   const [graphicPointerState, setGraphicPointerState] = useState<{
     start: Point2
     current: Point2
+    didDrag: boolean
   } | null>(null)
   const [projectedSnapGuides, setProjectedSnapGuides] = useState<
     Array<{ from: Point2; to: Point2; hideDistanceLabel?: boolean }>
@@ -249,23 +226,14 @@ export function FloorPlanMode({
   const didClearWallHoverRef = useRef(false)
   const doorPlacementOpenSideRef = useRef<'left' | 'right'>('right')
   const stageContainerRef = useRef<HTMLElement | null>(null)
-  const penAutoLockTimeoutRef = useRef<number | null>(null)
-  const rectXAutoLockTimeoutRef = useRef<number | null>(null)
-  const rectYAutoLockTimeoutRef = useRef<number | null>(null)
-  const [penDimensionText, setPenDimensionText] = useState('')
-  const [penLockedLengthMeters, setPenLockedLengthMeters] = useState<number | null>(null)
-  const [rectDimensionTextX, setRectDimensionTextX] = useState('')
-  const [rectDimensionTextY, setRectDimensionTextY] = useState('')
-  const [rectLockedXMeters, setRectLockedXMeters] = useState<number | null>(null)
-  const [rectLockedYMeters, setRectLockedYMeters] = useState<number | null>(null)
-  const [rectActiveAxis, setRectActiveAxis] = useState<'x' | 'y'>('x')
-
   const drawingUndoStackRef = useRef<FloorPlanDrawingUndoSnapshot[]>([])
   const drawingRedoStackRef = useRef<FloorPlanDrawingUndoSnapshot[]>([])
   const wallDrawingStateRef = useRef(wallDrawingState)
-  wallDrawingStateRef.current = wallDrawingState
   const stairDrawingPointsRef = useRef(stairDrawingPoints)
-  stairDrawingPointsRef.current = stairDrawingPoints
+  useLayoutEffect(() => {
+    wallDrawingStateRef.current = wallDrawingState
+    stairDrawingPointsRef.current = stairDrawingPoints
+  }, [wallDrawingState, stairDrawingPoints])
 
   const captureDrawingSnapshot = useCallback((): FloorPlanDrawingUndoSnapshot => {
     return cloneFloorPlanDrawingSnapshot(wallDrawingStateRef.current, stairDrawingPointsRef.current)
@@ -298,6 +266,33 @@ export function FloorPlanMode({
     [pointsAlmostEqual]
   )
 
+  const dimensionSource = {
+    isDrawing: wallDrawingState.isDrawing,
+    currentPoints: wallDrawingState.currentPoints,
+    rectStartPoint: wallDrawingState.rectStartPoint,
+    canvasPxPerMeter,
+    window,
+    scheduleMousePreviewPosition,
+  }
+  const dimensions = useFloorPlanDrawDimensions(dimensionSource)
+  const {
+    penDimensionText,
+    setPenDimensionText,
+    penLockedLengthMeters,
+    setPenLockedLengthMeters,
+    rectDimensionTextX,
+    setRectDimensionTextX,
+    rectDimensionTextY,
+    setRectDimensionTextY,
+    rectLockedXMeters,
+    rectLockedYMeters,
+    rectActiveAxis,
+    setRectActiveAxis,
+    clearPenConstraints,
+    clearRectConstraints,
+  } = dimensions
+  const readMousePreviewPosition = useCallback(() => mousePreviewPositionRef.current, [])
+
   const resetDrawingState = useCallback(() => {
     pendingMousePreviewPositionRef.current = null
     mousePreviewPositionRef.current = null
@@ -311,25 +306,8 @@ export function FloorPlanMode({
     setCurrentMousePosition(null)
     setProjectedSnapGuides([])
     setActiveGeometrySnap(null)
-    if (penAutoLockTimeoutRef.current != null) {
-      clearTimeout(penAutoLockTimeoutRef.current)
-      penAutoLockTimeoutRef.current = null
-    }
-    if (rectXAutoLockTimeoutRef.current != null) {
-      clearTimeout(rectXAutoLockTimeoutRef.current)
-      rectXAutoLockTimeoutRef.current = null
-    }
-    if (rectYAutoLockTimeoutRef.current != null) {
-      clearTimeout(rectYAutoLockTimeoutRef.current)
-      rectYAutoLockTimeoutRef.current = null
-    }
-    setPenDimensionText('')
-    setPenLockedLengthMeters(null)
-    setRectDimensionTextX('')
-    setRectDimensionTextY('')
-    setRectLockedXMeters(null)
-    setRectLockedYMeters(null)
-    setRectActiveAxis('x')
+    clearPenConstraints()
+    clearRectConstraints()
     setRectPointerActive(false)
     setOpeningPointerState(null)
     doorPlacementOpenSideRef.current = 'right'
@@ -347,32 +325,7 @@ export function FloorPlanMode({
     penDoubleClickDetectedRef.current = false
     lastStagePointerRef.current = null
     clearDrawingUndoStacks()
-  }, [clearDrawingUndoStacks])
-
-  const clearPenConstraints = useCallback(() => {
-    if (penAutoLockTimeoutRef.current != null) {
-      clearTimeout(penAutoLockTimeoutRef.current)
-      penAutoLockTimeoutRef.current = null
-    }
-    setPenDimensionText('')
-    setPenLockedLengthMeters(null)
-  }, [])
-
-  const clearRectConstraints = useCallback(() => {
-    if (rectXAutoLockTimeoutRef.current != null) {
-      clearTimeout(rectXAutoLockTimeoutRef.current)
-      rectXAutoLockTimeoutRef.current = null
-    }
-    if (rectYAutoLockTimeoutRef.current != null) {
-      clearTimeout(rectYAutoLockTimeoutRef.current)
-      rectYAutoLockTimeoutRef.current = null
-    }
-    setRectDimensionTextX('')
-    setRectDimensionTextY('')
-    setRectLockedXMeters(null)
-    setRectLockedYMeters(null)
-    setRectActiveAxis('x')
-  }, [])
+  }, [clearDrawingUndoStacks, clearPenConstraints, clearRectConstraints])
 
   const applyDrawingSnapshot = useCallback(
     (snapshot: FloorPlanDrawingUndoSnapshot) => {
@@ -616,92 +569,18 @@ export function FloorPlanMode({
     [activeFloorId, canvasPxPerMeter, selectedGraphicAssetId]
   )
 
-  const rememberStageContainer = useCallback((e: FloorPlanInputEvent) => {
-    const container = e.target?.getStage?.()?.container?.()
-    if (container) stageContainerRef.current = container
-  }, [])
-
-  const capturePenPointer = useCallback((e: FloorPlanInputEvent) => {
-    const nativeEvent = e.evt as PointerEvent
-    const target = nativeEvent.target
-    if (
-      typeof nativeEvent.pointerId !== 'number' ||
-      !(target instanceof HTMLElement) ||
-      typeof target.setPointerCapture !== 'function'
-    ) {
-      return
-    }
-
-    try {
-      target.setPointerCapture(nativeEvent.pointerId)
-      penPointerCaptureTargetRef.current = target
-      penPointerCaptureIdRef.current = nativeEvent.pointerId
-    } catch {
-      // Pointer capture is a best-effort guard for HTML overlays crossing the canvas.
-    }
-  }, [])
-
-  const releasePenPointer = useCallback(() => {
-    const target = penPointerCaptureTargetRef.current
-    const pointerId = penPointerCaptureIdRef.current
-    penPointerCaptureTargetRef.current = null
-    penPointerCaptureIdRef.current = null
-    if (!target || pointerId == null || !target.hasPointerCapture(pointerId)) return
-    try {
-      target.releasePointerCapture(pointerId)
-    } catch {
-      // The browser may already have released capture after a cancelled gesture.
-    }
-  }, [])
-
-  const clientCoordsToCanvasPoint = useCallback(
-    (clientX: number, clientY: number): Point2 | null => {
-      const container = stageContainerRef.current
-      if (!container) return null
-      const rect = container.getBoundingClientRect()
-      const stageX = clientX - rect.left
-      const stageY = clientY - rect.top
-      return {
-        x: (stageX - planView.pan.x) / planView.zoom,
-        y: (stageY - planView.pan.y) / planView.zoom,
-      }
-    },
-    [planView.pan.x, planView.pan.y, planView.zoom]
-  )
-
-  const getCanvasPointFromEvent = useCallback(
-    (e: FloorPlanInputEvent): Point2 | null => {
-      const stage = e.target?.getStage?.()
-      if (!stage) return null
-
-      const pointer = stage.getPointerPosition()
-      if (pointer) {
-        return {
-          x: (pointer.x - planView.pan.x) / planView.zoom,
-          y: (pointer.y - planView.pan.y) / planView.zoom,
-        }
-      }
-
-      // iPad/Safari fallback: pointer can be null on initial touch events.
-      const nativeEvt = e.evt as TouchEvent | PointerEvent | MouseEvent | undefined
-      const stageContainer = stage.container?.()
-      if (!nativeEvt || !stageContainer) return null
-      const rect = stageContainer.getBoundingClientRect()
-      const touch =
-        (nativeEvt as TouchEvent).touches?.[0] || (nativeEvt as TouchEvent).changedTouches?.[0]
-      const clientX = touch?.clientX ?? (nativeEvt as PointerEvent).clientX
-      const clientY = touch?.clientY ?? (nativeEvt as PointerEvent).clientY
-      if (typeof clientX !== 'number' || typeof clientY !== 'number') return null
-
-      const stageX = clientX - rect.left
-      const stageY = clientY - rect.top
-      return {
-        x: (stageX - planView.pan.x) / planView.zoom,
-        y: (stageY - planView.pan.y) / planView.zoom,
-      }
-    },
-    [planView]
-  )
+  const {
+    rememberStageContainer,
+    capturePenPointer,
+    releasePenPointer,
+    clientCoordsToCanvasPoint,
+    getCanvasPointFromEvent,
+  } = useFloorPlanPointerCoordinates({
+    stageContainerRef,
+    penPointerCaptureTargetRef,
+    penPointerCaptureIdRef,
+    planView,
+  })
 
   const snapPointToPenAngle = useCallback((start: Point2, target: Point2): Point2 => {
     const dx = target.x - start.x
@@ -721,387 +600,35 @@ export function FloorPlanMode({
     return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon
   }, [])
 
-  const findClosestWallForOpening = useCallback((point: Point2, walls: Wall[]): Wall | null => {
-    let closestWall: Wall | null = null
-    let minDistance = Infinity
-    for (const wall of walls) {
-      if (isCurvedWall(wall)) continue
-      for (let i = 0; i < wall.points.length - 1; i++) {
-        const p1 = wall.points[i]
-        const p2 = wall.points[i + 1]
-        if (!p1 || !p2) continue
-        const dx = p2.x - p1.x
-        const dy = p2.y - p1.y
-        const lengthSq = dx * dx + dy * dy
-        if (lengthSq < 1e-10) continue
-        const t = Math.max(
-          0,
-          Math.min(1, ((point.x - p1.x) * dx + (point.y - p1.y) * dy) / lengthSq)
-        )
-        const projX = p1.x + t * dx
-        const projY = p1.y + t * dy
-        const dist = Math.hypot(point.x - projX, point.y - projY)
-        if (dist < minDistance && dist < 20) {
-          minDistance = dist
-          closestWall = wall
-        }
-      }
-    }
-    return closestWall
-  }, [])
+  const {
+    findClosestWallForOpening,
+    resolveOpeningAnchor,
+    getDefaultOpeningWidth,
+    getOpeningPlacementOptions,
+    resolvePlacementDoorOrientation,
+    commitOpeningInsert,
+  } = useFloorPlanOpeningPlacement({
+    activeFloorId,
+    getWallsByFloor,
+    planView,
+    gridSize,
+    canvasPxPerMeter,
+    previewPxPerMeter,
+    activeFloor,
+    doorPlacementOpenSideRef,
+    currentProject,
+    onOpeningInserted,
+    setSelection,
+  })
 
-  const resolveOpeningAnchor = useCallback(
-    (wall: Wall, pointer: Point2): Point2 =>
-      resolveOpeningPositionSnap({
-        wall,
-        walls: activeFloorId ? getWallsByFloor(activeFloorId) : [wall],
-        pointer,
-        spanCenterRadius: screenPxToCanvasUnits(
-          planView.zoom,
-          OPENING_SPAN_CENTER_SNAP_ZONE_PX,
-          OPENING_SPAN_CENTER_SNAP_ZONE_PX_MIN,
-          OPENING_SPAN_CENTER_SNAP_ZONE_PX_MAX
-        ),
-        snapToGrid: planView.snapToGrid,
-        gridSize,
-      }).point,
-    [activeFloorId, getWallsByFloor, gridSize, planView.snapToGrid, planView.zoom]
-  )
-
-  const getDefaultOpeningWidth = useCallback(
-    (kind: 'door' | 'window') => {
-      const doorWidthPx = snapOpeningWidthToWholeCentimeters(
-        0.83 * canvasPxPerMeter,
-        canvasPxPerMeter
-      )
-      const clickWindowWidthPx = 0.5 * canvasPxPerMeter
-      const previewWindowWidthPx = previewPxPerMeter != null ? 0.5 * previewPxPerMeter : 100
-      const windowWidthPx = snapOpeningWidthToWholeCentimeters(
-        resolveWindowInsertWidthPx(clickWindowWidthPx, previewWindowWidthPx),
-        canvasPxPerMeter
-      )
-      return kind === 'door' ? doorWidthPx : windowWidthPx
-    },
-    [canvasPxPerMeter, previewPxPerMeter]
-  )
-
-  const getOpeningPlacementOptions = useCallback(
-    (kind: 'door' | 'window') => ({
-      snapWidthToCm: true as const,
-      canvasPxPerMeter,
-      dragActivationThresholdPx: kind === 'door' ? 10 : 8,
-      minimumWidthPx: kind === 'door' ? 0.5 * canvasPxPerMeter : 0.15 * canvasPxPerMeter,
-    }),
-    [canvasPxPerMeter]
-  )
-
-  const resolvePlacementDoorOrientation = useCallback(
-    (
-      wall: Wall,
-      position: number,
-      pointer: Point2,
-      hingeSwing: 'left' | 'right' | null,
-      options?: { useOpenSideDeadzone?: boolean }
-    ) => {
-      const geom = computeOpeningGeometry(wall.points, position)
-      if (!geom || !activeFloorId) return null
-      const floorPlan = activeFloor?.floorPlan
-      if (!floorPlan) return null
-      return resolveDoorPlacementOrientation({
-        hingeSwing,
-        center: geom.center,
-        tangent: geom.tangent,
-        pointer,
-        walls: getWallsByFloor(activeFloorId),
-        wall,
-        masterWallThickness: floorPlan.masterWallThickness,
-        pxPerMeter: canvasPxPerMeter,
-        deadzonePx: openingWallNormalDeadzoneCanvas(planView.zoom),
-        useOpenSideDeadzone: options?.useOpenSideDeadzone,
-        lastOpenSide: doorPlacementOpenSideRef.current,
-      })
-    },
-    [activeFloor, activeFloorId, canvasPxPerMeter, getWallsByFloor, planView.zoom]
-  )
-
-  const commitOpeningInsert = useCallback(
-    (
-      kind: 'door' | 'window',
-      wall: Wall,
-      anchor: Point2,
-      current: Point2,
-      defaultWidth: number,
-      dragSizingLatched = false
-    ) => {
-      if (!activeFloorId) return
-      const floorPlan = (currentProject ? readLegacyCompatibilityFloors(currentProject) : []).find(
-        (f: { id: string }) => f.id === activeFloorId
-      )?.floorPlan
-      const doors = floorPlan?.doors ?? []
-      const windows = floorPlan?.windows ?? []
-      const placement = computeOpeningDragPlacement(wall, anchor, current, defaultWidth, 6, {
-        ...getOpeningPlacementOptions(kind),
-        forceDragSizing: dragSizingLatched,
-      })
-      const fitted = fitOpeningPlacementForPreview(wall, placement, doors, windows)
-      const validation = validateOpeningPlacement(
-        wall,
-        placement.centerPoint,
-        fitted.width,
-        doors,
-        windows
-      )
-      if (!validation.valid) return
-
-      if (kind === 'door') {
-        const result = handleInsertDoor(wall, placement.centerPoint, fitted.width)
-        const orientation = resolvePlacementDoorOrientation(
-          wall,
-          fitted.position,
-          current,
-          placement.doorSwing,
-          { useOpenSideDeadzone: false }
-        )
-        if (orientation) {
-          doorPlacementOpenSideRef.current = orientation.openSide
-        }
-        const outcome = runProjectCommand(
-          'plan.createBuildingGeometry',
-          {
-            kind: 'door',
-            floorId: activeFloorId,
-            wallId: wall.id,
-            position: fitted.position,
-            width: result.door.width,
-            ...(orientation ? { swing: orientation.swing, direction: orientation.direction } : {}),
-          },
-          { label: 'add door', source: 'floor-plan-drawing' }
-        )
-        if (!outcome?.changed) return
-        onOpeningInserted?.('door')
-        const insertedDoor = outcome.results[0]?.created.find((ref) => ref.kind === 'door')
-        if (insertedDoor) setSelection({ type: 'door', ids: [insertedDoor.id] })
-        return
-      }
-
-      const result = handleInsertWindow(wall, placement.centerPoint, fitted.width)
-      const outcome = runProjectCommand(
-        'plan.createBuildingGeometry',
-        {
-          kind: 'window',
-          floorId: activeFloorId,
-          wallId: wall.id,
-          position: fitted.position,
-          width: result.window.width,
-        },
-        { label: 'add window', source: 'floor-plan-drawing' }
-      )
-      if (!outcome?.changed) return
-      onOpeningInserted?.('window')
-      const insertedWindow = outcome.results[0]?.created.find((ref) => ref.kind === 'window')
-      if (insertedWindow) setSelection({ type: 'window', ids: [insertedWindow.id] })
-    },
-    [
-      activeFloorId,
-      currentProject,
-      setSelection,
-      onOpeningInserted,
-      resolvePlacementDoorOrientation,
-      getOpeningPlacementOptions,
-    ]
-  )
-
-  const segmentIntersectionPoint = useCallback(
-    (a: Point2, b: Point2, c: Point2, d: Point2): Point2 | null => {
-      const r = { x: b.x - a.x, y: b.y - a.y }
-      const s = { x: d.x - c.x, y: d.y - c.y }
-      const rxs = r.x * s.y - r.y * s.x
-      const cma = { x: c.x - a.x, y: c.y - a.y }
-      const qpxr = cma.x * r.y - cma.y * r.x
-      const epsilon = 1e-8
-      if (Math.abs(rxs) <= epsilon) return null
-      const t = (cma.x * s.y - cma.y * s.x) / rxs
-      const u = qpxr / rxs
-      if (t < -epsilon || t > 1 + epsilon || u < -epsilon || u > 1 + epsilon) return null
-      return {
-        x: a.x + t * r.x,
-        y: a.y + t * r.y,
-      }
-    },
-    []
-  )
-
-  const isProjectionPathObstructed = useCallback(
-    (from: Point2, to: Point2, segments: Array<{ a: Point2; b: Point2 }>) => {
-      for (const seg of segments) {
-        const hit = segmentIntersectionPoint(from, to, seg.a, seg.b)
-        if (!hit) continue
-        // Endpoint touches are allowed: snapping exactly onto anchors / current point.
-        if (pointsMatch(hit, from) || pointsMatch(hit, to)) continue
-        return true
-      }
-      return false
-    },
-    [segmentIntersectionPoint, pointsMatch]
-  )
-
-  const resolveNearbyLineSnap = useCallback(
-    (
-      point: Point2,
-      options?: {
-        excludeCurrentTail?: 'drawWall' | 'drawStair'
-        excludeDraftPoint?: { tool: 'drawWall' | 'drawStair'; index: number }
-      }
-    ) => {
-      const radius = screenPxToCanvasUnits(
-        planView.zoom,
-        DRAW_TOOL_LINE_SNAP_ZONE_PX,
-        DRAW_TOOL_LINE_SNAP_ZONE_PX_MIN,
-        DRAW_TOOL_LINE_SNAP_ZONE_PX_MAX
-      )
-      const segments: LineSnapSegment[] = []
-      const appendSegments = (points: Point2[], tool?: 'drawWall' | 'drawStair') => {
-        for (let index = 0; index < points.length - 1; index += 1) {
-          if (tool && options?.excludeCurrentTail === tool && index === points.length - 2) {
-            continue
-          }
-          const excludedDraftPoint = options?.excludeDraftPoint
-          if (
-            tool &&
-            excludedDraftPoint?.tool === tool &&
-            (index === excludedDraftPoint.index || index + 1 === excludedDraftPoint.index)
-          ) {
-            continue
-          }
-          const a = points[index]
-          const b = points[index + 1]
-          if (a && b) segments.push({ a, b })
-        }
-      }
-
-      for (const wall of activeFloor?.floorPlan?.walls ?? [])
-        appendSegments(getWallPathPoints(wall))
-      for (const stair of activeFloor?.floorPlan?.stairs ?? []) appendSegments(stair.points)
-      appendSegments(wallDrawingState.currentPoints, 'drawWall')
-      appendSegments(stairDrawingPoints, 'drawStair')
-
-      const nearbyLine = snapPointToNearbyLine(point, segments, radius)
-      return nearbyLine ? snapNearbyLineToGrid(nearbyLine, gridSize, planView.snapToGrid) : null
-    },
-    [
-      activeFloor?.floorPlan?.walls,
-      activeFloor?.floorPlan?.stairs,
-      gridSize,
-      planView.snapToGrid,
-      planView.zoom,
-      stairDrawingPoints,
-      wallDrawingState.currentPoints,
-    ]
-  )
-
-  const resolveProjectedPenSnap = useCallback(
-    (point: Point2, walls: Wall[]) => {
-      const projectionSnapZone = screenPxToCanvasUnits(
-        planView.zoom,
-        DRAW_TOOL_PROJECTION_SNAP_ZONE_PX,
-        DRAW_TOOL_PROJECTION_SNAP_ZONE_PX_MIN,
-        DRAW_TOOL_PROJECTION_SNAP_ZONE_PX_MAX
-      )
-      const anchors: Point2[] = []
-      for (const p of wallDrawingState.currentPoints) anchors.push(p)
-      for (const wall of walls) {
-        wall.points.forEach((p, index) => {
-          if (!isCurvedWall(wall) || index !== 1) anchors.push(p)
-        })
-      }
-
-      const segments: Array<{ a: Point2; b: Point2 }> = []
-      for (const wall of walls) {
-        const pathPoints = getWallPathPoints(wall)
-        for (let i = 0; i < pathPoints.length - 1; i++) {
-          const a = pathPoints[i]
-          const b = pathPoints[i + 1]
-          if (!a || !b) continue
-          segments.push({ a, b })
-        }
-      }
-      for (let i = 0; i < wallDrawingState.currentPoints.length - 1; i++) {
-        const a = wallDrawingState.currentPoints[i]
-        const b = wallDrawingState.currentPoints[i + 1]
-        if (!a || !b) continue
-        segments.push({ a, b })
-      }
-
-      let bestVertical: {
-        offset: number
-        distanceToAnchor: number
-        anchor: Point2
-      } | null = null
-      let bestHorizontal: {
-        offset: number
-        distanceToAnchor: number
-        anchor: Point2
-      } | null = null
-
-      for (const anchor of anchors) {
-        if (pointsMatch(anchor, point)) continue
-        const dx = Math.abs(point.x - anchor.x)
-        const dy = Math.abs(point.y - anchor.y)
-        if (dx <= projectionSnapZone) {
-          const snapped = { x: anchor.x, y: point.y }
-          if (!isProjectionPathObstructed(snapped, anchor, segments)) {
-            const distanceToAnchor = Math.hypot(snapped.x - anchor.x, snapped.y - anchor.y)
-            const isBetter =
-              !bestVertical ||
-              dx < bestVertical.offset ||
-              (Math.abs(dx - bestVertical.offset) <= 1e-6 &&
-                distanceToAnchor < bestVertical.distanceToAnchor)
-            if (isBetter) {
-              bestVertical = { offset: dx, distanceToAnchor, anchor }
-            }
-          }
-        }
-        if (dy <= projectionSnapZone) {
-          const snapped = { x: point.x, y: anchor.y }
-          if (!isProjectionPathObstructed(snapped, anchor, segments)) {
-            const distanceToAnchor = Math.hypot(snapped.x - anchor.x, snapped.y - anchor.y)
-            const isBetter =
-              !bestHorizontal ||
-              dy < bestHorizontal.offset ||
-              (Math.abs(dy - bestHorizontal.offset) <= 1e-6 &&
-                distanceToAnchor < bestHorizontal.distanceToAnchor)
-            if (isBetter) {
-              bestHorizontal = { offset: dy, distanceToAnchor, anchor }
-            }
-          }
-        }
-      }
-      if (!bestVertical && !bestHorizontal) return null
-
-      const snappedPoint: Point2 = {
-        x: bestVertical ? bestVertical.anchor.x : point.x,
-        y: bestHorizontal ? bestHorizontal.anchor.y : point.y,
-      }
-
-      const results: Array<{ snappedPoint: Point2; guideFrom: Point2; guideTo: Point2 }> = []
-      if (bestVertical) {
-        results.push({
-          snappedPoint,
-          guideFrom: bestVertical.anchor,
-          guideTo: { x: bestVertical.anchor.x, y: snappedPoint.y },
-        })
-      }
-      if (bestHorizontal) {
-        results.push({
-          snappedPoint,
-          guideFrom: bestHorizontal.anchor,
-          guideTo: { x: snappedPoint.x, y: bestHorizontal.anchor.y },
-        })
-      }
-      return results.slice(0, 2)
-    },
-    [wallDrawingState.currentPoints, planView.zoom, pointsMatch, isProjectionPathObstructed]
-  )
+  const { resolveNearbyLineSnap, resolveProjectedPenSnap } = useFloorPlanProjectionSnaps({
+    pointsMatch,
+    planView,
+    activeFloor,
+    wallDrawingState,
+    stairDrawingPoints,
+    gridSize,
+  })
 
   const isFloorPlanHitTarget = useCallback((e: FloorPlanInputEvent) => {
     const targetType = e.target.getType?.()
@@ -1308,156 +835,8 @@ export function FloorPlanMode({
     ]
   )
 
-  // Auto-lock pen dimension shortly after typing
-  useEffect(() => {
-    if (!wallDrawingState.isDrawing || !penDimensionText.trim()) {
-      setPenLockedLengthMeters(null)
-      if (penAutoLockTimeoutRef.current != null) {
-        clearTimeout(penAutoLockTimeoutRef.current)
-        penAutoLockTimeoutRef.current = null
-      }
-      return
-    }
-    if (penAutoLockTimeoutRef.current != null) {
-      clearTimeout(penAutoLockTimeoutRef.current)
-    }
-    penAutoLockTimeoutRef.current = window.setTimeout(() => {
-      const raw = penDimensionText.trim().replace(',', '.')
-      const v = parseFloat(raw)
-      if (Number.isFinite(v) && v > 0) {
-        setPenLockedLengthMeters(v / 100)
-        // Immediately update preview at current mouse position (no mouse move needed)
-        if (mousePreviewPositionRef.current && wallDrawingState.currentPoints.length > 0) {
-          const start = wallDrawingState.currentPoints[wallDrawingState.currentPoints.length - 1]!
-          const dx = mousePreviewPositionRef.current.x - start.x
-          const dy = mousePreviewPositionRef.current.y - start.y
-          const lenPx = Math.sqrt(dx * dx + dy * dy)
-          const targetPx = v * canvasPxPerMeter
-          if (lenPx > 1e-6 && targetPx > 0) {
-            const scale = targetPx / lenPx
-            const constrained = {
-              x: start.x + dx * scale,
-              y: start.y + dy * scale,
-            }
-            scheduleMousePreviewPosition(constrained)
-          }
-        }
-      } else {
-        setPenLockedLengthMeters(null)
-      }
-    }, 250)
-    return () => {
-      if (penAutoLockTimeoutRef.current != null) {
-        clearTimeout(penAutoLockTimeoutRef.current)
-        penAutoLockTimeoutRef.current = null
-      }
-    }
-  }, [
-    penDimensionText,
-    wallDrawingState.isDrawing,
-    canvasPxPerMeter,
-    scheduleMousePreviewPosition,
-    wallDrawingState.currentPoints,
-    window,
-  ])
-
-  // Auto-lock rectangle X dimension
-  useEffect(() => {
-    if (!wallDrawingState.rectStartPoint) {
-      clearRectConstraints()
-      return
-    }
-    if (!rectDimensionTextX.trim()) {
-      setRectLockedXMeters(null)
-      return
-    }
-    if (rectXAutoLockTimeoutRef.current != null) {
-      clearTimeout(rectXAutoLockTimeoutRef.current)
-    }
-    rectXAutoLockTimeoutRef.current = window.setTimeout(() => {
-      const raw = rectDimensionTextX.trim().replace(',', '.')
-      const v = parseFloat(raw)
-      if (Number.isFinite(v) && v > 0) {
-        setRectLockedXMeters(v / 100)
-        // Immediately update X dimension preview at current mouse position
-        if (mousePreviewPositionRef.current && wallDrawingState.rectStartPoint) {
-          const start = wallDrawingState.rectStartPoint
-          const end0 = mousePreviewPositionRef.current
-          const dx = end0.x - start.x
-          const signX = dx >= 0 ? 1 : -1
-          const constrained = {
-            ...end0,
-            x: start.x + signX * v * canvasPxPerMeter,
-          }
-          scheduleMousePreviewPosition(constrained)
-        }
-      } else {
-        setRectLockedXMeters(null)
-      }
-    }, 250)
-    return () => {
-      if (rectXAutoLockTimeoutRef.current != null) {
-        clearTimeout(rectXAutoLockTimeoutRef.current)
-        rectXAutoLockTimeoutRef.current = null
-      }
-    }
-  }, [
-    rectDimensionTextX,
-    wallDrawingState.rectStartPoint,
-    canvasPxPerMeter,
-    clearRectConstraints,
-    scheduleMousePreviewPosition,
-    window,
-  ])
-
-  // Auto-lock rectangle Y dimension
-  useEffect(() => {
-    if (!wallDrawingState.rectStartPoint) {
-      clearRectConstraints()
-      return
-    }
-    if (!rectDimensionTextY.trim()) {
-      setRectLockedYMeters(null)
-      return
-    }
-    if (rectYAutoLockTimeoutRef.current != null) {
-      clearTimeout(rectYAutoLockTimeoutRef.current)
-    }
-    rectYAutoLockTimeoutRef.current = window.setTimeout(() => {
-      const raw = rectDimensionTextY.trim().replace(',', '.')
-      const v = parseFloat(raw)
-      if (Number.isFinite(v) && v > 0) {
-        setRectLockedYMeters(v / 100)
-        // Immediately update Y dimension preview at current mouse position
-        if (mousePreviewPositionRef.current && wallDrawingState.rectStartPoint) {
-          const start = wallDrawingState.rectStartPoint
-          const end0 = mousePreviewPositionRef.current
-          const dy = end0.y - start.y
-          const signY = dy >= 0 ? 1 : -1
-          const constrained = {
-            ...end0,
-            y: start.y + signY * v * canvasPxPerMeter,
-          }
-          scheduleMousePreviewPosition(constrained)
-        }
-      } else {
-        setRectLockedYMeters(null)
-      }
-    }, 250)
-    return () => {
-      if (rectYAutoLockTimeoutRef.current != null) {
-        clearTimeout(rectYAutoLockTimeoutRef.current)
-        rectYAutoLockTimeoutRef.current = null
-      }
-    }
-  }, [
-    rectDimensionTextY,
-    wallDrawingState.rectStartPoint,
-    canvasPxPerMeter,
-    clearRectConstraints,
-    scheduleMousePreviewPosition,
-    window,
-  ])
+  // Register after the pending curved-wall command effect: it resets drawing first.
+  useFloorPlanDrawDimensionTimers(dimensionSource, dimensions, readMousePreviewPosition)
 
   // Track Shift globally so pointer/touch handlers can reliably read modifier state.
   useEffect(() => {
@@ -1666,6 +1045,10 @@ export function FloorPlanMode({
 
     return null
   }, [
+    setPenDimensionText,
+    setRectActiveAxis,
+    setRectDimensionTextX,
+    setRectDimensionTextY,
     cancelDrawingTool,
     activeTool,
     currentMousePosition,
@@ -1711,7 +1094,8 @@ export function FloorPlanMode({
       if (!isActiveViewport()) return
       const target = e.target
       const isNativeDimensionInput =
-        (target as HTMLElement | null)?.nodeType === 1 && (target as HTMLElement).dataset.floorPlanDimensionInput === 'true'
+        (target as HTMLElement | null)?.nodeType === 1 &&
+        (target as HTMLElement).dataset.floorPlanDimensionInput === 'true'
       if (isNativeDimensionInput && e.key !== 'Escape') return
       if (isKeyboardTypingTarget(target) && !isNativeDimensionInput) return
 
@@ -1790,6 +1174,10 @@ export function FloorPlanMode({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
+    setPenDimensionText,
+    setRectActiveAxis,
+    setRectDimensionTextX,
+    setRectDimensionTextY,
     cancelDrawingTool,
     wallDrawingState.isDrawing,
     wallDrawingState.currentPoints,
@@ -1867,7 +1255,14 @@ export function FloorPlanMode({
       suppressAutoCommitRef.current = false
     }
     previousToolRef.current = activeTool
-  }, [activeTool, commitCurrentPenDrawing, commitCurrentStairDrawing, resetDrawingState])
+  }, [
+    activeTool,
+    commitCurrentPenDrawing,
+    commitCurrentStairDrawing,
+    resetDrawingState,
+    setPenDimensionText,
+    setPenLockedLengthMeters,
+  ])
 
   // Handle floor plan tool clicks
   const handleFloorPlanClick = useCallback(
@@ -2385,7 +1780,8 @@ export function FloorPlanMode({
           const dx = nextPoint.x - graphicPointerState.start.x
           const dy = nextPoint.y - graphicPointerState.start.y
           if (dx * dx + dy * dy > pointerDragThresholdSq) graphicDidDragRef.current = true
-          setGraphicPointerState((prev) => (prev ? { ...prev, current: nextPoint } : prev))
+          const didDrag = graphicDidDragRef.current
+          setGraphicPointerState((prev) => (prev ? { ...prev, current: nextPoint, didDrag } : prev))
         }
       } else {
         scheduleMousePreviewPosition(null)
@@ -2395,7 +1791,7 @@ export function FloorPlanMode({
       if ((activeTool === 'insertDoor' || activeTool === 'insertWindow') && openingPointerState) {
         setOpeningPointerState((prev) => {
           if (!prev) return prev
-          const next = { ...prev, current: canvasPoint }
+          const next = { ...prev, pointer: canvasPoint }
           if (prev.dragSizingLatched) return next
           const placement = computeOpeningDragPlacement(
             prev.wall,
@@ -2542,12 +1938,12 @@ export function FloorPlanMode({
           kind,
           wall: closestWall,
           anchor,
-          current: canvasPoint,
+          pointer: canvasPoint,
           dragSizingLatched: false,
         })
       } else if (activeTool === 'drawGraphicElement') {
         const point = snapToGrid(canvasPoint, gridSize, planView.snapToGrid)
-        setGraphicPointerState({ start: point, current: point })
+        setGraphicPointerState({ start: point, current: point, didDrag: false })
         graphicDidDragRef.current = false
         e.cancelBubble = true
       } else if (activeTool === 'drawStair') {
@@ -2590,7 +1986,7 @@ export function FloorPlanMode({
           openingPointerState.kind,
           openingPointerState.wall,
           openingPointerState.anchor,
-          openingPointerState.current,
+          openingPointerState.pointer,
           baseWidth,
           openingPointerState.dragSizingLatched
         )
@@ -2779,39 +2175,16 @@ export function FloorPlanMode({
     ((activeTool === 'drawWall' && !wallDrawingState.isDrawing) ||
       (activeTool === 'drawWallRect' && !wallDrawingState.rectStartPoint && !rectPointerActive) ||
       (activeTool === 'drawGraphicElement' && !graphicPointerState))
+  const openingFloorPlan = activeFloor?.floorPlan
   const openingDragFitted = useMemo(() => {
-    if (!openingPointerState || !activeFloor?.floorPlan) return null
-    const baseWidth = getDefaultOpeningWidth(openingPointerState.kind)
-    const placement = computeOpeningDragPlacement(
-      openingPointerState.wall,
-      openingPointerState.anchor,
-      openingPointerState.current,
-      baseWidth,
-      6,
-      {
-        ...getOpeningPlacementOptions(openingPointerState.kind),
-        forceDragSizing: openingPointerState.dragSizingLatched,
-      }
+    if (!openingPointerState || !openingFloorPlan) return null
+    return computeOpeningDragPreview(
+      openingFloorPlan,
+      openingPointerState,
+      getDefaultOpeningWidth(openingPointerState.kind),
+      getOpeningPlacementOptions(openingPointerState.kind)
     )
-    const fitted = fitOpeningPlacementForPreview(
-      openingPointerState.wall,
-      placement,
-      activeFloor.floorPlan.doors ?? [],
-      activeFloor.floorPlan.windows ?? []
-    )
-    return {
-      kind: openingPointerState.kind,
-      wall: openingPointerState.wall,
-      current: openingPointerState.current,
-      placement,
-      fitted,
-    }
-  }, [
-    openingPointerState,
-    activeFloor?.floorPlan,
-    getDefaultOpeningWidth,
-    getOpeningPlacementOptions,
-  ])
+  }, [openingPointerState, openingFloorPlan, getDefaultOpeningWidth, getOpeningPlacementOptions])
 
   const openingDragPreview = (() => {
     if (!openingDragFitted) return null
@@ -2836,7 +2209,7 @@ export function FloorPlanMode({
 
   const openingDragDimension = openingDragFitted
     ? {
-        cursor: openingDragFitted.current,
+        cursor: openingDragFitted.pointer,
         widthCm: openingWidthCentimeters(openingDragFitted.fitted.width, canvasPxPerMeter),
       }
     : null
@@ -2851,7 +2224,7 @@ export function FloorPlanMode({
       if (!canvasPoint) return
       setOpeningPointerState((prev) => {
         if (!prev) return prev
-        const next = { ...prev, current: canvasPoint }
+        const next = { ...prev, pointer: canvasPoint }
         if (prev.dragSizingLatched) return next
         const placement = computeOpeningDragPlacement(
           prev.wall,
@@ -2888,7 +2261,7 @@ export function FloorPlanMode({
         ? resolvePlacementDoorOrientation(
             openingDragFitted.wall,
             openingDragFitted.fitted.position,
-            openingDragFitted.current,
+            openingDragFitted.pointer,
             openingDragFitted.placement.doorSwing,
             { useOpenSideDeadzone: false }
           )
@@ -2972,7 +2345,7 @@ export function FloorPlanMode({
                   openingPointerState.kind,
                   openingPointerState.wall,
                   openingPointerState.anchor,
-                  openingPointerState.current,
+                  openingPointerState.pointer,
                   getDefaultOpeningWidth(openingPointerState.kind),
                   openingPointerState.dragSizingLatched
                 )
@@ -2984,378 +2357,43 @@ export function FloorPlanMode({
             setActiveTool('select')
           }}
         >
-          {/* Preview line while drawing */}
-          {activeTool === 'drawWall' &&
-            wallDrawingState.isDrawing &&
-            wallDrawingState.currentPoints.length > 0 && (
-              <>
-                <Line
-                  points={(() => {
-                    if (
-                      wallDrawingState.pendingCurve &&
-                      wallDrawingState.currentPoints.length === 2 &&
-                      currentMousePosition
-                    ) {
-                      return getWallPathPoints(
-                        {
-                          points: [...wallDrawingState.currentPoints, currentMousePosition],
-                          curve: createQuarterCircleWallCurve(),
-                        },
-                        getCurveRenderMaxSegmentLength(planView.zoom)
-                      ).flatMap((point) => [point.x, point.y])
-                    }
-                    return [
-                      ...wallDrawingState.currentPoints.flatMap((point) => [point.x, point.y]),
-                      ...(currentMousePosition
-                        ? [currentMousePosition.x, currentMousePosition.y]
-                        : []),
-                    ]
-                  })()}
-                  stroke="#0284c7"
-                  strokeWidth={drawStrokeCanvas}
-                  dash={[drawDashCanvas, drawDashCanvas]}
-                  lineCap="round"
-                  lineJoin="round"
-                  listening={false}
-                />
-                {wallDrawingState.pendingCurve &&
-                  wallDrawingState.currentPoints.length === 2 &&
-                  currentMousePosition && (
-                    <Line
-                      points={[
-                        wallDrawingState.currentPoints[0]!.x,
-                        wallDrawingState.currentPoints[0]!.y,
-                        wallDrawingState.currentPoints[1]!.x,
-                        wallDrawingState.currentPoints[1]!.y,
-                        currentMousePosition.x,
-                        currentMousePosition.y,
-                      ]}
-                      stroke="#0284c7"
-                      strokeWidth={drawStrokeCanvas * 0.75}
-                      dash={[drawDashCanvas * 0.5, drawDashCanvas * 0.5]}
-                      opacity={0.55}
-                      listening={false}
-                    />
-                  )}
-              </>
-            )}
-
-          {/* Stair preview path while drawing */}
-          {activeTool === 'drawStair' && stairDrawingPoints.length > 0 && (
-            <>
-              {stairPreviewGeometry && stairPreviewGeometry.outlinePoints.length >= 6 && (
-                <>
-                  <Line
-                    points={stairPreviewGeometry.outlinePoints}
-                    closed
-                    stroke={stairPreviewColor}
-                    strokeWidth={stairPreviewMetrics.outlineStroke}
-                    lineCap="round"
-                    lineJoin="round"
-                    listening={false}
-                  />
-                  {stairPreviewGeometry.spiralPoleRadius && stairPreviewGeometry.spiralCenter && (
-                    <Circle
-                      x={stairPreviewGeometry.spiralCenter.x}
-                      y={stairPreviewGeometry.spiralCenter.y}
-                      radius={stairPreviewGeometry.spiralPoleRadius}
-                      stroke={stairPreviewColor}
-                      strokeWidth={stairPreviewMetrics.outlineStroke}
-                      fill="rgba(0,0,0,0.001)"
-                      listening={false}
-                    />
-                  )}
-                  {stairPreviewGeometry.stepLines.map(([start, end], index) => (
-                    <Line
-                      key={`stair-preview-step-${index}`}
-                      points={[start.x, start.y, end.x, end.y]}
-                      stroke={stairPreviewGeometry.stepLineColors?.[index] ?? stairPreviewColor}
-                      strokeWidth={stairPreviewMetrics.stepStroke}
-                      lineCap="round"
-                      listening={false}
-                    />
-                  ))}
-                </>
-              )}
-              {stairDrawingPoints.length > 1 && (
-                <Line
-                  points={stairDrawingPoints.flatMap((p) => [p.x, p.y])}
-                  stroke="#0284c7"
-                  strokeWidth={stairPreviewMetrics.arrowStroke}
-                  dash={[drawDashCanvas, drawDashCanvas]}
-                  lineCap="round"
-                  lineJoin="round"
-                  listening={false}
-                />
-              )}
-              {stairDrawingPoints.map((point, index) => (
-                <Circle
-                  key={`stair-preview-point-${index}`}
-                  name="floor-plan-draft-point"
-                  x={point.x}
-                  y={point.y}
-                  radius={drawPointRadiusCanvas * 0.9}
-                  fill={index === 0 && stairSpiralPreviewActive ? '#0284c7' : '#334155'}
-                  stroke="#ffffff"
-                  strokeWidth={drawStrokeCanvas}
-                  listening={true}
-                  draggable
-                  onDragStart={(e) => beginDraftPointDrag('drawStair', index, e)}
-                  onDragMove={(e) => moveDraftPointDrag('drawStair', index, e)}
-                  onDragEnd={(e) => endDraftPointDrag('drawStair', index, e)}
-                  onTap={(e) => {
-                    if (Date.now() < suppressDraftPointTapUntilRef.current) {
-                      e.cancelBubble = true
-                      return
-                    }
-                    // Spiral stair: tap the sole center point to finish.
-                    if (index === 0 && stairDrawingPoints.length === 1) {
-                      e.cancelBubble = true
-                      commitCurrentStairDrawing()
-                    }
-                  }}
-                  onClick={(e) => {
-                    if (Date.now() < suppressDraftPointTapUntilRef.current) {
-                      e.cancelBubble = true
-                      return
-                    }
-                    if (index === 0 && stairDrawingPoints.length === 1) {
-                      e.cancelBubble = true
-                      commitCurrentStairDrawing()
-                    }
-                  }}
-                />
-              ))}
-            </>
-          )}
-
-          {/* Always show the exact snapped position of the next stair point. */}
-          {activeTool === 'drawStair' && currentMousePosition && (
-            <Circle
-              x={currentMousePosition.x}
-              y={currentMousePosition.y}
-              radius={drawPointRadiusCanvas * 0.9}
-              fill="#334155"
-              stroke="#ffffff"
-              strokeWidth={drawStrokeCanvas}
-              listening={false}
-            />
-          )}
-
-          {activeTool === 'drawWall' && activeGeometrySnap && (
-            <Circle
-              x={activeGeometrySnap.point.x}
-              y={activeGeometrySnap.point.y}
-              radius={drawPointRadiusCanvas * (activeGeometrySnap.kind === 'endpoint' ? 1.2 : 0.9)}
-              fill={activeGeometrySnap.kind === 'endpoint' ? '#22c55e' : '#ffffff'}
-              stroke="#22c55e"
-              strokeWidth={drawStrokeCanvas * 1.5}
-              listening={false}
-            />
-          )}
-
-          {/* Where the first drawing point will snap (grid + projected snap guides) */}
-          {showFirstClickSnapPreview && currentMousePosition && (
-            <Circle
-              x={currentMousePosition.x}
-              y={currentMousePosition.y}
-              radius={firstClickSnapPreviewRadiusCanvas}
-              fill="#0284c7"
-              stroke="#ffffff"
-              strokeWidth={drawStrokeCanvas}
-              listening={false}
-            />
-          )}
-
-          {/* Preview points while drawing */}
-          {activeTool === 'drawWall' &&
-            wallDrawingState.isDrawing &&
-            wallDrawingState.currentPoints.map((point, index) => (
-              <Circle
-                key={`preview-point-${index}`}
-                name="floor-plan-draft-point"
-                x={point.x}
-                y={point.y}
-                radius={drawPointRadiusCanvas}
-                fill="#0284c7"
-                stroke="#ffffff"
-                strokeWidth={drawStrokeCanvas}
-                listening={true}
-                draggable
-                onDragStart={(e) => beginDraftPointDrag('drawWall', index, e)}
-                onDragMove={(e) => moveDraftPointDrag('drawWall', index, e)}
-                onDragEnd={(e) => endDraftPointDrag('drawWall', index, e)}
-                onClick={(e) => {
-                  if (Date.now() < suppressDraftPointTapUntilRef.current) {
-                    e.cancelBubble = true
-                    return
-                  }
-                  if (activeTool !== 'drawWall') return
-                  if (!activeFloorId) return
-                  // Only special-case the very first point: clicking it closes and commits.
-                  if (index === 0 && wallDrawingState.currentPoints.length >= 3) {
-                    e.cancelBubble = true
-                    const first = wallDrawingState.currentPoints[0]!
-                    const closedPoints = [...wallDrawingState.currentPoints, first]
-                    commitWallWithUndo(activeFloorId, closedPoints)
-                    resetDrawingState()
-                    setActiveTool('drawWall')
-                    return
-                  }
-                }}
-                onTap={(e) => {
-                  if (Date.now() < suppressDraftPointTapUntilRef.current) {
-                    e.cancelBubble = true
-                    return
-                  }
-                  if (activeTool !== 'drawWall') return
-                  if (!activeFloorId) return
-                  if (index === 0 && wallDrawingState.currentPoints.length >= 3) {
-                    e.cancelBubble = true
-                    const first = wallDrawingState.currentPoints[0]!
-                    const closedPoints = [...wallDrawingState.currentPoints, first]
-                    commitWallWithUndo(activeFloorId, closedPoints)
-                    resetDrawingState()
-                    setActiveTool('drawWall')
-                    return
-                  }
-                }}
-              />
-            ))}
-
-          {/* Drag-preview for door/window insertion: appears from pointer-down, commits on release */}
-          {openingDragPreview && (
-            <Line
-              points={[
-                openingDragPreview.start.x,
-                openingDragPreview.start.y,
-                openingDragPreview.end.x,
-                openingDragPreview.end.y,
-              ]}
-              stroke="#0284c7"
-              strokeWidth={drawStrokeCanvas}
-              dash={[drawDashCanvas, drawDashCanvas]}
-              lineCap="round"
-              listening={false}
-            />
-          )}
-
-          {openingDragDimension &&
-            (() => {
-              const label = `${openingDragDimension.widthCm} cm`
-              const fontSize = 13 / planView.zoom
-              const paddingX = 8 / planView.zoom
-              const paddingY = 4 / planView.zoom
-              const approxCharWidth = fontSize * 0.6
-              const textWidth = Math.max(24 / planView.zoom, label.length * approxCharWidth)
-              const boxWidth = textWidth + paddingX * 2
-              const boxHeight = fontSize + paddingY * 2
-              const cursorGap = 8 / planView.zoom
-              const boxX = openingDragDimension.cursor.x + cursorGap
-              const boxY = openingDragDimension.cursor.y - cursorGap - boxHeight
-
-              return (
-                <>
-                  <Rect
-                    x={boxX}
-                    y={boxY}
-                    width={boxWidth}
-                    height={boxHeight}
-                    fill={theme.mode === 'dark' ? 'rgba(17,24,39,0.9)' : 'rgba(243,244,246,0.95)'}
-                    stroke={theme.mode === 'dark' ? '#e5e7eb' : '#111827'}
-                    strokeWidth={drawStrokeCanvas}
-                    cornerRadius={drawHandleRadiusCanvas * 0.5}
-                    listening={false}
-                  />
-                  <Text
-                    x={boxX}
-                    y={boxY}
-                    width={boxWidth}
-                    height={boxHeight}
-                    align="center"
-                    verticalAlign="middle"
-                    text={label}
-                    fontSize={fontSize}
-                    fontFamily={fontFamily}
-                    fill={theme.mode === 'dark' ? '#f9fafb' : '#111827'}
-                    listening={false}
-                  />
-                </>
-              )
-            })()}
-
-          {/* Rectangle preview while drawing */}
-          {activeTool === 'drawWallRect' &&
-            wallDrawingState.rectStartPoint &&
-            currentMousePosition &&
-            (() => {
-              const start = wallDrawingState.rectStartPoint
-              let end = snapToGrid(currentMousePosition, gridSize, planView.snapToGrid)
-              if (rectLockedXMeters != null) {
-                const dx = end.x - start.x
-                const signX = dx >= 0 ? 1 : -1
-                const targetPxX = rectLockedXMeters * canvasPxPerMeter
-                end = {
-                  ...end,
-                  x: start.x + signX * targetPxX,
-                }
-              }
-              if (rectLockedYMeters != null) {
-                const dy = end.y - start.y
-                const signY = dy >= 0 ? 1 : -1
-                const targetPxY = rectLockedYMeters * canvasPxPerMeter
-                end = {
-                  ...end,
-                  y: start.y + signY * targetPxY,
-                }
-              }
-              const points = handleDrawWallRect(start, end, gridSize, planView.snapToGrid)
-              if (points.length < 2) return null
-              return (
-                <Line
-                  points={points.flatMap((p) => [p.x, p.y])}
-                  stroke="#0284c7"
-                  strokeWidth={drawStrokeCanvas}
-                  dash={[drawDashCanvas, drawDashCanvas]}
-                  lineCap="round"
-                  lineJoin="round"
-                  closed={true}
-                  listening={false}
-                />
-              )
-            })()}
-
-          {activeTool === 'drawGraphicElement' &&
-            graphicPointerState &&
-            graphicDidDragRef.current &&
-            (() => {
-              const asset = getPlanGraphicElementAsset(selectedGraphicAssetId)
-              if (!asset) return null
-              const left = Math.min(graphicPointerState.start.x, graphicPointerState.current.x)
-              const top = Math.min(graphicPointerState.start.y, graphicPointerState.current.y)
-              const width = Math.abs(graphicPointerState.current.x - graphicPointerState.start.x)
-              const height = Math.abs(graphicPointerState.current.y - graphicPointerState.start.y)
-              if (width <= 1 || height <= 1) return null
-              const previewWidth = asset.sizeLocked
-                ? asset.defaultWidthMeters * canvasPxPerMeter
-                : width
-              const previewHeight = asset.sizeLocked
-                ? asset.defaultHeightMeters * canvasPxPerMeter
-                : height
-              return (
-                <Group x={left + width / 2} y={top + height / 2} opacity={0.9} listening={false}>
-                  <PlanGraphicElementShape
-                    element={{
-                      kind: asset.kind,
-                      width: previewWidth,
-                      height: previewHeight,
-                    }}
-                    themeMode={theme.mode}
-                    strokeColor="#0284c7"
-                  />
-                </Group>
-              )
-            })()}
+          <FloorPlanDrawingPreview
+            activeTool={activeTool}
+            wallDrawingState={wallDrawingState}
+            currentMousePosition={currentMousePosition}
+            planView={planView}
+            drawStrokeCanvas={drawStrokeCanvas}
+            drawDashCanvas={drawDashCanvas}
+            stairDrawingPoints={stairDrawingPoints}
+            stairPreviewGeometry={stairPreviewGeometry}
+            stairPreviewColor={stairPreviewColor}
+            stairPreviewMetrics={stairPreviewMetrics}
+            stairSpiralPreviewActive={stairSpiralPreviewActive}
+            drawPointRadiusCanvas={drawPointRadiusCanvas}
+            beginDraftPointDrag={beginDraftPointDrag}
+            moveDraftPointDrag={moveDraftPointDrag}
+            endDraftPointDrag={endDraftPointDrag}
+            suppressDraftPointTapUntilRef={suppressDraftPointTapUntilRef}
+            commitCurrentStairDrawing={commitCurrentStairDrawing}
+            activeGeometrySnap={activeGeometrySnap}
+            showFirstClickSnapPreview={showFirstClickSnapPreview}
+            firstClickSnapPreviewRadiusCanvas={firstClickSnapPreviewRadiusCanvas}
+            activeFloorId={activeFloorId}
+            commitWallWithUndo={commitWallWithUndo}
+            resetDrawingState={resetDrawingState}
+            setActiveTool={setActiveTool}
+            openingDragPreview={openingDragPreview}
+            openingDragDimension={openingDragDimension}
+            theme={theme}
+            drawHandleRadiusCanvas={drawHandleRadiusCanvas}
+            fontFamily={fontFamily}
+            rectLockedXMeters={rectLockedXMeters}
+            rectLockedYMeters={rectLockedYMeters}
+            canvasPxPerMeter={canvasPxPerMeter}
+            gridSize={gridSize}
+            graphicPointerState={graphicPointerState}
+            selectedGraphicAssetId={selectedGraphicAssetId}
+          />
 
           {/* Transparent hit area to capture clicks on empty space */}
           <Rect

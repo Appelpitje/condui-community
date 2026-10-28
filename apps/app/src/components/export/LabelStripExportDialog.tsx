@@ -130,21 +130,23 @@ function LibrarySymbolIcon({ symbolId, className }: { symbolId: string; classNam
     if (!symbol) return null
     return getCachedThemedSymbolBlobUrl(symbol.svgPath, isDark) ?? symbol.svgPath
   })
+  const [previousSource, setPreviousSource] = useState({ symbol, isDark })
+  if (previousSource.symbol !== symbol || previousSource.isDark !== isDark) {
+    setPreviousSource({ symbol, isDark })
+    setSrc(symbol ? getCachedThemedSymbolBlobUrl(symbol.svgPath, isDark) ?? symbol.svgPath : null)
+  }
 
   useEffect(() => {
     let cancelled = false
     if (!symbol) {
-      setSrc(null)
       return
     }
 
     const cached = getCachedThemedSymbolBlobUrl(symbol.svgPath, isDark)
     if (cached) {
-      setSrc(cached)
       return
     }
 
-    setSrc(symbol.svgPath)
     void loadProcessedSymbol(symbol.svgPath, isDark)
       .then((image) => {
         if (!cancelled) setSrc(image.src)
@@ -447,12 +449,19 @@ export function LabelStripExportDialog({
     customSecondHeight,
   ])
 
+  const [previousPreviewInputs, setPreviousPreviewInputs] = useState({ exportOptions, onPreview, previewRequested })
+  if (previousPreviewInputs.exportOptions !== exportOptions || previousPreviewInputs.onPreview !== onPreview || previousPreviewInputs.previewRequested !== previewRequested) {
+    setPreviousPreviewInputs({ exportOptions, onPreview, previewRequested })
+    if (previewRequested) {
+      setIsPreviewing(true)
+      setPreviewError(false)
+      setPreview(null)
+    }
+  }
+
   useEffect(() => {
     if (!previewRequested) return
     let cancelled = false
-    setIsPreviewing(true)
-    setPreviewError(false)
-    setPreview(null)
     void onPreview(exportOptions)
       .then((blob) => {
         if (!cancelled) {
@@ -866,7 +875,7 @@ export function LabelStripExportDialog({
             </div>
           </div>
         </div>
-        <label className="mt-3 flex cursor-pointer items-start gap-2 border-t border-gray-200 pt-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300">
+        <label aria-label={t('labelStripExport.skipEmptyRows')} className="mt-3 flex cursor-pointer items-start gap-2 border-t border-gray-200 pt-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300">
           <input
             type="checkbox"
             checked={skipEmptyRows}

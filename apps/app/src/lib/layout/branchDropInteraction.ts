@@ -10,6 +10,7 @@ import type { SymbolMetadata } from '@/lib/symbols'
 import type { Point } from '@/types/ui'
 import type { Circuit } from '@/types/schema'
 import { circuitAcceptsTrunkSwitch, isCircuitTrunkSwitchSymbol, isCircuitTrunkSwitchDropTarget } from '@/lib/eendraad/circuitTrunkSwitch'
+import { isTerminalPanelFeederCircuit } from '@/lib/eendraad/panelSupplyLink'
 
 /** Keep marks readable at working zooms without dwarfing or disappearing beside the diagram. */
 export function getBranchDropPreviewUnit(zoom: number): number {
@@ -95,7 +96,7 @@ export function collectBranchDropTargets(
       if (circuit && column && !branch.endpoints.length && !circuit.endpoints.length &&
           !circuit.trunkDevices?.length && circuitAcceptsTrunkSwitch(circuit) &&
           !moving.size && isCircuitTrunkSwitchSymbol(symbol.id) &&
-          !panel.panel.protections.some((protection) => protection.subPanelId &&
+          !panel.panel.protections.some((protection) => isTerminalPanelFeederCircuit(protection, circuit) &&
             protection.circuits?.some((entry) => entry.id === circuit.id))) {
         const protection = panel.elements.find((element) =>
           element.type === 'protection' && element.protectionId === column.protection?.id)
@@ -120,7 +121,7 @@ export function collectBranchDropTargets(
         continue
       }
       if (!circuit || circuit.code === 'PANEL' || !branch.endpoints.length ||
-          panel.panel.protections.some((protection) => protection.subPanelId &&
+          panel.panel.protections.some((protection) => isTerminalPanelFeederCircuit(protection, circuit) &&
             protection.circuits?.some((entry) => entry.id === circuit.id)) ||
           circuit.trunkDevices?.some((device) => device.type === 'conversion' || device.type === 'dc_bus') ||
           branch.endpoints.some((endpoint) => endpoint.domoticaChildProps || endpoint.symbol === 'domotica' ||

@@ -147,15 +147,18 @@ export const extraElectricalPropertyEditSchema = z.discriminatedUnion('kind', [
       set: patchObject({
         cable: cableSpec,
         medium: z.enum(['cable', 'busbar']).nullable(),
-        route: z.enum(['wall', 'on-wall', 'ground', 'air']).nullable(),
+        route: z.enum(['none', 'wall', 'on-wall', 'ground', 'air']).nullable(),
         inTube: bool,
         labels: patchObject({
           hideWireLabel: bool,
           showFireClassLabel: bool,
           showWireLengthLabel: bool,
+          showConductorMarks: bool,
+          showBranchConductorMarks: bool,
         }),
         lengthM: num,
         followsDefaultCable: bool,
+        fireClassNone: bool,
       }),
       defaultCable: cableSpec.required({ kind: true, conductors: true, sectionMm2: true }),
     })

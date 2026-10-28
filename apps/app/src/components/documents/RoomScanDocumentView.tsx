@@ -255,16 +255,22 @@ export function RoomScanDocumentView({ document, canEditProject = true }: { docu
   const { t } = useTranslation()
   const [payload, setPayload] = useState<RoomScanModelDocument | RoomScanPlacementsDocument | null>(null)
   const [failed, setFailed] = useState(false)
+  const { id: documentId, url: documentUrl, kind: documentKind } = document
+  const [previousSource, setPreviousSource] = useState({ documentId, documentUrl, documentKind })
+  if (previousSource.documentId !== documentId || previousSource.documentUrl !== documentUrl || previousSource.documentKind !== documentKind) {
+    setPreviousSource({ documentId, documentUrl, documentKind })
+    setPayload(null)
+    setFailed(false)
+  }
   useEffect(() => {
     let active = true
-    setPayload(null); setFailed(false)
-    void readProjectDocumentBytes(document).then((bytes) => {
+    void readProjectDocumentBytes({ id: documentId, url: documentUrl }).then((bytes) => {
       const json: unknown = JSON.parse(new TextDecoder().decode(bytes))
-      const parsed = document.kind === 'roomScanModel' ? roomScanModelDocumentSchema.parse(json) : roomScanPlacementsDocumentSchema.parse(json)
+      const parsed = documentKind === 'roomScanModel' ? roomScanModelDocumentSchema.parse(json) : roomScanPlacementsDocumentSchema.parse(json)
       if (active) setPayload(parsed)
     }).catch(() => { if (active) setFailed(true) })
     return () => { active = false }
-  }, [document.id, document.url, document.kind])
+  }, [documentId, documentUrl, documentKind])
   return <div className="flex h-full flex-col text-gray-800 dark:text-gray-100">
     <div className="min-h-0 flex-1">
       {failed ? <p role="alert" className="p-4 text-sm text-rose-700 dark:text-rose-300">{t('nativeRoomScan.documentFailed')}</p> : !payload ? <p className="p-4 text-sm">{t('common.loading')}</p> : 'parts' in payload ? <RoomModel model={payload} /> : <PlacementEvidence data={payload} document={document} canEditProject={canEditProject} />}

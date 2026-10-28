@@ -65,7 +65,7 @@ export function canChainLightOnLightBranch(
   )
 }
 
-/** A relay directly downstream of an impulse switch should use the impulse control overlay. */
+/** A relay directly downstream of a pushbutton should use the impulse control overlay. */
 export function shouldDefaultRelayToImpulse(
   circuit: Circuit,
   symbol: SymbolMetadata,
@@ -88,7 +88,12 @@ export function computeEndpointInsertAfter(
   symbol: SymbolMetadata,
 ): { insertAfterEndpointId: string | null | undefined; createNewBranch: boolean } {
   const branchIds = target.branchEndpoints?.length ? target.branchEndpoints : null
-  const inBetween = isInBetweenDevice(symbol)
+  // A driver/transformer feeds the lamps on its existing lighting branch. It
+  // remains a static load when placed after a socket (plug-in equipment).
+  const lightingConverter = isEnergyConversionEndpointSymbol(symbol.id) && !!branchIds &&
+    branchIds.some((id) => circuit.endpoints.some((endpoint) => endpoint.id === id && endpoint.type === 'light_point')) &&
+    !branchIds.some((id) => circuit.endpoints.some((endpoint) => endpoint.id === id && endpoint.type === 'socket'))
+  const inBetween = isInBetweenDevice(symbol) || lightingConverter
   const actualEndpoint = isActualEndpointSymbol(symbol)
 
   if (target.type === 'circuit' && typeof target.branchInsertIndex === 'number') {
@@ -113,12 +118,18 @@ export function computeEndpointInsertAfter(
 
     let insertAfterId = target.insertAfterEndpointId
 
+    if (lightingConverter && insertAfterId === undefined) {
+      const lightIndex = branchIds.findIndex((id) =>
+        circuit.endpoints.some((endpoint) => endpoint.id === id && endpoint.type === 'light_point'))
+      insertAfterId = lightIndex > 0 ? branchIds[lightIndex - 1] : null
+    }
+
     if (typeof insertAfterId === 'string') {
       const insertIdx = branchIds.indexOf(insertAfterId)
       if (insertIdx >= 0) {
         const ep = circuit.endpoints.find((e) => e.id === insertAfterId)
         const isDomoticaAfterConversion = symbol.id === 'domotica' && isEnergyConversionEndpointSymbol(ep?.symbol)
-        if (ep && isActualEndpoint(ep) && !isDomoticaAfterConversion) {
+        if (ep && (lightingConverter ? ep.type === 'light_point' : isActualEndpoint(ep)) && !isDomoticaAfterConversion) {
           insertAfterId = insertIdx > 0 ? branchIds[insertIdx - 1] : null
         }
       }

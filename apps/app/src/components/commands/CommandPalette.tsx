@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Search } from 'lucide-react'
 import { useDialogStore } from '@/stores/dialogStore'
@@ -22,13 +22,24 @@ export function CommandPalette({
 }) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
-  const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const project = useProjectStore((state) => state.currentProject)
   const selection = useUIStore((state) => state.selection)
   const activePanelId = useUIStore((state) => state.activePanelId)
   const activeFloorId = useUIStore((state) => state.activeFloorId)
+  const navigationInputs = useMemo(
+    () => ({ query, project, selection, activePanelId, activeFloorId }),
+    [query, project, selection, activePanelId, activeFloorId]
+  )
+  const [navigation, setNavigation] = useState({ inputs: navigationInputs, index: 0 })
+  const activeIndex = navigation.inputs === navigationInputs ? navigation.index : 0
+  const setActiveIndex = (next: SetStateAction<number>) => {
+    setNavigation((previous) => {
+      const index = previous.inputs === navigationInputs ? previous.index : 0
+      return { inputs: navigationInputs, index: typeof next === 'function' ? next(index) : next }
+    })
+  }
 
   const items = useMemo(() => {
     const words = normalize(query).split(/\s+/).filter(Boolean)
@@ -44,10 +55,6 @@ export function CommandPalette({
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
-
-  useEffect(() => {
-    setActiveIndex(0)
-  }, [query, project, selection, activePanelId, activeFloorId])
 
   useEffect(() => {
     listRef.current
@@ -111,9 +118,17 @@ export function CommandPalette({
               id={`command-${index}`}
               data-index={index}
               role="option"
+              tabIndex={-1}
               aria-selected={index === activeIndex}
               onMouseMove={() => setActiveIndex(index)}
               onClick={() => runAt(index)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  runAt(index)
+                }
+              }}
               className={`flex cursor-pointer items-center justify-between gap-3 rounded-md px-3 py-2 text-sm ${
                 index === activeIndex
                   ? 'bg-sky-50 text-sky-900 dark:bg-sky-900/30 dark:text-sky-100'

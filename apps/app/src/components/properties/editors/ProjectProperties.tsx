@@ -55,7 +55,7 @@ function InstallationStreetAutocomplete({
   const [suggestions, setSuggestions] = useState<GeoapifyAddressSuggestion[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedQuery, setSelectedQuery] = useState<string | null>(null)
+  const [selectedQuery, setSelectedQuery] = useState<string | null>(value ? value.trim() : null)
   const lastCommittedStreet = useRef(value)
   const configured = isGeoapifyConfigured()
 
@@ -66,20 +66,30 @@ function InstallationStreetAutocomplete({
     }
   }, [onStreetCommit, query])
 
-  useEffect(() => {
+  const [draftSource, setDraftSource] = useState(value)
+  if (draftSource !== value) {
+    setDraftSource(value)
     setQuery(value)
-    lastCommittedStreet.current = value
     setSelectedQuery(value ? value.trim() : null)
-  }, [value])
+  }
+  useEffect(() => { lastCommittedStreet.current = value }, [value])
 
-  useEffect(() => {
-    const trimmed = query.trim()
-    if (!configured || disabled || trimmed.length < 3 || trimmed === selectedQuery) {
+  const trimmedQuery = query.trim()
+  const canSearch = configured && !disabled && trimmedQuery.length >= 3 && trimmedQuery !== selectedQuery
+  const [searchSource, setSearchSource] = useState({ configured, disabled, query, selectedQuery })
+  if (searchSource.configured !== configured || searchSource.disabled !== disabled ||
+    searchSource.query !== query || searchSource.selectedQuery !== selectedQuery) {
+    setSearchSource({ configured, disabled, query, selectedQuery })
+    if (!canSearch) {
       setSuggestions([])
       setIsLoading(false)
       setError(null)
-      return
     }
+  }
+
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (!configured || disabled || trimmed.length < 3 || trimmed === selectedQuery) return
 
     const controller = new AbortController()
     const timeout = window.setTimeout(() => {
@@ -251,14 +261,18 @@ export function ProjectProperties({
       updateProject({ inspectionAgency: inspectionAgencyContactFromEntry(entry) })
       setInspectionExpanded(true)
     },
-    [updateProject]
+    [updateProject, setInspectionExpanded]
   )
 
-  useEffect(() => {
+  const [expandedSource, setExpandedSource] = useState({ hasCustomerData, hasInstallationData, hasInspectionAgencyData })
+  if (expandedSource.hasCustomerData !== hasCustomerData ||
+    expandedSource.hasInstallationData !== hasInstallationData ||
+    expandedSource.hasInspectionAgencyData !== hasInspectionAgencyData) {
+    setExpandedSource({ hasCustomerData, hasInstallationData, hasInspectionAgencyData })
     if (hasCustomerData) setCustomerExpanded(true)
     if (hasInstallationData) setInstallationExpanded(true)
     if (hasInspectionAgencyData) setInspectionExpanded(true)
-  }, [hasCustomerData, hasInstallationData, hasInspectionAgencyData])
+  }
 
   
 

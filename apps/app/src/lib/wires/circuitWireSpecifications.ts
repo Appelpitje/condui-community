@@ -8,16 +8,28 @@ export type WireInstallationSpecification = Pick<WireRun, 'route' | 'inTube'> & 
   fireClass?: CableSpec['fireClass']
 }
 
+/** Resolution-internal: `null` is an explicit "no fire class" that stops inheritance. */
+type ResolvingSpecification = Omit<WireInstallationSpecification, 'fireClass'> & {
+  fireClass?: CableSpec['fireClass'] | null
+}
+
 /** Missing placement and fire-class fields inherit upstream within one circuit/domain.
- * Explicit downstream values override only those fields, independently of cable dimensions.
+ * Explicit downstream values override only those fields, independently of cable dimensions;
+ * `route: 'none'` and `fireClassNone` stop inheritance like any other explicit value.
  * Cable dimensions, lengths, cores and run identity remain specific to each connection.
  */
 export function circuitWireSpecifications(
   panels: Panel[], runs: readonly WireRun[]
 ): Map<string, WireInstallationSpecification> {
   const domains = circuitWireDomains(panels)
-  const own = new Map(runs.flatMap((run) => run.medium === 'busbar' ? [] : run.members.map((anchor) =>
-    [anchor, { fireClass: run.cable.fireClass, route: run.route, inTube: run.inTube }] as const)))
+  // First owner wins, matching findWireRunForAnchor, so edits and resolution read the same run.
+  const own = new Map<string, ResolvingSpecification>()
+  for (const run of runs) {
+    if (run.medium === 'busbar') continue
+    for (const anchor of run.members) if (!own.has(anchor)) own.set(anchor, {
+      fireClass: run.fireClassNone ? null : run.cable.fireClass, route: run.route, inTube: run.inTube,
+    })
+  }
   const parents = new Map<string, string>()
   const defaults = new Map<string, WireInstallationSpecification>()
   const visitCircuit = (circuit: Circuit) => {
@@ -70,10 +82,10 @@ export function circuitWireSpecifications(
     panel.subPanels.forEach(visit)
   }
   panels.forEach(visit)
-  const resolved = new Map<string, WireInstallationSpecification>()
+  const resolved = new Map<string, ResolvingSpecification>()
   const resolving = new Set<string>()
   const completed = new Set<string>()
-  const resolve = (anchor: string): WireInstallationSpecification | undefined => {
+  const resolve = (anchor: string): ResolvingSpecification | undefined => {
     if (completed.has(anchor)) return resolved.get(anchor)
     if (resolving.has(anchor)) return undefined
     resolving.add(anchor)
@@ -81,7 +93,7 @@ export function circuitWireSpecifications(
     const authored = own.get(anchor)
     const upstream = (parent ? resolve(parent) : undefined) ?? (authored ? defaults.get(anchor) : undefined)
     const specification = authored || upstream ? {
-      fireClass: authored?.fireClass ?? upstream?.fireClass,
+      fireClass: authored?.fireClass !== undefined ? authored.fireClass : upstream?.fireClass,
       route: authored?.route ?? upstream?.route,
       inTube: authored?.inTube ?? upstream?.inTube,
     } : undefined
@@ -91,11 +103,12 @@ export function circuitWireSpecifications(
     return specification
   }
   for (const anchor of new Set([...defaults.keys(), ...own.keys()])) resolve(anchor)
-  return resolved
+  return new Map([...resolved].map(([anchor, { fireClass, ...rest }]) =>
+    [anchor, { ...rest, fireClass: fireClass ?? undefined }]))
 }
 
-export function hasWirePlacement(segment: Pick<WireSegment, 'installationType' | 'wireRoute' | 'inTube'>): boolean {
-  return Boolean(segment.installationType || segment.wireRoute || segment.inTube)
+export function hasWirePlacement(segment: Pick<WireSegment, 'installationType' | 'wireRoute' | 'wireRouteNone' | 'inTube'>): boolean {
+  return Boolean(segment.installationType || segment.wireRoute || segment.wireRouteNone || segment.inTube)
 }
 
 export function applyWireInstallationSpecification(
@@ -103,4 +116,5 @@ export function applyWireInstallationSpecification(
 ): void {
   segment.cable = { ...segment.cable, fireClass: specification.fireClass }
   Object.assign(segment, fromWireRunRoute(specification.route), { inTube: specification.inTube })
+  segment.wireRouteNone = specification.route === 'none'
 }

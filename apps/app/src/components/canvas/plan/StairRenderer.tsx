@@ -1093,6 +1093,13 @@ export function StairRenderer({
           const selectedIndices = selectedPointIndices.get(stair.id) ?? []
           const isSelected = selectedStairId === stair.id || selectedIndices.length > 0
           if (!interactive || !isSelected) return null
+          const center = geometry.spiralCenter
+          const rotationDeg = renderStair.spiralRotationDeg ?? 0
+          const handleDistance = getPlanRotationHandleDistance(geometry.spiralHitRadius ?? 0, zoom)
+          const constrainRotationHandleLocal = (pos: { x: number; y: number }) => {
+            const angle = Math.atan2(pos.x, -pos.y)
+            return { x: Math.sin(angle) * handleDistance, y: -Math.cos(angle) * handleDistance }
+          }
 
           return (
             <Group key={`${stair.id}-handles`}>
@@ -1125,67 +1132,55 @@ export function StairRenderer({
                 />
               ))}
               {isSpiralStair(stair) &&
-                geometry.spiralCenter &&
+                center &&
                 geometry.spiralHitRadius &&
                 getCanvasPointFromEvent &&
-                onSpiralRotationChange && (() => {
-                  const center = geometry.spiralCenter
-                  const rotationDeg = renderStair.spiralRotationDeg ?? 0
-                  const handleDistance = getPlanRotationHandleDistance(geometry.spiralHitRadius, zoom)
-                  const constrainRotationHandleLocal = (pos: { x: number; y: number }) => {
-                    const angle = Math.atan2(pos.x, -pos.y)
-                    return {
-                      x: Math.sin(angle) * handleDistance,
-                      y: -Math.cos(angle) * handleDistance,
-                    }
-                  }
-                  return (
-                    <Group
-                      key={`${stair.id}-rotation-handle-group`}
-                      x={center.x}
-                      y={center.y}
-                      rotation={rotationDeg}
-                    >
-                      <Circle
-                        x={0}
-                        y={-handleDistance}
-                        radius={handleSize * 0.7}
-                        fill={PLAN_ROTATION_HANDLE_FILL}
-                        stroke={PLAN_ROTATION_HANDLE_STROKE}
-                        strokeWidth={handleStrokeWidth}
-                        listening
-                        draggable
-                        dragBoundFunc={constrainRotationHandleLocal}
-                        onDragStart={() => {
-                          spiralRotationBaseRef.current = renderStair.spiralRotationDeg ?? 0
-                        }}
-                        onPointerDown={(event) => {
-                          if (!isPrimaryPlanActivationEvent(event.evt)) return
-                          event.cancelBubble = true
-                          onStairSelect(stair.id)
-                        }}
-                        onDragMove={(event) => {
-                          event.cancelBubble = true
-                          updateSpiralRotationFromPointer(stair, event)
-                          event.target.position({ x: 0, y: -handleDistance })
-                        }}
-                        onDragEnd={(event) => {
-                          event.cancelBubble = true
-                          const nextRotation =
-                            updateSpiralRotationFromPointer(stair, event) ??
-                            spiralRotationPreview?.rotationDeg ??
-                            spiralRotationBaseRef.current ??
-                            renderStair.spiralRotationDeg ??
-                            0
-                          onSpiralRotationChange?.(stair.id, nextRotation)
-                          onSpiralRotationPreviewChange?.(null)
-                          spiralRotationBaseRef.current = null
-                          event.target.position({ x: 0, y: -handleDistance })
-                        }}
-                      />
-                    </Group>
-                  )
-                })()}
+                onSpiralRotationChange && (
+                  <Group
+                    key={`${stair.id}-rotation-handle-group`}
+                    x={center.x}
+                    y={center.y}
+                    rotation={rotationDeg}
+                  >
+                    <Circle
+                      x={0}
+                      y={-handleDistance}
+                      radius={handleSize * 0.7}
+                      fill={PLAN_ROTATION_HANDLE_FILL}
+                      stroke={PLAN_ROTATION_HANDLE_STROKE}
+                      strokeWidth={handleStrokeWidth}
+                      listening
+                      draggable
+                      dragBoundFunc={constrainRotationHandleLocal}
+                      onDragStart={() => {
+                        spiralRotationBaseRef.current = renderStair.spiralRotationDeg ?? 0
+                      }}
+                      onPointerDown={(event) => {
+                        if (!isPrimaryPlanActivationEvent(event.evt)) return
+                        event.cancelBubble = true
+                        onStairSelect(stair.id)
+                      }}
+                      onDragMove={(event) => {
+                        event.cancelBubble = true
+                        updateSpiralRotationFromPointer(stair, event)
+                        event.target.position({ x: 0, y: -handleDistance })
+                      }}
+                      onDragEnd={(event) => {
+                        event.cancelBubble = true
+                        const nextRotation =
+                          updateSpiralRotationFromPointer(stair, event) ??
+                          spiralRotationPreview?.rotationDeg ??
+                          spiralRotationBaseRef.current ??
+                          renderStair.spiralRotationDeg ??
+                          0
+                        onSpiralRotationChange?.(stair.id, nextRotation)
+                        onSpiralRotationPreviewChange?.(null)
+                        spiralRotationBaseRef.current = null
+                        event.target.position({ x: 0, y: -handleDistance })
+                      }}
+                    />
+                  </Group>
+                )}
             </Group>
           )
         })}

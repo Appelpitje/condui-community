@@ -183,6 +183,7 @@ interface PdfDocumentProxyLike {
 
 interface PdfLoadingTaskLike {
   promise: Promise<PdfDocumentProxyLike>
+  destroy(): Promise<void> | void
 }
 
 interface PdfSvgGraphicsLike {
@@ -224,7 +225,17 @@ export async function getPdfJs() {
     ...pdfjs,
     getDocument: (options) => {
       const wasmUrl = pdfjsWasmUrl()
-      return pdfjs.getDocument(wasmUrl ? { wasmUrl, ...options } : options)
+      const loadingTask = pdfjs.getDocument(wasmUrl ? { wasmUrl, ...options } : options)
+      return {
+        promise: loadingTask.promise.then((document) => {
+          // pdf.js 6 moved cleanup to the loading task; retain the document API used by callers.
+          if (typeof document.destroy !== 'function') {
+            document.destroy = () => loadingTask.destroy()
+          }
+          return document
+        }),
+        destroy: () => loadingTask.destroy(),
+      }
     },
   }
   return wrappedPdfJs
@@ -549,7 +560,7 @@ export async function parsePdfFile(file: File, options: ParsePdfOptions = {}): P
     })
   }
 
-  await doc.destroy()
+  await loadingTask.destroy()
 
   return {
     fileName: file.name,

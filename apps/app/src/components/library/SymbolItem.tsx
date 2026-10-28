@@ -719,18 +719,21 @@ function ThemedSymbolPreviewImg({ svgPath }: { svgPath: string }) {
     () => getCachedThemedSymbolBlobUrl(svgPath, isDark) ?? null,
   )
   const [failed, setFailed] = useState(false)
+  const [previousSource, setPreviousSource] = useState({ svgPath, isDark })
+  if (previousSource.svgPath !== svgPath || previousSource.isDark !== isDark) {
+    setPreviousSource({ svgPath, isDark })
+    setFailed(false)
+    setSrc(getCachedThemedSymbolBlobUrl(svgPath, isDark) ?? null)
+  }
 
   useEffect(() => {
     let cancelled = false
-    setFailed(false)
 
     const cached = getCachedThemedSymbolBlobUrl(svgPath, isDark)
     if (cached) {
-      setSrc(cached)
       return
     }
 
-    setSrc(null)
     void loadProcessedSymbol(svgPath, isDark)
       .then((img) => {
         if (!cancelled) setSrc(img.src)

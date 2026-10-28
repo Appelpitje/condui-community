@@ -1,4 +1,5 @@
 import { MULTI_SOCKET_OFFSET } from '@/components/canvas/eendraad/canvasSymbols'
+import { getScopedConductorMarkGap } from './conductorMarkSpacing'
 import {
   DOMOTICA_BASE_HEIGHT,
   DOMOTICA_BRANCH_LEAD,
@@ -61,9 +62,11 @@ export function getEndpointXOffsets(
   applianceAfterSocketGap: number
 ): number[] {
   const result: number[] = []
-  let x = isSolarSequenceEndpoint(branchEndpoints[0])
-    ? Math.max(leadIn, SOLAR_SEQUENCE_ENDPOINT_SPACING)
-    : leadIn
+  // Wires toggled to show conductor marks get room for them.
+  let x =
+    (isSolarSequenceEndpoint(branchEndpoints[0])
+      ? Math.max(leadIn, SOLAR_SEQUENCE_ENDPOINT_SPACING)
+      : leadIn) + (branchEndpoints[0] ? getScopedConductorMarkGap(branchEndpoints[0].id) : 0)
   for (let i = 0; i < branchEndpoints.length; i++) {
     result.push(x)
     const ep = branchEndpoints[i]
@@ -116,7 +119,7 @@ export function getEndpointXOffsets(
           nextEndpointNoteWidth / 2 - nextSocketExtra / 2
         : Number.NEGATIVE_INFINITY
       x = Math.max(
-        x + resolvedEndpointSpacing + extra + socketExtra,
+        x + resolvedEndpointSpacing + extra + socketExtra + getScopedConductorMarkGap(next!.id),
         getControlLinkNoteClearX(ep, x) ?? Number.NEGATIVE_INFINITY,
         clearEndpointNote,
         clearPreviousSymbolForNextNote,

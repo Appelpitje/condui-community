@@ -78,7 +78,7 @@ import {
 } from './canvasSymbols'
 import { getDomoticaChildMultiplierBadgeAnchor } from '@/lib/eendraad/multiplierBadgeGeometry'
 import { MultiplierBadge } from './MultiplierBadge'
-import { ImpulseSwitchCountMarker } from '../shared/ImpulseSwitchCountMarker'
+import { PushbuttonCountMarker } from '../shared/PushbuttonCountMarker'
 import type { Endpoint, DomoticaControlKey } from '@/types/schema'
 import { useProjectStore } from '@/stores/projectStore'
 import type { Point } from '@/types/ui'
@@ -1545,7 +1545,7 @@ export const EndpointSymbol = memo(function EndpointSymbol({
               />
             )}
             {endpoint.symbol === 'switch_impulse' && (
-              <ImpulseSwitchCountMarker
+              <PushbuttonCountMarker
                 count={endpoint.switchProps?.switchingCount ?? 1}
                 size={SYMBOL_SIZE}
                 color={getSymbolColor(theme?.mode === 'dark')}

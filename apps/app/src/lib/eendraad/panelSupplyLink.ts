@@ -14,6 +14,16 @@ export interface PanelSupplyLink {
   targetPanelEndpoint?: Endpoint
 }
 
+/** Dedicated board feeders are terminal; a board at the end of a mixed circuit is not. */
+export function isTerminalPanelFeederCircuit(
+  protection: ProtectionDevice,
+  circuit: Circuit,
+): boolean {
+  return !!protection.subPanelId &&
+    !(circuit.subCircuitIds?.length) &&
+    circuit.endpoints.every((endpoint) => endpoint.symbol === 'panel_distribution')
+}
+
 /** A board fed from one precise module output, rather than the whole protection. */
 export function isDomoticaPanelFeedEndpoint(
   endpoint: Endpoint | null | undefined,

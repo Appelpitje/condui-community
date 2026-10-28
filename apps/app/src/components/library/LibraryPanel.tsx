@@ -73,9 +73,11 @@ function LibrarySearchField({
     setLeadingWidth(leading ? leadingRef.current?.offsetWidth ?? 0 : 0)
   }, [leading])
 
-  useEffect(() => {
+  const [previousQuery, setPreviousQuery] = useState(query)
+  if (previousQuery !== query) {
+    setPreviousQuery(query)
     setDraft(query)
-  }, [query])
+  }
 
   useEffect(() => {
     if (draft === query) return
@@ -176,6 +178,7 @@ function LibraryJumpButton({ label, iconPath, filtered, dimmed, current, onClick
         type="button"
         aria-label={label}
         aria-pressed={filtered}
+        aria-current={current ? 'location' : undefined}
         onClick={(event) => {
           clearTooltip()
           onClick(event)
@@ -236,6 +239,7 @@ function LibraryPanel({
   const [categoryFilter, setCategoryFilter] = useState<Set<string>>(() => new Set())
   const [currentCategory, setCurrentCategory] = useState<string | null>(null)
   const [pendingJump, setPendingJump] = useState<string | null>(null)
+  const clickedCategoryRef = useRef<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
   const searchQuery = useLibraryStore((state) => state.searchQuery)
@@ -324,6 +328,10 @@ function LibraryPanel({
   )
 
   const updateCurrentCategory = () => {
+    if (clickedCategoryRef.current) {
+      setCurrentCategory(clickedCategoryRef.current)
+      return
+    }
     const list = listRef.current
     if (!list) return
     let section: string | null = null
@@ -347,6 +355,7 @@ function LibraryPanel({
   }, [compact, pendingJump, activeTab, searchQuery, categoryFilter, expandedCategories, viewMode])
 
   const handleJumpClick = (category: string, event: MouseEvent<HTMLButtonElement>) => {
+    clickedCategoryRef.current = null
     setActiveTab('all')
     const primary = event.ctrlKey || event.metaKey
     if (primary && event.shiftKey) {
@@ -360,6 +369,8 @@ function LibraryPanel({
       return
     }
     setCategoryFilter(new Set())
+    clickedCategoryRef.current = category
+    setCurrentCategory(category)
     setSearchQuery('')
     setExpandedCategories((prev) => (prev.has(category) ? prev : new Set(prev).add(category)))
     setPendingJump(category)
@@ -606,6 +617,13 @@ function LibraryPanel({
       <div
         ref={listRef}
         onScroll={updateCurrentCategory}
+        onWheelCapture={() => { clickedCategoryRef.current = null; updateCurrentCategory() }}
+        onTouchStartCapture={() => { clickedCategoryRef.current = null }}
+        onPointerDownCapture={() => { clickedCategoryRef.current = null }}
+        onKeyDownCapture={(event) => {
+          if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key))
+            clickedCategoryRef.current = null
+        }}
         className="relative flex-1 overflow-y-auto"
         data-library-scroll="true"
         style={{

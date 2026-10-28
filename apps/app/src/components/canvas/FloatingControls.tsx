@@ -148,12 +148,13 @@ export function FloatingControl({
   const useMobileMenuLayout = Boolean(
     mobileMenuFitCanvas && editorCompact && isOpen && children
   )
+  if (!useMobileMenuLayout && (mobileMenuLayout.top !== 0 || mobileMenuLayout.maxHeight !== 0)) {
+    setMobileMenuLayout({ top: 0, maxHeight: 0 })
+  }
+  if ((!isOpen || !children || useMobileMenuLayout) && fitLayout !== null) setFitLayout(null)
 
   useLayoutEffect(() => {
-    if (!useMobileMenuLayout) {
-      setMobileMenuLayout({ top: 0, maxHeight: 0 })
-      return
-    }
+    if (!useMobileMenuLayout) return
 
     const measure = () => {
       const wrapper = wrapperRef.current
@@ -176,10 +177,7 @@ export function FloatingControl({
   }, [useMobileMenuLayout, overlayHeight, window])
 
   useLayoutEffect(() => {
-    if (!isOpen || !children || useMobileMenuLayout) {
-      setFitLayout(null)
-      return
-    }
+    if (!isOpen || !children || useMobileMenuLayout) return
     const measure = () => {
       const wrapper = wrapperRef.current
       const menu = menuContentRef.current

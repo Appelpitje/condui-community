@@ -406,7 +406,7 @@ export function applyElectricalDuplicateElements(
     relatedCircuits.add(circuit.id)
   } else if (target.type === 'dcBranchDevice') {
     const circuit = circuitFor(project, target.circuitId)!
-    const branch = circuit.branches?.find((candidate) => candidate.id === target.branchId)!
+    const branch = (circuit.branches ?? []).find((candidate) => candidate.id === target.branchId)!
     const branchDevices = [...(branch.branchDevices ?? [])]
     let index = target.insertIndex
     for (const item of input.items) {

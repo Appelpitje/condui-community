@@ -417,18 +417,21 @@ function GraphicElementNode({
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
 
-  useEffect(() => {
+  const [selectionSource, setSelectionSource] = useState({ selected, active, onSnapGuidesChange })
+  if (selectionSource.selected !== selected || selectionSource.active !== active ||
+    selectionSource.onSnapGuidesChange !== onSnapGuidesChange) {
+    setSelectionSource({ selected, active, onSnapGuidesChange })
     if (!selected || !active) {
       setEditingField(null)
       setDraftText('')
       setInteractionDraft(null)
-      interactionDraftRef.current = null
-      if (!selected || !active) {
-        onSnapGuidesChange?.([])
-      }
     }
-    if (!active) {
-      setIsHovered(false)
+    if (!active) setIsHovered(false)
+  }
+  useEffect(() => {
+    if (!selected || !active) {
+      interactionDraftRef.current = null
+      onSnapGuidesChange?.([])
     }
   }, [active, onSnapGuidesChange, selected])
 

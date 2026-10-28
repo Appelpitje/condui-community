@@ -1,4 +1,4 @@
-import { Fragment, memo, useContext, useMemo, useRef } from 'react'
+import { Fragment, memo, useContext, useState } from 'react'
 import { DiagramDetailContext } from './DiagramDetailContext'
 import { ViewportDetailRegion } from './ViewportDetailRegion'
 import { diagramDetailBounds } from '@/lib/eendraad/diagramDetailBounds'
@@ -165,13 +165,14 @@ const PositionedRenderIsland = memo(function PositionedRenderIsland({
   renderSelectedEndpoint,
   disableViewportIsland,
 }: RenderNodeProps) {
-  const previousLocalNodeRef = useRef<LayoutNode | undefined>(undefined)
-  const localNode = useMemo(() => {
+  const [local, setLocal] = useState(() => ({
+    source: node, node: localizeLayoutNode(node, node.bounds.x, node.bounds.y),
+  }))
+  if (local.source !== node) {
     const localized = localizeLayoutNode(node, node.bounds.x, node.bounds.y)
-    const reconciled = reconcileLayoutNode(localized, previousLocalNodeRef.current)
-    previousLocalNodeRef.current = reconciled
-    return reconciled
-  }, [node])
+    setLocal({ source: node, node: reconcileLayoutNode(localized, local.node) })
+  }
+  const localNode = local.node
   return (
     <Group x={node.bounds.x} y={node.bounds.y} name="eendraad-hit-cullable">
       <RenderNode

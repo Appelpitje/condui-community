@@ -88,14 +88,16 @@ export function PropertiesPanelFrame({
 }) {
   if (!panelVisible && !embedded) {
     return (
-      <div
+      <button
+        type="button"
         onClick={onToggle}
-        className="flex items-center justify-center bg-gray-100 dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+        className="flex shrink-0 items-center justify-center bg-gray-100 dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 p-0 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
         style={{ width: COLLAPSED_PANEL_SIGNIFIER_WIDTH_PX }}
         title={title}
+        aria-label={title}
       >
         <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-      </div>
+      </button>
     )
   }
 

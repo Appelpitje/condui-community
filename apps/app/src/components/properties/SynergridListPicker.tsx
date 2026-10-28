@@ -58,17 +58,25 @@ export function SynergridListPicker({
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_ROWS)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(open)
   const [error, setError] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) {
+  const [requestSource, setRequestSource] = useState({ open, debouncedQuery, focus, plugAndPlayOnly })
+  if (requestSource.open !== open || requestSource.debouncedQuery !== debouncedQuery ||
+    requestSource.focus !== focus || requestSource.plugAndPlayOnly !== plugAndPlayOnly) {
+    setRequestSource({ open, debouncedQuery, focus, plugAndPlayOnly })
+    if (requestSource.open !== open && !open) {
       setQuery('')
       setDebouncedQuery('')
     }
-  }, [open])
+    if (open && debouncedQuery.trim().length < 2) {
+      setLoading(true)
+      setError(null)
+    }
+    setVisibleLimit(INITIAL_VISIBLE_ROWS)
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), SEARCH_DEBOUNCE_MS)
@@ -78,8 +86,6 @@ export function SynergridListPicker({
   useEffect(() => {
     if (!open || debouncedQuery.trim().length >= 2) return
     let cancelled = false
-    setLoading(true)
-    setError(null)
     loadSynergridCatalog({ plugAndPlayOnly, focus })
       .then((rows) => {
         if (cancelled) return
@@ -133,16 +139,13 @@ export function SynergridListPicker({
   }, [debouncedQuery, entries])
 
   useEffect(() => {
-    setVisibleLimit(INITIAL_VISIBLE_ROWS)
     scrollRef.current?.scrollTo({ top: 0 })
   }, [debouncedQuery, focus, open, plugAndPlayOnly])
 
-  useEffect(() => {
-    if (!open) return
-    if (!filteredEntries.some((entry) => entry.sourceKey === selectedKey)) {
-      setSelectedKey(filteredEntries[0]?.sourceKey ?? null)
-    }
-  }, [filteredEntries, open, selectedKey])
+  if (open && !filteredEntries.some((entry) => entry.sourceKey === selectedKey)) {
+    const nextKey = filteredEntries[0]?.sourceKey ?? null
+    if (selectedKey !== nextKey) setSelectedKey(nextKey)
+  }
 
   if (!open) return null
 
@@ -152,9 +155,11 @@ export function SynergridListPicker({
 
   return createPortal(
     <div
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4"
       onMouseDown={(event) => {
-        if (dialogRef.current && !dialogRef.current.contains(event.target as Node)) {
+        if (dialogRef.current?.contains(event.target as Node)) event.stopPropagation()
+        else if (dialogRef.current) {
           onClose()
         }
       }}
@@ -165,7 +170,6 @@ export function SynergridListPicker({
         aria-modal="true"
         aria-labelledby="synergrid-picker-title"
         className="flex h-[min(760px,calc(100vh-32px))] w-[min(1120px,calc(100vw-32px))] flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
-        onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <img

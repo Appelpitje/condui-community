@@ -4,7 +4,7 @@ import { validateProjectWithCoverage } from '../lib/validation/core/engine'
 import type { Issue, ValidationProject } from '../lib/validation/core/types'
 import { beAreiBook1_2025 } from '../lib/validation/rules/be/be.areibook1.2025'
 import { loadRulePack } from '../lib/validation/core/rulepack-loader'
-import validationI18n, { setValidationLanguage } from '../lib/validation/validationI18n'
+import validationI18n, { prepareValidationLanguage } from '../lib/validation/validationI18n'
 import { collectJunctionValidationIssuesForEdition } from '@/lib/junction/junctionHostedHooks'
 
 type ValidationRequest = {
@@ -20,10 +20,10 @@ type ValidationResponse =
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope
 
-self.onmessage = (event: MessageEvent<ValidationRequest>) => {
-  const request = event.data
+async function handleValidationRequest(request: ValidationRequest): Promise<void> {
   try {
-    setValidationLanguage(request.language)
+    // Select the language after the await so it and the synchronous run share one JS turn.
+    await prepareValidationLanguage(request.language)
     const pack = loadRulePack(beAreiBook1_2025)
     const run = validateProjectWithCoverage(request.project, { packs: [pack] })
     // Missing execution evidence stays diagnostic; do not aggregate it into a user notice.
@@ -39,6 +39,10 @@ self.onmessage = (event: MessageEvent<ValidationRequest>) => {
       message: error instanceof Error ? error.message : String(error),
     } satisfies ValidationResponse)
   }
+}
+
+self.onmessage = (event: MessageEvent<ValidationRequest>) => {
+  void handleValidationRequest(event.data)
 }
 
 export {}

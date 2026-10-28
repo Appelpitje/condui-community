@@ -93,6 +93,7 @@ export function JunctionIdentityField({
                   key={option}
                   type="button"
                   role="option"
+                  aria-selected={option === value}
                   className="w-full px-3 py-2 text-left text-sm text-gray-900 hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
                   onClick={() => {
                     onCommit(option)

@@ -38,6 +38,7 @@ export function SymbolHoverCard({ id, symbolId, name, fallback, anchor, onEnter,
   }
 
   return createPortal(
+    <div role="presentation" className="contents" onKeyDown={(event) => event.stopPropagation()}>
     <div
       ref={ref}
       id={id}
@@ -49,7 +50,6 @@ export function SymbolHoverCard({ id, symbolId, name, fallback, anchor, onEnter,
       onMouseLeave={onLeave}
       onFocus={onEnter}
       onBlur={handleBlur}
-      onKeyDown={(event) => event.stopPropagation()}
       className="fixed z-[9999] w-80 max-w-[calc(100vw-16px)] max-h-[calc(100vh-16px)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-700 shadow-xl dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
       style={position}
     >
@@ -73,6 +73,7 @@ export function SymbolHoverCard({ id, symbolId, name, fallback, anchor, onEnter,
           {t('common.more')} <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
         </a>
       )}
+    </div>
     </div>,
     document.body,
   )

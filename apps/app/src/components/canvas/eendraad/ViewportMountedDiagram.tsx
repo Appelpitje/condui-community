@@ -19,7 +19,7 @@ import { awaitPendingSymbolImages } from '@/lib/symbolImage'
 import { withActivationTime } from '@/utils/repeatActivation'
 import { commitForwardedCanvasInput } from '@/hooks/useCanvasUiStore'
 import { logger } from '@/lib/logger'
-import type { ForwardOverviewInteraction } from './DiagramOverview'
+import { OverviewInteractionContext, type ForwardOverviewInteraction } from './OverviewInteractionContext'
 import { DiagramDetailContext } from './DiagramDetailContext'
 import {
   cancelLiveGroupDetail,
@@ -58,7 +58,7 @@ export function ViewportMountedDiagram({
   forceMounted?: boolean
   /** Selection keeps a live board mounted without expanding all its offscreen regions. */
   materializeForcedDetail?: boolean
-  overview?: (forward: ForwardOverviewInteraction) => ReactNode
+  overview?: ReactNode
   children: ReactNode
 }) {
   const groupRef = useRef<Konva.Group>(null)
@@ -68,7 +68,7 @@ export function ViewportMountedDiagram({
   const [exportMounts, setExportMounts] = useState(0)
   const [overviewScale, setOverviewScale] = useState(() => initialZoom <= OVERVIEW_ENTER_ZOOM)
   const overviewScaleRef = useRef(overviewScale)
-  overviewScaleRef.current = overviewScale
+  useLayoutEffect(() => { overviewScaleRef.current = overviewScale }, [overviewScale])
   const detailScope = useMemo(
     () => ({
       localized: virtualized || parentDetail.localized,
@@ -78,7 +78,7 @@ export function ViewportMountedDiagram({
   )
   const mounted = !virtualized || forceMounted || detailScope.materialized || viewportVisible
   const mountedRef = useRef(mounted)
-  mountedRef.current = mounted
+  useLayoutEffect(() => { mountedRef.current = mounted }, [mounted])
   const interactionQueue = useRef(Promise.resolve())
   const forwardInteraction = useCallback<ForwardOverviewInteraction>((targetName, event) => {
     const group = groupRef.current
@@ -223,7 +223,9 @@ export function ViewportMountedDiagram({
       {mounted ? (
         <ViewportCulledGroup boundsRevision={boundsRevision} conservativeBounds={logicalBounds}>
           {overview && overviewScale && !forceMounted && !detailScope.materialized ? (
-            overview(forwardInteraction)
+            <OverviewInteractionContext.Provider value={forwardInteraction}>
+              {overview}
+            </OverviewInteractionContext.Provider>
           ) : (
             <DiagramDetailContext.Provider value={detailScope}>
               {children}

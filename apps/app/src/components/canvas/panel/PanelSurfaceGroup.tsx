@@ -36,7 +36,7 @@ export function PanelSurfaceGroup({
   const [exportMounted, setExportMounted] = useState(false)
   const [detailed, setDetailed] = useState(initialView.zoom >= PANEL_DETAIL_MIN_ZOOM)
   const detailedRef = useRef(detailed)
-  detailedRef.current = detailed
+  useLayoutEffect(() => { detailedRef.current = detailed }, [detailed])
   const materializations = useRef(0)
   const [mounted, setMounted] = useState(() => {
     const { pan, zoom, width, height } = initialView
@@ -48,7 +48,7 @@ export function PanelSurfaceGroup({
     )
   })
   const mountedRef = useRef(mounted)
-  mountedRef.current = mounted
+  useLayoutEffect(() => { mountedRef.current = mounted }, [mounted])
 
   useLayoutEffect(() => {
     const group = groupRef.current

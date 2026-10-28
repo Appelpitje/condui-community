@@ -42,12 +42,10 @@ export function usePlanImageBitmap(
     [rawSvgContent, cadAssetWidth, isCadAsset]
   )
   const grayscale = canonicalAsset?.grayscale === true
+  if (!planImageDataUrl && !svgContent && img !== null) setImg(null)
 
   useEffect(() => {
-    if (!planImageDataUrl && !svgContent) {
-      setImg(null)
-      return
-    }
+    if (!planImageDataUrl && !svgContent) return
 
     let cancelled = false
 
@@ -96,7 +94,7 @@ export function usePlanImageBitmap(
       }
     }
 
-    loadImage()
+    void loadImage()
     return () => {
       cancelled = true
     }

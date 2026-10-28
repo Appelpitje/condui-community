@@ -29,9 +29,11 @@ export function LocalSvgCanvasOverlay({
 }) {
   const anchorRef = useRef<Konva.Group>(null)
   const itemsRef = useRef(items)
-  itemsRef.current = items
   const pointerOpacityRef = useRef(pointerOpacity)
-  pointerOpacityRef.current = pointerOpacity
+  useLayoutEffect(() => {
+    itemsRef.current = items
+    pointerOpacityRef.current = pointerOpacity
+  }, [items, pointerOpacity])
   const renderRef = useRef<(() => void) | null>(null)
 
   useLayoutEffect(() => {

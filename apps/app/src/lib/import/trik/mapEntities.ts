@@ -238,7 +238,8 @@ export function normalizeCableKind(kind: string | undefined): Circuit['cable']['
   if (!kind) return 'other'
   const normalized = kind.trim().toUpperCase()
   if (normalized === 'XVB') return 'XVB'
-  if (normalized === 'VOB' || normalized === 'H07V-K') return 'VOB'
+  if (normalized === 'VOB' || normalized === 'H07V-U' || normalized === 'H07V-K') return 'VOB'
+  if (normalized === 'VOBST' || normalized === 'H07V-R') return 'VOBst'
   return 'other'
 }
 

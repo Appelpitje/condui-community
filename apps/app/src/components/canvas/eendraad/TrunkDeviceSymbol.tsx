@@ -3,7 +3,8 @@ import {
   getSupplyInlineLabelLines,
 } from '@/lib/layout/supplyInlineDeviceLabels'
 import { useOneWireProjectSelector } from './oneWireRenderProject'
-import { useState, useEffect, useCallback, useContext, useMemo, useRef } from 'react'
+import { useState, useCallback, useContext, useMemo, useRef } from 'react'
+import { useTrunkDeviceArtwork } from './useTrunkDeviceArtwork'
 import { useTranslation } from 'react-i18next'
 import {
   HOVER_OUTLINE_DASH_PX,
@@ -22,14 +23,10 @@ import { Group, Image, Line, Rect, Text } from 'react-konva'
 import {
   getDomainForSymbol,
   getSwitchSymbolPaths,
-  getSwitchDisplaySvgPath,
   getSymbolById,
-  SOCKET_OVERLAY_PATHS,
   DOMOTICA_CONTROL_OVERLAY_PATHS,
-  TRANSFORMER_OVERLAY_PATHS,
-  RELAY_OVERLAY_PATHS,
 } from '@/lib/symbols'
-import { SYMBOL_EXPORT_ATTR_SVG_PATH, loadProcessedSymbol } from '@/lib/symbolImage'
+import { SYMBOL_EXPORT_ATTR_SVG_PATH } from '@/lib/symbolImage'
 import {
   getSurgeProtectionBodyBounds,
   getSurgeProtectionSymbolPath,
@@ -88,7 +85,7 @@ import { getCertificationSideLabelExtraOffsetPx } from '@/lib/conversionSideLabe
 import { getVisibleCertificationLabelParts } from '@/lib/certificationLabels'
 import { getVisibleConversionLabelParts } from '@/lib/conversionLabels'
 import { isSymbolLabelVisible } from '@/lib/symbolLabels'
-import type { DomoticaControlKey, SymbolLabelPosition, TrunkDevice } from '@/types/schema'
+import type { SymbolLabelPosition, TrunkDevice } from '@/types/schema'
 import type { Point } from '@/types/ui'
 import { getSupplyDeviceMultiplier } from '@/lib/supplyAssembly/inverterMultipliers'
 import { openSupplyDeviceAddMoreDialog } from '@/components/endpoints/AddMoreCountDialog'
@@ -311,30 +308,11 @@ export function TrunkDeviceSymbol({
   const theme = useSettingsStore((state) => state.theme)
   const fontFamily = useCanvasFontFamily()
   const isPreviewSelected = useIsPreviewSelected('trunkDevice', device.id)
-  const [processedImage, setProcessedImage] = useState<HTMLImageElement | null>(null)
-  const [converterDiagonalImage, setConverterDiagonalImage] = useState<HTMLImageElement | null>(
-    null
-  )
-  const [converterAcImage, setConverterAcImage] = useState<HTMLImageElement | null>(null)
-  const [converterDcImage, setConverterDcImage] = useState<HTMLImageElement | null>(null)
   const [isHovered, setIsHovered] = useState(false)
   const [converterResizePreviewCount, setConverterResizePreviewCount] = useState<number | null>(
     null
   )
   const converterResizeCountRef = useRef<number | null>(null)
-  const [transformerSafetyImage, setTransformerSafetyImage] = useState<HTMLImageElement | null>(
-    null
-  )
-  const [transformerShortcircuitImage, setTransformerShortcircuitImage] =
-    useState<HTMLImageElement | null>(null)
-  const [transformerProtectionImage, setTransformerProtectionImage] =
-    useState<HTMLImageElement | null>(null)
-  const [domoticaMainImage, setDomoticaMainImage] = useState<HTMLImageElement | null>(null)
-  const [domoticaMainSocketOverlayImage, setDomoticaMainSocketOverlayImage] =
-    useState<HTMLImageElement | null>(null)
-  const [domoticaControlImages, setDomoticaControlImages] = useState<
-    Partial<Record<DomoticaControlKey, HTMLImageElement | null>>
-  >({})
 
   const symbol = getSymbolById(device.symbol)
   const isInlineSwitch = symbol?.category === 'switches'
@@ -350,7 +328,6 @@ export function TrunkDeviceSymbol({
       : undefined
   )
   const isTransformer = device.symbol === 'transformer'
-  const conversionProps = device.conversionProps
   const supplyDeviceMultiplier = getSupplyDeviceMultiplier(device)
   const isConversionSymbol =
     device.symbol === 'transformer' ||
@@ -371,8 +348,6 @@ export function TrunkDeviceSymbol({
   const isRelay = device.symbol === 'relay'
   const isProtection = device.type === 'protection' && !isRelay
   const hasInlineLabels = hasSupplyInlineLabels(device)
-  const relayOverlayPath = isRelay ? RELAY_OVERLAY_PATHS[device.relayProps?.control ?? 'standard'] : undefined
-  const [relayOverlayImage, setRelayOverlayImage] = useState<HTMLImageElement | null>(null)
   const isSurgeProtection = !isRelay && (device.protectionType === 'SPD' || device.symbol === 'spd')
   const switchSymbolPaths = isInlineSwitch
     ? getSwitchSymbolPaths(device.symbol, {
@@ -465,10 +440,6 @@ export function TrunkDeviceSymbol({
   const isSupplyDcBusDomotica = isDomoticaDevice && device.supplyDcBusId != null
   const domoticaProps = device.domoticaProps
   const domoticaMainType = domoticaProps?.mainDeviceType
-  const domoticaMainSwitchSymbol = domoticaProps?.mainSwitchSymbol
-  const domoticaMainSocketSymbol = domoticaProps?.mainSocketSymbol
-  const domoticaMainSwitchProps = domoticaProps?.mainSwitchProps
-  const domoticaMainSocketProps = domoticaProps?.mainSocketProps
   const domoticaEndpointCount = isSupplyDcBusDomotica
     ? DOMOTICA_MIN_ENDPOINT_OUTPUTS
     : Math.max(
@@ -483,69 +454,10 @@ export function TrunkDeviceSymbol({
   const forceProtectionLabelStack = hasInlineLabels && isHorizontal !== true
   const placeNotesOnTop = isDomoticaDevice || isHorizontal === true || forceProtectionLabelStack
 
-  useEffect(() => {
-    if (!isDomoticaDevice) {
-      setDomoticaControlImages({})
-      return
-    }
-    const isDarkMode = theme?.mode === 'dark'
-    const keys: Array<keyof typeof DOMOTICA_CONTROL_OVERLAY_PATHS> = [
-      'programmed_control',
-      'wireless_control',
-      'detection_control',
-      'button_control',
-    ]
-    keys.forEach((key) => {
-      loadProcessedSymbol(DOMOTICA_CONTROL_OVERLAY_PATHS[key], isDarkMode)
-        .then((image) => setDomoticaControlImages((previous) => ({ ...previous, [key]: image })))
-        .catch(() => setDomoticaControlImages((previous) => ({ ...previous, [key]: null })))
-    })
-  }, [isDomoticaDevice, theme?.mode])
-
-  useEffect(() => {
-    if (!isDomoticaDevice) {
-      setDomoticaMainImage(null)
-      return
-    }
-    let path: string | null = null
-    if (domoticaMainType === 'switch' && domoticaMainSwitchSymbol) {
-      path = getSwitchDisplaySvgPath(domoticaMainSwitchSymbol, domoticaMainSwitchProps)
-    } else if (domoticaMainType === 'socket' && domoticaMainSocketSymbol) {
-      path = getSymbolById(domoticaMainSocketSymbol)?.svgPath ?? null
-    }
-    if (!path) {
-      setDomoticaMainImage(null)
-      return
-    }
-    loadProcessedSymbol(path, theme?.mode === 'dark')
-      .then(setDomoticaMainImage)
-      .catch(() => setDomoticaMainImage(null))
-  }, [
-    domoticaMainSocketSymbol,
-    domoticaMainSwitchProps,
-    domoticaMainSwitchSymbol,
-    domoticaMainType,
-    isDomoticaDevice,
-    theme?.mode,
-  ])
-  const domoticaMainSocketOverlayPath =
-    domoticaMainType === 'socket'
-      ? domoticaMainSocketProps?.switchOverlayLock
-        ? SOCKET_OVERLAY_PATHS.switchOverlayLock
-        : domoticaMainSocketProps?.switchOverlay
-          ? SOCKET_OVERLAY_PATHS.switchOverlay
-          : null
-      : null
-
-  useEffect(() => {
-    if (!isDomoticaDevice || !domoticaMainSocketOverlayPath) {
-      setDomoticaMainSocketOverlayImage(null)
-      return
-    }
-    loadProcessedSymbol(domoticaMainSocketOverlayPath, theme?.mode === 'dark')
-      .then(setDomoticaMainSocketOverlayImage)
-      .catch(() => setDomoticaMainSocketOverlayImage(null))
-  }, [domoticaMainSocketOverlayPath, isDomoticaDevice, theme?.mode])
+  const { processedImage, converterDiagonalImage, converterAcImage, converterDcImage,
+    domoticaControlImages, domoticaMainImage, domoticaMainSocketOverlayImage, relayOverlayImage,
+    relayOverlayPath, transformerSafetyImage, transformerShortcircuitImage, transformerProtectionImage,
+  } = useTrunkDeviceArtwork({ device, renderedSymbolPath, isDirectionalConverter, themeMode: theme?.mode })
   const stackedRightLabelItems = useMemo(
     () => [
       ...(!placeConversionLabelsOnTop &&
@@ -1068,88 +980,6 @@ export function TrunkDeviceSymbol({
         : 0,
     [device, fontFamily, isHorizontal, renderedSymbolSize.width, wireSegments]
   )
-
-  useEffect(() => {
-    if (!renderedSymbolPath) return
-    loadProcessedSymbol(renderedSymbolPath, isDark)
-      .then(setProcessedImage)
-      .catch(() => setProcessedImage(null))
-  }, [renderedSymbolPath, isDark])
-
-  useEffect(() => {
-    if (!isDirectionalConverter) {
-      setConverterDiagonalImage(null)
-      setConverterAcImage(null)
-      setConverterDcImage(null)
-      return
-    }
-    const paths = [
-      [CONVERTER_ARTWORK_PATHS.diagonal, setConverterDiagonalImage],
-      [CONVERTER_ARTWORK_PATHS.AC, setConverterAcImage],
-      [CONVERTER_ARTWORK_PATHS.DC, setConverterDcImage],
-    ] as const
-    for (const [path, setter] of paths) {
-      loadProcessedSymbol(path, isDark)
-        .then(setter)
-        .catch(() => setter(null))
-    }
-  }, [isDirectionalConverter, isDark])
-
-  useEffect(() => {
-    let active = true
-    setRelayOverlayImage(null)
-    if (relayOverlayPath) {
-      loadProcessedSymbol(relayOverlayPath, isDark)
-        .then((image) => { if (active) setRelayOverlayImage(image) })
-        .catch(() => { if (active) setRelayOverlayImage(null) })
-    }
-    return () => { active = false }
-  }, [relayOverlayPath, isDark])
-
-  // Load transformer overlays for trunk devices
-  useEffect(() => {
-    if (!isTransformer) {
-      setTransformerSafetyImage(null)
-      setTransformerShortcircuitImage(null)
-      setTransformerProtectionImage(null)
-      return
-    }
-    const safetyType = conversionProps?.transformerSafetyType ?? 'none'
-
-    if (safetyType === 'safety_closed') {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.safetyClosed, isDark)
-        .then(setTransformerSafetyImage)
-        .catch(() => setTransformerSafetyImage(null))
-    } else if (safetyType === 'safety_open') {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.safetyOpen, isDark)
-        .then(setTransformerSafetyImage)
-        .catch(() => setTransformerSafetyImage(null))
-    } else {
-      setTransformerSafetyImage(null)
-    }
-
-    if (conversionProps?.transformerShortCircuitProtected) {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.shortcircuit, isDark)
-        .then(setTransformerShortcircuitImage)
-        .catch(() => setTransformerShortcircuitImage(null))
-    } else {
-      setTransformerShortcircuitImage(null)
-    }
-
-    if (conversionProps?.transformerProtected) {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.protection, isDark)
-        .then(setTransformerProtectionImage)
-        .catch(() => setTransformerProtectionImage(null))
-    } else {
-      setTransformerProtectionImage(null)
-    }
-  }, [
-    isTransformer,
-    conversionProps?.transformerSafetyType,
-    conversionProps?.transformerShortCircuitProtected,
-    conversionProps?.transformerProtected,
-    isDark,
-  ])
 
   const handleClick = useCallback(
     (event: unknown) => {

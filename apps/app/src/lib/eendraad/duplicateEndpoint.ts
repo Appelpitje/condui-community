@@ -93,7 +93,7 @@ function branchIndexContaining(branches: Branch[], endpointId: string): number {
 
 /**
  * Default rules: in-between device → after self; else new branch on top.
- * Plan canvas uses sitplan multipliers (extra placements) for lights / impulse / DC symbols — not this path.
+ * Plan canvas uses sitplan multipliers (extra placements) for lights / pushbuttons / DC symbols — not this path.
  */
 export function resolveDefaultEndpointDuplicatePlacement(
   endpoint: Endpoint,

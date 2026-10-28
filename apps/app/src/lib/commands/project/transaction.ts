@@ -1,4 +1,5 @@
-import { produce } from 'immer'
+import { current, produce } from 'immer'
+import { preserveWireRuns } from '@/lib/wires/preserveWireRuns'
 import type { ProjectV2 } from '@/types/projectV2'
 import { getProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import {
@@ -50,11 +51,19 @@ export function applyCommandBatch(
                 resolved = resolveCreatedReferences(originalInput, aliases)
               } catch (error) {
                 if (!(error instanceof CommandError)) throw error
-                throw new CommandError(error.code, error.message, { ...error.details, index, commandId: command.id })
+                throw new CommandError(error.code, error.message, {
+                  ...error.details,
+                  index,
+                  commandId: command.id,
+                })
               }
               const parsed = command.input.safeParse(resolved)
               if (!parsed.success)
-                throw new CommandError('invalid_input', `Invalid resolved input for "${command.id}"`, { index, commandId: command.id, cause: parsed.error.issues })
+                throw new CommandError(
+                  'invalid_input',
+                  `Invalid resolved input for "${command.id}"`,
+                  { index, commandId: command.id, cause: parsed.error.issues }
+                )
               input = parsed.data
             }
             const check = command.check(draft as ProjectV2, input)
@@ -67,7 +76,20 @@ export function applyCommandBatch(
               })
             }
             try {
+              const wireBefore = current(draft) as ProjectV2
               const applied = command.apply(draft, input, env)
+              const wires = preserveWireRuns(
+                wireBefore,
+                current(draft) as ProjectV2,
+                draft as ProjectV2,
+                env.newId
+              )
+              for (const field of ['created', 'changed', 'removed'] as const) {
+                for (const id of wires[field]) {
+                  if (!applied[field].some((ref) => ref.kind === 'wireRun' && ref.id === id))
+                    applied[field].push({ kind: 'wireRun', id })
+                }
+              }
               const result = as ? { ...applied, as } : applied
               results.push(result)
               if (as) aliases.set(as, result)

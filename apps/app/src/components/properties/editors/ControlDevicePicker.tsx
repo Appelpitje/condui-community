@@ -148,7 +148,11 @@ export function ControlDevicePicker({
     return () => document.removeEventListener('pointerdown', onPointerDown, true)
   }, [open, close])
 
-  useEffect(() => setActive(0), [query, open])
+  const [activeSource, setActiveSource] = useState({ query, open })
+  if (activeSource.query !== query || activeSource.open !== open) {
+    setActiveSource({ query, open })
+    setActive(0)
+  }
 
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
@@ -240,71 +244,72 @@ export function ControlDevicePicker({
       {open &&
         position &&
         createPortal(
-          <div
-            ref={popoverRef}
-            role="dialog"
-            className="fixed z-50 flex flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
-            style={{ top: position.top, left: position.left, width: position.width, maxHeight: POPOVER_MAX_HEIGHT }}
-            onKeyDown={onKeyDown}
-          >
-            <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-700">
-              <Search className="h-4 w-4 shrink-0 text-gray-400" />
-              <input
-                autoFocus
-                type="text"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t('endpoints.controlLink.searchDevices', 'Search devices')}
-                className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100"
-              />
-            </div>
-            <ul ref={listRef} role="listbox" data-app-scroll="true" className="min-h-0 flex-1 overflow-y-auto py-1">
-              {ranked.suggested.length > 0 && sectionTitle(t('endpoints.controlLink.suggested', 'Suggested'))}
-              {ranked.suggested.map((item, index) => renderRow(item, index))}
-              {ranked.suggested.length > 0 &&
-                ranked.rest.length > 0 &&
-                !mixedKinds &&
-                sectionTitle(t('endpoints.controlLink.allDevices', 'All devices'))}
-              {ranked.rest.map((item, index) => (
-                <Fragment key={item.device.endpoint.id}>
-                  {mixedKinds &&
-                    ranked.rest[index - 1]?.device.kind !== item.device.kind &&
-                    sectionTitle(
-                      item.device.kind === 'relay'
-                        ? t('endpoints.controlLink.groupRelays', 'Relays')
-                        : t('endpoints.controlLink.groupDomotica', 'Domotica modules')
-                    )}
-                  {renderRow(item, ranked.suggested.length + index)}
-                </Fragment>
-              ))}
-              {flat.length === 0 && (
-                <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-                  {t('endpoints.controlLink.noDevices', 'No devices found')}
-                </li>
-              )}
-            </ul>
-            <div className="flex items-center gap-1 border-t border-gray-200 px-1 py-1 dark:border-gray-700">
-              <button
-                type="button"
-                className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-                onClick={() => {
-                  close(false)
-                  onPickOnCanvas()
-                }}
-              >
-                <Crosshair className="h-3.5 w-3.5" />
-                {t('endpoints.controlLink.pickOnCanvas', 'Pick on canvas')}
-              </button>
-              {(value || missing) && (
+          <div role="presentation" className="contents" onKeyDown={onKeyDown}>
+            <div
+              ref={popoverRef}
+              role="dialog"
+              className="fixed z-50 flex flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
+              style={{ top: position.top, left: position.left, width: position.width, maxHeight: POPOVER_MAX_HEIGHT }}
+            >
+              <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-700">
+                <Search className="h-4 w-4 shrink-0 text-gray-400" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t('endpoints.controlLink.searchDevices', 'Search devices')}
+                  className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100"
+                />
+              </div>
+              <ul ref={listRef} role="listbox" data-app-scroll="true" className="min-h-0 flex-1 overflow-y-auto py-1">
+                {ranked.suggested.length > 0 && sectionTitle(t('endpoints.controlLink.suggested', 'Suggested'))}
+                {ranked.suggested.map((item, index) => renderRow(item, index))}
+                {ranked.suggested.length > 0 &&
+                  ranked.rest.length > 0 &&
+                  !mixedKinds &&
+                  sectionTitle(t('endpoints.controlLink.allDevices', 'All devices'))}
+                {ranked.rest.map((item, index) => (
+                  <Fragment key={item.device.endpoint.id}>
+                    {mixedKinds &&
+                      ranked.rest[index - 1]?.device.kind !== item.device.kind &&
+                      sectionTitle(
+                        item.device.kind === 'relay'
+                          ? t('endpoints.controlLink.groupRelays', 'Relays')
+                          : t('endpoints.controlLink.groupDomotica', 'Domotica modules')
+                      )}
+                    {renderRow(item, ranked.suggested.length + index)}
+                  </Fragment>
+                ))}
+                {flat.length === 0 && (
+                  <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                    {t('endpoints.controlLink.noDevices', 'No devices found')}
+                  </li>
+                )}
+              </ul>
+              <div className="flex items-center gap-1 border-t border-gray-200 px-1 py-1 dark:border-gray-700">
                 <button
                   type="button"
-                  className="ml-auto flex items-center gap-1.5 rounded px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-                  onClick={() => choose(undefined)}
+                  className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                  onClick={() => {
+                    close(false)
+                    onPickOnCanvas()
+                  }}
                 >
-                  <Unlink className="h-3.5 w-3.5" />
-                  {t('endpoints.controlLink.unlink', 'Unlink')}
+                  <Crosshair className="h-3.5 w-3.5" />
+                  {t('endpoints.controlLink.pickOnCanvas', 'Pick on canvas')}
                 </button>
-              )}
+                {(value || missing) && (
+                  <button
+                    type="button"
+                    className="ml-auto flex items-center gap-1.5 rounded px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                    onClick={() => choose(undefined)}
+                  >
+                    <Unlink className="h-3.5 w-3.5" />
+                    {t('endpoints.controlLink.unlink', 'Unlink')}
+                  </button>
+                )}
+              </div>
             </div>
           </div>,
           document.body

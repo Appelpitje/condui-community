@@ -57,31 +57,32 @@ export function AutomaticNamingLockedField({
       ) : null}
 
       {open ? (
-        <div
-          role="dialog"
-          aria-label={tooltip}
-          className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-gray-200 bg-white p-3 shadow-xl dark:border-gray-600 dark:bg-gray-800"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div className="flex items-start gap-3">
-            <NamingIcon />
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-gray-900 dark:text-white">{tooltip}</div>
-              <p className="mt-1 text-xs leading-snug text-gray-600 dark:text-gray-300">
-                {t('canvas.eendraadNaming.lockedDescription', 'Turn it off to change this label.')}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="mt-3 w-full rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-            onClick={() => {
-              setOpen(false)
-              openEendraadNamingGuidance()
-            }}
+        <div role="presentation" className="contents" onClick={(event) => event.stopPropagation()}>
+          <div
+            role="dialog"
+            aria-label={tooltip}
+            className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-gray-200 bg-white p-3 shadow-xl dark:border-gray-600 dark:bg-gray-800"
           >
-            {t('canvas.eendraadNaming.openAutomaticNaming', 'Open auto-label')}
-          </button>
+            <div className="flex items-start gap-3">
+              <NamingIcon />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white">{tooltip}</div>
+                <p className="mt-1 text-xs leading-snug text-gray-600 dark:text-gray-300">
+                  {t('canvas.eendraadNaming.lockedDescription', 'Turn it off to change this label.')}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="mt-3 w-full rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              onClick={() => {
+                setOpen(false)
+                openEendraadNamingGuidance()
+              }}
+            >
+              {t('canvas.eendraadNaming.openAutomaticNaming', 'Open auto-label')}
+            </button>
+          </div>
         </div>
       ) : null}
     </div>

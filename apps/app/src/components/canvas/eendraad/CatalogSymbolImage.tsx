@@ -23,10 +23,14 @@ export function CatalogSymbolImage({
   const [image, setImage] = useState<HTMLImageElement | null>(null)
   const symbol = getSymbolById(symbolId)
   const isDark = theme?.mode === 'dark'
+  const [source, setSource] = useState({ symbol, isDark })
+  if (source.symbol !== symbol || source.isDark !== isDark) {
+    setSource({ symbol, isDark })
+    setImage(null)
+  }
 
   useEffect(() => {
     let cancelled = false
-    setImage(null)
     if (!symbol) return
     loadProcessedSymbol(symbol.svgPath, isDark)
       .then((nextImage) => {

@@ -12,7 +12,7 @@ function dataUrlToBytes(dataUrl: string): ArrayBuffer {
 }
 
 /** Raw document bytes without `fetch`, which the app CSP blocks for data: URLs. */
-export async function readProjectDocumentBytes(document: ProjectDocument): Promise<ArrayBuffer> {
+export async function readProjectDocumentBytes(document: Pick<ProjectDocument, 'id' | 'url'>): Promise<ArrayBuffer> {
   if (document.url.startsWith('data:')) return dataUrlToBytes(document.url)
   throw new Error(`No readable source for document ${document.id}`)
 }

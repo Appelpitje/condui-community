@@ -1,4 +1,4 @@
-import domainI18n from './i18n/domainI18n'
+import { getDomainTranslator } from './i18n/domainI18n'
 import type { SymbolMetadata } from './symbols'
 import { normalizeSupportedLanguage } from '../utils/languageRouting'
 
@@ -8,5 +8,5 @@ export function getLocalizedSymbolName(symbol: SymbolMetadata, language: string)
   if (lng === 'nl-BE') return symbol.nameNL
   if (lng === 'fr-BE') return symbol.nameFR
   if (lng === 'en') return symbol.name
-  return domainI18n.t(`symbols.names.${symbol.id}`, { lng, defaultValue: symbol.nameNL })
+  return getDomainTranslator(lng)(`symbols.names.${symbol.id}`, { defaultValue: symbol.nameNL })
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   circuitIdForPlanEndpoint,
   freezePlanWireCircuit,
@@ -54,7 +54,7 @@ export function usePlanWiringFocus({
   )
 
   const focusRef = useRef(focus)
-  focusRef.current = focus
+  useLayoutEffect(() => { focusRef.current = focus }, [focus])
   const focusTarget = useCallback((target: PlanWiringTarget | null) => {
     if (target) useProjectStore.setState({ lastWorkedCircuitId: target.circuitId })
     const current = focusRef.current
@@ -82,17 +82,14 @@ export function usePlanWiringFocus({
   )
 
   // Mode and floor changes clear focus; a selection from regular plan mode is not inherited.
-  useEffect(
-    function () {
-      applyHoverRoute(null)
-      applyRedraw(null)
-      applyFrozen(null)
-      focusRef.current = null
-      applyFocus(null)
-    },
-    // Only on entering or leaving wire mode, or switching floor; not on every project edit.
-    [wiringMode, activeFloorId]
-  )
+  const [focusSource, setFocusSource] = useState({ wiringMode, activeFloorId })
+  if (focusSource.wiringMode !== wiringMode || focusSource.activeFloorId !== activeFloorId) {
+    setFocusSource({ wiringMode, activeFloorId })
+    applyHoverRoute(null)
+    applyRedraw(null)
+    applyFrozen(null)
+    applyFocus(null)
+  }
 
   // Starting a wire from a symbol makes its branch the working one.
   useEffect(

@@ -21,11 +21,25 @@ export function usePlanCanvasToolState({ readOnly = false }: { readOnly?: boolea
   const [isViewportPanning, setIsViewportPanning] = useState(false)
   const [openMenu, setOpenMenu] = useState<PlanFloatingMenu>(null)
 
+  const [openingSource, setOpeningSource] = useState({ activeTool, openingSelectionArmedTool })
+  if (openingSource.activeTool !== activeTool || openingSource.openingSelectionArmedTool !== openingSelectionArmedTool) {
+    setOpeningSource({ activeTool, openingSelectionArmedTool })
+    if (openingSelectionArmedTool !== activeTool) setOpeningSelectionArmedTool(null)
+  }
+  const isWallDrawingTool = isFloorPlanMode && (activeTool === 'drawWall' || activeTool === 'drawWallRect')
+  const [panningSource, setPanningSource] = useState({ isWallDrawingTool, isViewportPanning })
+  if (panningSource.isWallDrawingTool !== isWallDrawingTool || panningSource.isViewportPanning !== isViewportPanning) {
+    setPanningSource({ isWallDrawingTool, isViewportPanning })
+    if (!isWallDrawingTool && isViewportPanning) setIsViewportPanning(false)
+  }
+
   useEffect(() => () => setActiveTool('none'), [setActiveTool])
 
-  useEffect(() => {
+  const [floorPlanToolSource, setFloorPlanToolSource] = useState(activeTool)
+  if (floorPlanToolSource !== activeTool) {
+    setFloorPlanToolSource(activeTool)
     if (activeTool === 'wiring') setIsFloorPlanMode(false)
-  }, [activeTool])
+  }
 
   // Wire-mode controls start enabled without changing ordinary situation-plan visibility.
   useEffect(() => {

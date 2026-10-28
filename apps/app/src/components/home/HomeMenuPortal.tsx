@@ -1,5 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+
+function navigateMenu(event: ReactKeyboardEvent<HTMLDivElement>) {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+    'button:not(:disabled):not([aria-disabled="true"]), [role="menuitem"]:not([aria-disabled="true"]):not(:disabled)'
+  ))
+  if (items.length === 0) return
+  event.preventDefault()
+  event.stopPropagation()
+  const index = items.indexOf(event.currentTarget.ownerDocument.activeElement as HTMLElement)
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+    : event.key === 'ArrowDown' ? index + 1 : index < 0 ? items.length - 1 : index - 1
+  items[(next + items.length) % items.length]?.focus()
+}
 
 type HomeMenuPortalProps = {
   open: boolean
@@ -24,10 +38,14 @@ export function HomeMenuPortal({
 }: HomeMenuPortalProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  const [previousOpen, setPreviousOpen] = useState(open)
+  if (previousOpen !== open) {
+    setPreviousOpen(open)
+    if (!open) setPosition(null)
+  }
 
   useEffect(() => {
     if (!open) {
-      setPosition(null)
       return
     }
 
@@ -97,6 +115,7 @@ export function HomeMenuPortal({
       <div
         ref={menuRef}
         role="menu"
+        tabIndex={-1}
         className={`fixed z-[201] ${className}`}
         style={
           position
@@ -105,6 +124,7 @@ export function HomeMenuPortal({
         }
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={navigateMenu}
       >
         {children}
       </div>
@@ -183,10 +203,12 @@ export function HomeFixedMenuPortal({
       <div
         ref={menuRef}
         role="menu"
+        tabIndex={-1}
         className={`fixed z-[201] ${className}`}
         style={{ left: adjusted.x, top: adjusted.y }}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={navigateMenu}
         onContextMenu={(e) => e.preventDefault()}
       >
         {children}

@@ -46,9 +46,6 @@ export function usePlanOpeningWidthEditor({
   windowsForRender,
   zoom,
 }: UsePlanOpeningWidthEditorOptions) {
-  const [openingWidthText, setOpeningWidthText] = useState('')
-  const [openingWidthEditorActive, setOpeningWidthEditorActive] = useState(false)
-
   const selectedOpeningForWidthEditor = useMemo<PlanOpeningWidthEditorModel | null>(() => {
     const canShowInTool =
       activeTool === 'select' || activeTool === 'insertDoor' || activeTool === 'insertWindow'
@@ -88,27 +85,33 @@ export function usePlanOpeningWidthEditor({
     selection.type,
     windowsForRender,
   ])
+  const [openingWidthText, setOpeningWidthText] = useState(() => {
+    const width = selectedOpeningForWidthEditor
+      ? (selectedOpeningForWidthEditor.width / canvasPxPerMeter) * 100 : Number.NaN
+    return Number.isFinite(width) ? `${Math.round(width * 10) / 10}` : ''
+  })
+  const [openingWidthEditorActive, setOpeningWidthEditorActive] = useState(false)
   const openingWidthEditorOwnerId = selectedOpeningForWidthEditor
     ? `opening-width:${selectedOpeningForWidthEditor.kind}:${selectedOpeningForWidthEditor.id}`
     : 'opening-width'
 
-  useEffect(() => {
+  const [draftSource, setDraftSource] = useState({ canvasPxPerMeter, selectedOpeningForWidthEditor })
+  if (draftSource.canvasPxPerMeter !== canvasPxPerMeter ||
+    draftSource.selectedOpeningForWidthEditor !== selectedOpeningForWidthEditor) {
+    setDraftSource({ canvasPxPerMeter, selectedOpeningForWidthEditor })
     if (!selectedOpeningForWidthEditor) {
       setOpeningWidthText('')
       setOpeningWidthEditorActive(false)
-      return
+    } else {
+      const widthDisplay = (selectedOpeningForWidthEditor.width / canvasPxPerMeter) * 100
+      setOpeningWidthText(Number.isFinite(widthDisplay) ? `${Math.round(widthDisplay * 10) / 10}` : '')
+      setOpeningWidthEditorActive(false)
     }
-
-    const widthDisplay = (selectedOpeningForWidthEditor.width / canvasPxPerMeter) * 100
-    setOpeningWidthText(
-      Number.isFinite(widthDisplay) ? `${Math.round(widthDisplay * 10) / 10}` : ''
-    )
-    setOpeningWidthEditorActive(false)
-  }, [canvasPxPerMeter, selectedOpeningForWidthEditor])
+  }
+  if (!canEditFloorPlan && openingWidthEditorActive) setOpeningWidthEditorActive(false)
 
   useEffect(() => {
     if (!selectedOpeningForWidthEditor || !openingWidthEditorActive || !canEditFloorPlan) {
-      if (!canEditFloorPlan && openingWidthEditorActive) setOpeningWidthEditorActive(false)
       clearFloorPlanDrawDimensionEditor(openingWidthEditorOwnerId)
       return
     }

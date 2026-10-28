@@ -238,6 +238,7 @@
     "exportProjectError": "Project downloaden mislukt. Probeer het opnieuw.",
     "settings": "Instellingen",
     "shortcuts": "Sneltoetsen",
+    "offlineApp": "Offline app",
     "installOffline": "Installeren voor offline gebruik",
     "contactSupport": "Contacteer support",
     "documentation": "Documentatie",
@@ -259,6 +260,8 @@
     }
   },
   "pwaInstall": {
+    "installedMessage": "Condui is als app geïnstalleerd. Open de app via je toestel. Om opnieuw te installeren, verwijder je de app via de appinstellingen van je browser en bezoek je Condui opnieuw.",
+    "browserInstructions": "Open in Chrome of Edge het browsermenu en kies App installeren. Kies in Safari op Mac Archief → Voeg toe aan Dock. Is Condui al geïnstalleerd, open dan de app via je toestel. Om opnieuw te installeren, verwijder je de app via de appinstellingen van je browser en bezoek je Condui opnieuw.",
     "iosTitle": "Toevoegen aan beginscherm",
     "iosInstructions": "Tik op Delen in Safari en kies “Voeg toe aan beginscherm”.",
     "unavailableTitle": "Installeren nog niet beschikbaar",
@@ -1917,7 +1920,7 @@
     "switch_shutter": "Rolluikschakelaar",
     "switch_1p_pull": "Trekschakelaar",
     "contact": "Contact",
-    "switch_impulse": "Impulsschakelaar",
+    "switch_impulse": "Drukknop",
     "switch_cross": "Kruisschakelaar",
     "source_changeover": "Omschakelaar",
     "motion_detector": "Bewegingsdetector",
@@ -2002,7 +2005,7 @@
       "switch_1p_changeover": "Omschakelaar",
       "switch_shutter": "Rolluikschakelaar",
       "switch_1p_pull": "Trek schakelaar",
-      "switch_impulse": "Impulsschakelaar",
+      "switch_impulse": "Drukknop",
       "motion_detector": "Bewegingsdetector",
       "smoke_detector": "Rookdetector",
       "relay": "Relais",
@@ -2511,6 +2514,10 @@
       "branchMultiplierEndpointsSplit": "Stroombaan {{circuitCode}}: aftakking \"{{branchLabel}}\" heeft {{absorbCount}} extra vermenigvuldigingssymbool(len) als aparte eindpunten; horen één eindpunt met meerdere plaatsingen te zijn. Gebruik Repareren in de weesinspectie."
     },
     "primitives": {
+      "undergroundCable": {
+        "message": "Ondergrondse XVB/XGB: controleer de beschermbuis",
+        "details": "XVB en XGB zijn niet bedoeld om rechtstreeks in te graven. Gebruik ondergronds een goed gedraineerde beschermbuis en controleer de plaatsingsvoorschriften van de kabelfabrikant."
+      },
       "feedbackSafety": {
         "rcdOverload": {
           "message": "Nominale stroom differentieel is te laag",
@@ -3143,7 +3150,7 @@
     "categoryEnergyMeters": "Energiemeters",
     "categorySockets": "Stopcontacten",
     "categorySwitches": "Schakelaars",
-    "categoryImpulse": "Impulsschakelaars",
+    "categoryImpulse": "Drukknoppen",
     "categoryLights": "Lichtpunten",
     "categoryRelays": "Relais",
     "categoryDomotica": "Domotica / Smarthome",
@@ -3198,10 +3205,12 @@
     "thickness": "Dikte",
     "fireClass": "Brandklasse",
     "inTube": "Buis",
+    "conductorMarks": "Geleidermarkeringen",
     "onWall": "Op wand",
     "inWall": "In wand",
     "inGround": "Grond",
     "inAir": "Lucht",
+    "useUpstreamRoute": "Overnemen van voeding",
     "routeNone": "Geen",
     "routeLabel": "Draadroute",
     "notFound": "Draadsegment niet gevonden",
@@ -3865,13 +3874,20 @@
     "shapeOf": "Vorm"
   },
   "materialListExport": {
+    "etimRelease": "ETIM-release",
+    "etimClass": "ETIM-klasse",
+    "etimClassName": "ETIM-klassenaam",
+    "etimClassVersion": "ETIM-klasseversie",
+    "etimFeatures": "ETIM-eigenschappen (JSON)",
+    "etimSource": "ETIM-bron",
+    "etimNotice": "ETIM 10.0. Niet-geclassificeerd materiaal heeft lege ETIM-velden.",
     "cableMargin": "Kabelmarge (%)",
     "invalidCableMargin": "Vul een geldig percentage van 0 of meer in.",
     "skipSupplyPanel": "Materiaal in het netbord overslaan",
     "title": "Materiaallijst exporteren",
     "menu": "Meetstaat / materiaallijst",
     "export": "Exporteren",
-    "searchAliases": "Excel CSV Robaws meetstaat hoeveelheden materialen",
+    "searchAliases": "Excel CSV ETIM Robaws meetstaat hoeveelheden materialen",
     "preset": "Voorinstelling",
     "standard": "Standaard",
     "format": "Bestandsformaat",

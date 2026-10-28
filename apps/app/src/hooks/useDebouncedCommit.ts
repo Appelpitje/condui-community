@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 /**
  * Keep a fast local draft value and commit it after inactivity.
@@ -33,13 +33,17 @@ export function useDebouncedCommit<T>(
   const equals = options.equals ?? Object.is
   const identityKey = options.identityKey
 
-  const lastCommittedRef = useRef(committedValue)
-  const [draft, _setDraft] = useState<T>(committedValue)
+  const [state, setState] = useState({ identityKey, committedValue, draft: committedValue })
+  if (!Object.is(state.identityKey, identityKey) || !Object.is(state.committedValue, committedValue)) {
+    setState({ identityKey, committedValue, draft: committedValue })
+  }
+  const draft = state.draft
   const committedRef = useRef(committedValue)
-  committedRef.current = committedValue
-
   const draftRef = useRef(draft)
-  draftRef.current = draft
+  useLayoutEffect(() => {
+    committedRef.current = committedValue
+    draftRef.current = draft
+  }, [committedValue, draft])
 
   const timerRef = useRef<number | null>(null)
 
@@ -61,26 +65,13 @@ export function useDebouncedCommit<T>(
 
   const resetDraft = useCallback(() => {
     clearTimer()
-    _setDraft(committedRef.current)
+    const value = committedRef.current
+    setState((current) => ({ ...current, draft: value }))
   }, [])
-
-  // Keep draft in sync when the committed value changes externally and the
-  // user hasn't diverged (or when store updates come in from elsewhere).
-  useEffect(() => {
-    const latestDraft = draftRef.current
-    const prevCommitted = lastCommittedRef.current
-    lastCommittedRef.current = committedValue
-    if (equals(latestDraft, committedValue)) return
-
-    // If user hadn't diverged (draft matched previous committed), adopt the new committed value.
-    if (equals(latestDraft, prevCommitted)) {
-      _setDraft(committedValue)
-    }
-  }, [committedValue, equals])
 
   const setDraft = useCallback(
     (value: T) => {
-      _setDraft(value)
+      setState((current) => ({ ...current, draft: value }))
       clearTimer()
       timerRef.current = window.setTimeout(() => {
         flush()
@@ -98,12 +89,10 @@ export function useDebouncedCommit<T>(
     }
   }, [])
 
-  // When the logical backing entity changes, drop any pending draft and adopt
-  // the new committed value immediately so stale edits cannot leak across items.
-  useEffect(() => {
+  // The render above adopts external values. Cancel the previous entity's timer
+  // before events can observe the newly committed draft.
+  useLayoutEffect(() => {
     clearTimer()
-    lastCommittedRef.current = committedValue
-    _setDraft(committedValue)
   }, [identityKey, committedValue])
 
   const isDirty = !equals(draft, committedValue)

@@ -6,15 +6,17 @@ export function LabelSettingHelp({
   text,
   children,
   className = '',
+  descriptionId,
 }: {
   text?: string
   children: ReactNode
   className?: string
+  descriptionId?: string
 }) {
   const id = useId()
   const ref = useRef<HTMLSpanElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
+  const [position, setPosition] = useState<{ left: number; top: number; ownerDocument: Document } | null>(null)
   const hide = () => {
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
@@ -35,6 +37,7 @@ export function LabelSettingHelp({
       const rect = element.getBoundingClientRect()
       const view = element.ownerDocument.defaultView
       setPosition({
+        ownerDocument: element.ownerDocument,
         left: Math.max(8, Math.min(rect.left, (view?.innerWidth ?? 1024) - 296)),
         top: rect.top,
       })
@@ -42,6 +45,7 @@ export function LabelSettingHelp({
   }
   return (
     <span
+      role="presentation"
       ref={ref}
       className={`inline-flex min-w-0 ${className}`}
       aria-describedby={position ? id : undefined}
@@ -57,7 +61,8 @@ export function LabelSettingHelp({
       }}
     >
       {children}
-      {position && text && ref.current
+      {descriptionId && text ? <span id={descriptionId} className="sr-only">{text}</span> : null}
+      {position && text
         ? createPortal(
             <span
               id={id}
@@ -68,7 +73,7 @@ export function LabelSettingHelp({
             >
               {text}
             </span>,
-            ref.current.ownerDocument.body
+            position.ownerDocument.body
           )
         : null}
     </span>

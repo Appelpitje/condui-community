@@ -119,10 +119,10 @@ export default function CommunityHome() {
   const importRef = useRef<HTMLInputElement>(null)
   const trikImportRef = useRef<HTMLInputElement>(null)
   const actionsAnchorRef = useRef<HTMLDivElement>(null)
-  const layoutRef = useRef<HomeProjectLayout>(loadHomeProjectLayout(null))
+  const [layout, setLayout] = useState<HomeProjectLayout>(() => loadHomeProjectLayout(null))
+  const layoutRef = useRef<HomeProjectLayout>(layout)
   const [projects, setProjects] = useState<ProjectMetadata[]>([])
   const [loading, setLoading] = useState(true)
-  const [layout, setLayout] = useState<HomeProjectLayout>(layoutRef.current)
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<ProjectMetadata | null>(null)
@@ -148,11 +148,14 @@ export default function CommunityHome() {
     () => layoutRef.current,
   )
 
-  const refresh = useCallback(async () => {
-    setProjects(await getRecentProjects(100))
-    setBrowserOnlyCount((await listBrowserOnlyProjects()).length)
-    setLoading(false)
-  }, [])
+  const refresh = useCallback(() => getRecentProjects(100)
+    .then((nextProjects) => {
+      setProjects(nextProjects)
+      return listBrowserOnlyProjects()
+    }).then((browserOnlyProjects) => {
+      setBrowserOnlyCount(browserOnlyProjects.length)
+      setLoading(false)
+    }), [])
 
   useEffect(() => {
     void refresh().catch((error) => {

@@ -27,9 +27,11 @@ function FloatingDistanceInput({
   const [draftValue, setDraftValue] = useState(() => String(meters))
   const [isEditing, setIsEditing] = useState(false)
 
-  useEffect(() => {
+  const [draftSource, setDraftSource] = useState({ meters, isEditing })
+  if (!Object.is(draftSource.meters, meters) || draftSource.isEditing !== isEditing) {
+    setDraftSource({ meters, isEditing })
     if (!isEditing) setDraftValue(String(meters))
-  }, [meters, isEditing])
+  }
 
   const commitDraftValue = () => {
     const normalized = parsePlanMeters(draftValue)
@@ -87,6 +89,7 @@ function FloatingDistanceInput({
 
   return (
     <div
+      role="presentation"
       className="absolute pointer-events-auto z-10"
       style={{
         left: `${position.x}px`,

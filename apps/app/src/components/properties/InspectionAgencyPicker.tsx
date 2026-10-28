@@ -46,18 +46,21 @@ export function InspectionAgencyPicker({ open, onClose, onFill }: InspectionAgen
   const [entries, setEntries] = useState<InspectionAgencyCatalogEntry[]>([])
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(open)
   const [error, setError] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const [requestOpen, setRequestOpen] = useState(open)
+  if (requestOpen !== open) {
+    setRequestOpen(open)
+    if (open) {
+      setLoading(true)
+      setError(null)
+    } else setQuery('')
+  }
 
   useEffect(() => {
-    if (!open) {
-      setQuery('')
-      return
-    }
+    if (!open) return
     let cancelled = false
-    setLoading(true)
-    setError(null)
     loadInspectionAgencyCatalog()
       .then((rows) => {
         if (cancelled) return
@@ -89,12 +92,10 @@ export function InspectionAgencyPicker({ open, onClose, onFill }: InspectionAgen
     [entries, query]
   )
 
-  useEffect(() => {
-    if (!open) return
-    if (!filteredEntries.some((entry) => entry.sourceKey === selectedKey)) {
-      setSelectedKey(filteredEntries[0]?.sourceKey ?? null)
-    }
-  }, [filteredEntries, open, selectedKey])
+  if (open && !filteredEntries.some((entry) => entry.sourceKey === selectedKey)) {
+    const nextKey = filteredEntries[0]?.sourceKey ?? null
+    if (selectedKey !== nextKey) setSelectedKey(nextKey)
+  }
 
   if (!open) return null
 
@@ -102,9 +103,11 @@ export function InspectionAgencyPicker({ open, onClose, onFill }: InspectionAgen
 
   return createPortal(
     <div
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4"
       onMouseDown={(event) => {
-        if (dialogRef.current && !dialogRef.current.contains(event.target as Node)) onClose()
+        if (dialogRef.current?.contains(event.target as Node)) event.stopPropagation()
+        else if (dialogRef.current) onClose()
       }}
     >
       <div
@@ -113,7 +116,6 @@ export function InspectionAgencyPicker({ open, onClose, onFill }: InspectionAgen
         aria-modal="true"
         aria-labelledby="inspection-agency-picker-title"
         className="flex h-[min(680px,calc(100vh-32px))] w-[min(980px,calc(100vw-32px))] flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
-        onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <div className="min-w-0 flex-1">

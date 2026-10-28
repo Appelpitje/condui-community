@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight, Download } from 'lucide-react'
 import CustomDropdown from '@/components/common/CustomDropdown'
@@ -206,18 +206,20 @@ export function ControlAddressTable() {
   const sidePaddingPx = useSidePaddingThatYields(listRef, tableRef, devices.length > 0)
   const pointerInsideRef = useRef(false)
   const stepRef = useRef<(delta: number) => boolean>(() => false)
-  stepRef.current = (delta) => {
-    let index = visibleRows.findIndex((row) => row.connectionId === activeConnectionId && selectedIds.includes(row.endpointId))
-    if (index < 0) index = visibleRows.findIndex((row) => selectedIds.includes(row.endpointId))
-    if (index < 0) return false
-    const row = visibleRows[index + delta]
-    if (!row) return true
-    select(row.endpointId, row.connectionId)
-    listRef.current
-      ?.querySelector(`[data-connection="${CSS.escape(row.connectionId)}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
-    return true
-  }
+  useLayoutEffect(() => {
+    stepRef.current = (delta) => {
+      let index = visibleRows.findIndex((row) => row.connectionId === activeConnectionId && selectedIds.includes(row.endpointId))
+      if (index < 0) index = visibleRows.findIndex((row) => selectedIds.includes(row.endpointId))
+      if (index < 0) return false
+      const row = visibleRows[index + delta]
+      if (!row) return true
+      select(row.endpointId, row.connectionId)
+      listRef.current
+        ?.querySelector(`[data-connection="${CSS.escape(row.connectionId)}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+      return true
+    }
+  })
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return

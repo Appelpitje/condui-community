@@ -26,6 +26,22 @@ The current manifest has archive format version `1`, the format label `project-w
 
 The current schema version is `2.3.0`.
 
+Canonical `disciplines.electrical.wireRuns[].route` accepts `"none"` as an explicit
+absence of an installation-route marking. An omitted route inherits the upstream
+route within the circuit/domain; `"none"` stops that inheritance without removing
+the electrical connection, conduit setting or cable specifications. The other
+values remain `"wall"` (in wall), `"on-wall"`, `"ground"` and `"air"`. Clearing an
+override restores inheritance. Existing projects with omitted routes keep their
+previous behaviour; no schema version change is required.
+
+An omitted `wireRuns[].cable.fireClass` likewise inherits the upstream fire class
+within the circuit/domain, and finally the circuit's cable fire class. The optional
+`wireRuns[].fireClassNone: true` records an explicit "no fire class": the run's
+`cable.fireClass` stays empty, downstream connections without their own class inherit
+that absence, and validation still reports the class as unspecified. Choosing a class
+removes the flag. Readers that ignore it fall back to inheritance; no schema version
+change is required.
+
 `disciplines.electrical.installation.connectionCurrentA` is an optional positive
 integer in amperes: the rated incoming connection current per phase (the installed
 connection-breaker setting). Missing means unspecified; readers must not infer
@@ -932,6 +948,15 @@ with the same function and assignment. A reference to `(anchor, coreId)` resolve
 with that id, else through this alias. Cores without a unique counterpart get no alias. When a
 member leaves a run again, its aliases leave with it.
 
+A run's optional `labels` object holds display flags: `hideWireLabel`, `showFireClassLabel`,
+`showWireLengthLabel`, `showConductorMarks` and `showBranchConductorMarks`. When
+`showConductorMarks` is `true` the one-wire and structure views draw IEC 60617 conductor tick
+marks on that run's own members only; downstream connections keep their own runs and flags.
+A run whose one-wire drawing has a vertical stem and a horizontal first branch draws marks on
+the stem for `showConductorMarks` and on the branch for `showBranchConductorMarks`; the
+structure view marks the run when either is set. Busbar runs drop `labels`. Readers that do
+not know a flag ignore it.
+
 The circuit-section connection into `bus-section:secondary-bus:<circuitId>` is a
 secondary-bus feeder and supports both `medium: "busbar"` and `medium: "cable"`.
 An unauthored feeder defaults to a busbar; an authored cable run remains a cable.
@@ -1002,7 +1027,22 @@ rail’s protection-input tap anchors. No additional persisted rail record is re
 Protection inputs use a panel/protection anchor, earthing inputs a
 downstream device or panel anchor, and subpanel feeds a receiving device or bus anchor.
 Supply paths retain their stable feed-section or assembly-connection anchors. Anchor keys
-are opaque to external readers. Older node-pair anchors for shared supply-feed edges
+are opaque to external readers. Adding the first device to an empty protection output moves
+its authored open-end run to the device connection, preserving its cable, routing, conductors,
+labels, core aliases and per-connection length data.
+When an ordinary branch's first endpoint is deleted, its authored incoming run moves to the next
+remaining endpoint in that branch, preserving those same per-connection fields, unless that
+endpoint already has a separately authored run. Inserting an enclosing protection moves the
+existing device connections to their new circuit anchors, together with their member records,
+plan traces and junction references. New input connections created by inserting or moving a
+branch head, adding a branch, or clearing all loads retain the previous circuit input's cable,
+routing and label settings only when all its incoming branch connections agree. These are new
+runs with new conductor ids; lengths, core aliases and core assignments are not copied. An empty
+output retains those settings as a preset for its next device. Independently authored destination
+runs are never overwritten, and mixed branch settings do not become an arbitrary circuit default.
+Matching settings on separate runs may be drawn on their common stem without merging the runs.
+Removed device connections lose their obsolete member records. Converter and module-output
+connections keep their specialized ownership and domain rules. Older node-pair anchors for shared supply-feed edges
 are rewritten to their canonical feed anchors on opening or saving, retaining run
 membership and per-segment lengths. A circuit anchor whose stored domain no longer matches its
 device (a converter was added or removed upstream) is moved to the anchor with the current

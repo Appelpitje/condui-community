@@ -39,9 +39,22 @@ export function railRunByGroup(buses: ReturnType<typeof buildWireBusIndex>, runs
   return result
 }
 
+const SECONDARY_BUS_FEEDER = /^circuit:([^:]+):into:bus-section:secondary-bus:\1:(AC|DC)$/
+
 /** The final connection feeding a secondary bus belongs to its feeder, not its taps. */
 export function isSecondaryBusFeederAnchor(anchor: string): boolean {
-  return /^circuit:([^:]+):into:bus-section:secondary-bus:\1:(AC|DC)$/.test(anchor)
+  return SECONDARY_BUS_FEEDER.test(anchor)
+}
+
+/** The circuit whose secondary bus this feeder supplies. */
+export function secondaryBusFeederCircuitId(anchor: string): string | undefined {
+  return SECONDARY_BUS_FEEDER.exec(anchor)?.[1]
+}
+
+/** A feeder may join its secondary rail only when that bus has several taps to share. */
+export function isRailFeederAnchor(anchor: string, buses: ReturnType<typeof buildWireBusIndex>): boolean {
+  const circuitId = secondaryBusFeederCircuitId(anchor)
+  return !!circuitId && !buses.directFeedCircuits.has(circuitId)
 }
 
 export function asRailCable(cable: CableSpec): CableSpec {

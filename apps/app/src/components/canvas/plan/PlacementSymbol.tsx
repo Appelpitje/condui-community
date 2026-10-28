@@ -1,3 +1,4 @@
+import { usePlacementArtwork } from './usePlacementArtwork'
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react'
 import { flushSync } from 'react-dom'
 import { Image, Group, Line, Path, Rect, Text } from 'react-konva'
@@ -15,16 +16,8 @@ import { logger } from '@/lib/logger'
 import {
   getSymbolById,
   getFixedApplianceSymbolPath,
-  SOCKET_OVERLAY_PATHS,
   getSwitchSymbolPaths,
-  LIGHT_POINT_OVERLAY_PATHS,
-  LIGHT_SPOT_OVERLAY_PATHS,
-  HVAC_ENERGY_SOURCE_PATHS,
-  HVAC_TYPE_OVERLAY_PATHS,
-  RELAY_OVERLAY_PATHS,
-  SMOKE_DETECTOR_OVERLAY_PATHS,
 } from '@/lib/symbols'
-import { loadProcessedSymbol } from '@/lib/symbolImage'
 import {
   CONVERTER_ARTWORK_PATHS,
   CONVERTER_DOMAIN_ICON_SIZE_RATIO,
@@ -33,7 +26,6 @@ import {
   getConverterDomainCorner,
   isDirectionalConverterSymbol,
 } from '@/lib/converterArtwork'
-import { showLightPointDecentralOverlay, showLightPointSafetyOverlay } from '@/lib/lightPointProps'
 import {
   canPlanAltDuplicate,
   createPlanAltDuplicatePlacement,
@@ -57,7 +49,6 @@ import {
 import type { SymbolKey, Endpoint, Panel, Placement, TrunkDevice } from '@/types/schema'
 import type { Point, Selection } from '@/types/ui'
 import { countPanelCircuits } from '@/utils/plan/placementHelpers'
-import { TRANSFORMER_OVERLAY_PATHS } from '@/lib/symbols'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import {
   useCanvasFontFamily,
@@ -89,12 +80,9 @@ import {
   type ProjectWithOptionalV2Electrical,
 } from '@/lib/projectV2/electrical'
 import { getPlanPanelBodyGeometry } from './panelPlanSymbolGeometry'
-import { ImpulseSwitchCountMarker } from '../shared/ImpulseSwitchCountMarker'
+import { PushbuttonCountMarker } from '../shared/PushbuttonCountMarker'
 import { INTERACTIVE_OVERLAY_EXPORT_NAME } from '@/lib/export/interactiveOverlayExport'
 import { usePlanSymbolElectricalProject } from '@/hooks/plan/usePlanSymbolElectricalProject'
-
-/** Avoid flooding the console when many placements fail the same asset fetch (e.g. bad imports). */
-const loggedSitplanSymbolFailures = new Set<string>()
 
 const selectionBoolEqual = (a: boolean, b: boolean) => a === b
 
@@ -319,36 +307,9 @@ function PlacementSymbolInner({
   const planPlacementDebug = useSettingsStore((s) => s.planPlacementDebug)
   const colors = useThemeColors()
   const fontFamily = useCanvasFontFamily()
-  const [processedImage, setProcessedImage] = useState<HTMLImageElement | null>(null)
-  const [converterDiagonalImage, setConverterDiagonalImage] = useState<HTMLImageElement | null>(
-    null
-  )
-  const [converterAcImage, setConverterAcImage] = useState<HTMLImageElement | null>(null)
-  const [converterDcImage, setConverterDcImage] = useState<HTMLImageElement | null>(null)
-  const [overlaySwitchImage, setOverlaySwitchImage] = useState<HTMLImageElement | null>(null)
-  const [overlaySwitchLockImage, setOverlaySwitchLockImage] = useState<HTMLImageElement | null>(
-    null
-  )
-  const [switchOverlayImage, setSwitchOverlayImage] = useState<HTMLImageElement | null>(null)
-  const [lightPointSafetyImage, setLightPointSafetyImage] = useState<HTMLImageElement | null>(null)
-  const [lightPointDecentralImage, setLightPointDecentralImage] = useState<HTMLImageElement | null>(
-    null
-  )
-  const [lightPointSwitchImage, setLightPointSwitchImage] = useState<HTMLImageElement | null>(null)
-  const [lightSpotBeamImage, setLightSpotBeamImage] = useState<HTMLImageElement | null>(null)
-  const [transformerSafetyImage, setTransformerSafetyImage] = useState<HTMLImageElement | null>(
-    null
-  )
-  const [transformerShortcircuitImage, setTransformerShortcircuitImage] =
-    useState<HTMLImageElement | null>(null)
-  const [transformerProtectionImage, setTransformerProtectionImage] =
-    useState<HTMLImageElement | null>(null)
+
   const [isHovered, setIsHovered] = useState(false)
-  const [hvacEnergyImage, setHvacEnergyImage] = useState<HTMLImageElement | null>(null)
-  const [hvacTypeImage, setHvacTypeImage] = useState<HTMLImageElement | null>(null)
-  const [relayOverlayImage, setRelayOverlayImage] = useState<HTMLImageElement | null>(null)
-  const [smokeDetectorOverlayImage, setSmokeDetectorOverlayImage] =
-    useState<HTMLImageElement | null>(null)
+
   const groupRef = useRef<Konva.Group | null>(null)
   const planAltDuplicateGhostRef = useRef<Konva.Group | null>(null)
   const planAltDuplicatePointerCleanupRef = useRef<(() => void) | null>(null)
@@ -545,255 +506,11 @@ function PlacementSymbolInner({
   const hvacTypeKey = hvacProps?.hvacType ?? 'none'
   const hvacFunctionKey = hvacProps?.hvacFunction ?? 'none'
 
-  // Load the symbol image and process it for theme (must run unconditionally for Rules of Hooks)
-  useEffect(() => {
-    if (!baseSvgPath) {
-      setProcessedImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(baseSvgPath, isDark, colorOverride)
-      .then(setProcessedImage)
-      .catch(() => {
-        if (!loggedSitplanSymbolFailures.has(baseSvgPath)) {
-          loggedSitplanSymbolFailures.add(baseSvgPath)
-          logger.warn('Failed to load sitplan symbol (shown once per path):', baseSvgPath)
-        }
-        setProcessedImage(null)
-      })
-  }, [baseSvgPath, theme.mode, colorOverride])
-
-  // Directional converters are composed from the shared base, diagonal, and
-  // domain artwork so the situation plan uses the same symbol as the other
-  // canvas renderers.
-  useEffect(() => {
-    if (!isDirectionalConverter) {
-      setConverterDiagonalImage(null)
-      setConverterAcImage(null)
-      setConverterDcImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.diagonal, isDark, colorOverride)
-      .then(setConverterDiagonalImage)
-      .catch(() => setConverterDiagonalImage(null))
-    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.AC, isDark, colorOverride)
-      .then(setConverterAcImage)
-      .catch(() => setConverterAcImage(null))
-    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.DC, isDark, colorOverride)
-      .then(setConverterDcImage)
-      .catch(() => setConverterDcImage(null))
-  }, [isDirectionalConverter, theme.mode, colorOverride])
-
-  // Load socket overlay images when socketProps request them (sitplan)
-  useEffect(() => {
-    if (!showSwitchOverlay && !showSwitchOverlayLock) {
-      setOverlaySwitchImage(null)
-      setOverlaySwitchLockImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    if (showSwitchOverlay) {
-      loadProcessedSymbol(SOCKET_OVERLAY_PATHS.switchOverlay, isDark, colorOverride)
-        .then(setOverlaySwitchImage)
-        .catch(() => setOverlaySwitchImage(null))
-    } else {
-      setOverlaySwitchImage(null)
-    }
-    if (showSwitchOverlayLock) {
-      loadProcessedSymbol(SOCKET_OVERLAY_PATHS.switchOverlayLock, isDark, colorOverride)
-        .then(setOverlaySwitchLockImage)
-        .catch(() => setOverlaySwitchLockImage(null))
-    } else {
-      setOverlaySwitchLockImage(null)
-    }
-  }, [showSwitchOverlay, showSwitchOverlayLock, theme.mode, colorOverride])
-
-  // Load switch verklikkerlamp overlay (sitplan)
-  useEffect(() => {
-    if (!switchOverlayPath) {
-      setSwitchOverlayImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(switchOverlayPath, isDark, colorOverride)
-      .then(setSwitchOverlayImage)
-      .catch(() => setSwitchOverlayImage(null))
-  }, [switchOverlayPath, theme.mode, colorOverride])
-
-  // Load light point overlays (safety, decentral, switch 1p).
-  useEffect(() => {
-    if (!isLightPoint || !lightPointProps) {
-      setLightPointSafetyImage(null)
-      setLightPointDecentralImage(null)
-      setLightPointSwitchImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    if (showLightPointSafetyOverlay(lightPointProps)) {
-      loadProcessedSymbol(LIGHT_POINT_OVERLAY_PATHS.safety, isDark, colorOverride)
-        .then(setLightPointSafetyImage)
-        .catch(() => setLightPointSafetyImage(null))
-    } else {
-      setLightPointSafetyImage(null)
-    }
-    if (showLightPointDecentralOverlay(lightPointProps)) {
-      loadProcessedSymbol(LIGHT_POINT_OVERLAY_PATHS.decentral, isDark, colorOverride)
-        .then(setLightPointDecentralImage)
-        .catch(() => setLightPointDecentralImage(null))
-    } else {
-      setLightPointDecentralImage(null)
-    }
-    if (lightPointProps.switch1p) {
-      loadProcessedSymbol(LIGHT_POINT_OVERLAY_PATHS.switch1p, isDark, colorOverride)
-        .then(setLightPointSwitchImage)
-        .catch(() => setLightPointSwitchImage(null))
-    } else {
-      setLightPointSwitchImage(null)
-    }
-  }, [
-    isLightPoint,
-    lightPointProps,
-    lightPointProps?.safety,
-    lightPointProps?.decentral,
-    lightPointProps?.autonomous,
-    lightPointProps?.switch1p,
-    theme.mode,
-    colorOverride,
-  ])
-
-  // Load transformer overlays (safety type, short‑circuit, protection) – sitplan
-  useEffect(() => {
-    if (!isTransformer) {
-      setTransformerSafetyImage(null)
-      setTransformerShortcircuitImage(null)
-      setTransformerProtectionImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    const safetyType = conversionProps?.transformerSafetyType ?? 'none'
-
-    if (safetyType === 'safety_closed') {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.safetyClosed, isDark, colorOverride)
-        .then(setTransformerSafetyImage)
-        .catch(() => setTransformerSafetyImage(null))
-    } else if (safetyType === 'safety_open') {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.safetyOpen, isDark, colorOverride)
-        .then(setTransformerSafetyImage)
-        .catch(() => setTransformerSafetyImage(null))
-    } else {
-      setTransformerSafetyImage(null)
-    }
-
-    if (conversionProps?.transformerShortCircuitProtected) {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.shortcircuit, isDark, colorOverride)
-        .then(setTransformerShortcircuitImage)
-        .catch(() => setTransformerShortcircuitImage(null))
-    } else {
-      setTransformerShortcircuitImage(null)
-    }
-
-    if (conversionProps?.transformerProtected) {
-      loadProcessedSymbol(TRANSFORMER_OVERLAY_PATHS.protection, isDark, colorOverride)
-        .then(setTransformerProtectionImage)
-        .catch(() => setTransformerProtectionImage(null))
-    } else {
-      setTransformerProtectionImage(null)
-    }
-  }, [
-    isTransformer,
-    conversionProps?.transformerSafetyType,
-    conversionProps?.transformerShortCircuitProtected,
-    conversionProps?.transformerProtected,
-    theme.mode,
-    colorOverride,
-  ])
-
-  // Load light spot beam overlay (sitplan)
-  useEffect(() => {
-    if (!isLightSpot || !lightSpotProps?.beamType || lightSpotProps.beamType === 'none') {
-      setLightSpotBeamImage(null)
-      return
-    }
-    const path =
-      lightSpotProps.beamType === 'straight'
-        ? LIGHT_SPOT_OVERLAY_PATHS.straight
-        : LIGHT_SPOT_OVERLAY_PATHS.diverging
-    const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark, colorOverride)
-      .then(setLightSpotBeamImage)
-      .catch(() => setLightSpotBeamImage(null))
-  }, [isLightSpot, lightSpotProps?.beamType, theme.mode, colorOverride])
-
-  // Load HVAC energy source overlays (sitplan)
-  useEffect(() => {
-    if (!isHvac || !hvacEnergyKey || hvacEnergyKey === 'none') {
-      setHvacEnergyImage(null)
-      return
-    }
-    const path = HVAC_ENERGY_SOURCE_PATHS[hvacEnergyKey as keyof typeof HVAC_ENERGY_SOURCE_PATHS]
-    if (!path) {
-      setHvacEnergyImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark, colorOverride)
-      .then(setHvacEnergyImage)
-      .catch(() => setHvacEnergyImage(null))
-  }, [isHvac, hvacEnergyKey, theme.mode, colorOverride])
-
-  // Load HVAC type overlays (sitplan)
-  useEffect(() => {
-    if (!isHvac || !hvacTypeKey || hvacTypeKey === 'none') {
-      setHvacTypeImage(null)
-      return
-    }
-    const path = HVAC_TYPE_OVERLAY_PATHS[hvacTypeKey as keyof typeof HVAC_TYPE_OVERLAY_PATHS]
-    if (!path) {
-      setHvacTypeImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark, colorOverride)
-      .then(setHvacTypeImage)
-      .catch(() => setHvacTypeImage(null))
-  }, [isHvac, hvacTypeKey, theme.mode, colorOverride])
-
-  // Load relay control overlay (sitplan)
-  useEffect(() => {
-    if (endpoint?.symbol !== 'relay') {
-      setRelayOverlayImage(null)
-      return
-    }
-    const controlKey = relayProps?.control ?? 'standard'
-    const path = RELAY_OVERLAY_PATHS[controlKey as keyof typeof RELAY_OVERLAY_PATHS]
-    if (!path) {
-      setRelayOverlayImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark, colorOverride)
-      .then(setRelayOverlayImage)
-      .catch(() => setRelayOverlayImage(null))
-  }, [endpoint?.symbol, relayProps?.control, theme.mode, colorOverride])
-
-  // Load smoke / fire detector overlay (sitplan)
-  useEffect(() => {
-    if (endpoint?.symbol !== 'smoke_detector') {
-      setSmokeDetectorOverlayImage(null)
-      return
-    }
-    const typeKey = smokeDetectorProps?.type ?? 'smoke'
-    const path = SMOKE_DETECTOR_OVERLAY_PATHS[typeKey as keyof typeof SMOKE_DETECTOR_OVERLAY_PATHS]
-    if (!path) {
-      setSmokeDetectorOverlayImage(null)
-      return
-    }
-    const isDark = theme.mode === 'dark'
-    loadProcessedSymbol(path, isDark, colorOverride)
-      .then(setSmokeDetectorOverlayImage)
-      .catch(() => setSmokeDetectorOverlayImage(null))
-  }, [endpoint?.symbol, smokeDetectorProps?.type, theme.mode, colorOverride])
+  const { processedImage, converterDiagonalImage, converterAcImage, converterDcImage, overlaySwitchImage, overlaySwitchLockImage, switchOverlayImage, lightPointSafetyImage, lightPointDecentralImage, lightPointSwitchImage, lightSpotBeamImage, transformerSafetyImage, transformerShortcircuitImage, transformerProtectionImage, hvacEnergyImage, hvacTypeImage, relayOverlayImage, smokeDetectorOverlayImage } = usePlacementArtwork({
+    endpoint, themeMode: theme.mode, colorOverride, baseSvgPath, isDirectionalConverter,
+    showSwitchOverlay, showSwitchOverlayLock, switchOverlayPath, isLightPoint, lightPointProps,
+    isTransformer, conversionProps, isLightSpot, lightSpotProps, isHvac, hvacProps, relayProps, smokeDetectorProps,
+  })
 
   /** Same selection rules as click; used from onClick and from mouse drag-start when the symbol was not yet selected. */
   const applyPlanSymbolPointerSelection = useCallback(
@@ -974,21 +691,24 @@ function PlacementSymbolInner({
     rotationOverrideDeg,
   ])
 
+  const endpointId = endpoint?.id
+  const endpointSymbol = endpoint?.symbol
+  const endpointType = endpoint?.type
   const handlePlacementMouseLeave = useCallback(() => {
     setIsHovered(false)
-    if (planPlacementDebug && endpoint?.type === 'socket') {
+    if (planPlacementDebug && endpointType === 'socket') {
       logger.info('[PlanSocketDebug] hover leave', {
         placementId: placement.id,
-        endpointId: endpoint.id,
+        endpointId: endpointId,
       })
     }
-    if (placementRow.trunkDeviceId || endpoint?.symbol === 'panel_distribution') {
+    if (placementRow.trunkDeviceId || endpointSymbol === 'panel_distribution') {
       useUIStore.getState().clearHover()
     }
   }, [
-    endpoint?.id,
-    endpoint?.symbol,
-    endpoint?.type,
+    endpointId,
+    endpointSymbol,
+    endpointType,
     placement.id,
     placementRow.trunkDeviceId,
     planPlacementDebug,
@@ -1453,7 +1173,7 @@ function PlacementSymbolInner({
             />
           )}
           {endpoint?.symbol === 'switch_impulse' && (
-            <ImpulseSwitchCountMarker
+            <PushbuttonCountMarker
               count={endpoint.switchProps?.switchingCount ?? 1}
               size={outlineWidth}
               color={symbolColor}

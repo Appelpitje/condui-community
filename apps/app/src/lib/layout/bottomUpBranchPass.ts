@@ -30,6 +30,7 @@ import {
 } from './trunkDeviceSpacing'
 import { getBranchConverterMetadataCalloutHeight } from './circuitConverterMetadataCallouts'
 import { getControlButtonAnnotationBounds } from '@/lib/eendraad/controlButtonLabels'
+import { CIRCUIT_WIRE_LABEL_BRANCH_CLEARANCE } from './circuitWireLabelSpacing'
 
 export interface BranchPassConstants {
   BRANCH_LEAD_IN: number
@@ -56,6 +57,7 @@ export interface CircuitLayoutForBranches {
   parentCircuit: Circuit | null
   x: number
   leftReserve: number
+  wireLabelSpan?: number
 }
 
 export interface BranchLayoutPassResult {
@@ -146,7 +148,7 @@ export function getBranchStartX(
 }
 
 export function calculateFirstBranchY(
-  circuitLayout: Pick<CircuitLayoutForBranches, 'circuit' | 'parentRcd'>,
+  circuitLayout: Pick<CircuitLayoutForBranches, 'circuit' | 'parentRcd' | 'wireLabelSpan'>,
   startY: number,
   constants: Pick<
     BranchPassConstants,
@@ -189,7 +191,7 @@ export function calculateFirstBranchY(
         constants.BRANCH_START_OFFSET -
         firstBranchExtraGap -
         converterReserve
-    : mcbStartY - constants.BRANCH_START_OFFSET
+    : mcbStartY - Math.max(constants.BRANCH_START_OFFSET, (circuitLayout.wireLabelSpan ?? 0) + CIRCUIT_WIRE_LABEL_BRANCH_CLEARANCE)
 }
 
 function getNonPanelEndpoints(circuit: Circuit) {
@@ -568,7 +570,7 @@ function processNestedCircuitBranches(
     // Measure from the nested protection itself so the cable caption beside it
     // gets the same protection-to-first-branch span as a top-level circuit.
     const nestedFirstBranchY = calculateFirstBranchY(
-      { circuit: nestedCircuit, parentRcd: null },
+      { circuit: nestedCircuit, parentRcd: null, wireLabelSpan: nestedCircuitLayout?.wireLabelSpan },
       nestedMcbY,
       constants
     )

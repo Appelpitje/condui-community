@@ -71,11 +71,15 @@ function useElementSize<T extends HTMLElement>() {
 function usePageAspects(document: ProjectDocument, onError: () => void): number[] | null {
   const [aspects, setAspects] = useState<number[] | null>(null)
   const documentRef = useRef(document)
-  documentRef.current = document
+  useLayoutEffect(() => { documentRef.current = document })
   const sourceKey = `${document.id}|${document.url}`
+  const [previousSourceKey, setPreviousSourceKey] = useState(sourceKey)
+  if (previousSourceKey !== sourceKey) {
+    setPreviousSourceKey(sourceKey)
+    setAspects(null)
+  }
 
   useEffect(() => {
-    setAspects(null)
     let cancelled = false
     const current = documentRef.current
     if (current.kind === 'image') {
@@ -240,6 +244,13 @@ export function DocumentViewer({
 
   // Null while framed, so the document stays framed as the view or pages resize.
   const [rawPan, setRawPan] = useState<Point | null>(null)
+  const [previousView, setPreviousView] = useState({ fitKey, documentId: document.id, url: document.url })
+  if (previousView.fitKey !== fitKey || previousView.documentId !== document.id || previousView.url !== document.url) {
+    setPreviousView({ fitKey, documentId: document.id, url: document.url })
+    if (previousView.fitKey !== fitKey || previousView.documentId !== document.id) setRawPan(null)
+    if (previousView.documentId !== document.id || previousView.url !== document.url) setFailed(false)
+    if (previousView.documentId !== document.id) setSelectingPages(false)
+  }
   const clampPan = useCallback(
     (pan: Point): Point => ({
       x: clampAxis(pan.x, contentWidth, viewport.width),
@@ -251,7 +262,7 @@ export function DocumentViewer({
     ? clampPan(rawPan)
     : { x: fitAxis(contentWidth, viewport.width), y: fitAxis(contentHeight, viewport.height) }
   const panRef = useRef(pan)
-  panRef.current = pan
+  useLayoutEffect(() => { panRef.current = pan })
 
   // Zoom around an anchor (cursor or pinch center); toolbar zoom anchors on the view center.
   const zoomRef = useRef(zoom)
@@ -271,18 +282,6 @@ export function DocumentViewer({
       y: anchor.y - (anchor.y - current.y - GUTTER_PX) * ratio - GUTTER_PX,
     })
   }, [leftSpace, viewport.height, viewport.width, zoom])
-
-  useEffect(() => {
-    setRawPan(null)
-  }, [fitKey, document.id])
-
-  useEffect(() => {
-    setFailed(false)
-  }, [document.id, document.url])
-
-  useEffect(() => {
-    setSelectingPages(false)
-  }, [document.id])
 
   const zoomAt = useCallback(
     (factor: number, anchor: Point) => {
@@ -350,8 +349,15 @@ export function DocumentViewer({
         panBy(-deltaX, -deltaY)
       }
     }
+    const preventMiddleAutoscroll = (event: MouseEvent) => {
+      if (event.button === 1) event.preventDefault()
+    }
     element.addEventListener('wheel', onWheel, { passive: false })
-    return () => element.removeEventListener('wheel', onWheel)
+    element.addEventListener('mousedown', preventMiddleAutoscroll)
+    return () => {
+      element.removeEventListener('wheel', onWheel)
+      element.removeEventListener('mousedown', preventMiddleAutoscroll)
+    }
   }, [multiPage, panBy, viewportRef, zoomAt])
 
   // Drag to pan with any pointer; two touch points pinch-zoom around their center.
@@ -409,6 +415,12 @@ export function DocumentViewer({
   }
 
   let pageTop = GUTTER_PX
+  const pageFrames = []
+  for (const aspect of aspects ?? []) {
+    const height = Math.round(pageWidth * aspect)
+    pageFrames.push({ aspect, height, top: pageTop })
+    pageTop += height + pageGap
+  }
 
   return (
     <div className="relative h-full w-full">
@@ -420,10 +432,6 @@ export function DocumentViewer({
         data-testid="project-document-viewer"
         {...pointerHandlers}
         onPointerCancel={pointerHandlers.onPointerUp}
-        onMouseDown={(event) => {
-          // Middle-click would otherwise start the browser's autoscroll.
-          if (event.button === 1) event.preventDefault()
-        }}
       >
         {failed ? (
           <div className="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
@@ -440,11 +448,8 @@ export function DocumentViewer({
                 transform: `translate(${pan.x}px, ${pan.y}px)`,
               }}
             >
-              {aspects.map((aspect, index) => {
+              {pageFrames.map(({ aspect, top, height }, index) => {
                 const pageNumber = index + 1
-                const top = pageTop
-                const height = Math.round(pageWidth * aspect)
-                pageTop += height + pageGap
                 const included = exportedPages.has(pageNumber)
                 return (
                   <div

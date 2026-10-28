@@ -1,11 +1,6 @@
-import { createContext, useContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { CanvasSize } from '@/types/ui'
-
-const InitialCanvasSizeContext = createContext<CanvasSize | null>(null)
-
-export function useInitialCanvasSize(): CanvasSize | null {
-  return useContext(InitialCanvasSizeContext)
-}
+import { InitialCanvasSizeContext } from './initialCanvasSize'
 
 /** Mount the renderer once at its actual viewport size, rather than first
  * allocating/drawing an 800x600 scene and immediately resizing every layer. */

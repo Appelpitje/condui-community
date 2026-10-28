@@ -1,4 +1,3 @@
-/* eslint-disable react/prop-types -- TypeScript prop contracts are the source of truth. */
 
 import React from 'react'
 import { Group, Rect } from 'react-konva'
@@ -8,6 +7,8 @@ import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import { useUIStore } from '@/stores/uiStore'
 import { planSymbolColor } from '@/lib/plan/planColors'
 import { selectProjectPlanWiringVisibility } from '@/lib/projectV2/planWiring'
+import { getElectricalLookupIndex } from '@/lib/projectV2/electricalLookupIndex'
+import { findProjectTrunkDevice } from '@/lib/projectV2/trunkDeviceLookup'
 import { useThemeColors } from '@/lib/theme/hooks'
 import { usePlanPlacementViewport, type PlacementViewportExtent } from './usePlanPlacementViewport'
 import type { Endpoint, Placement, Point2, TrunkDevice } from '@/types/schema'
@@ -264,10 +265,10 @@ export const PlanPlacementSymbolsLayer = React.memo(function PlanPlacementSymbol
 }) {
   const electrical = useProjectStore((state) => state.currentProject?.disciplines.electrical)
   const extents = React.useMemo(() => {
-    const state = useProjectStore.getState()
+    const index = electrical ? getElectricalLookupIndex(electrical.panels) : null
     return new Map(
       placements.map((placement) => {
-        const endpoint = placement.endpointId ? state.getEndpointById(placement.endpointId) : null
+        const endpoint = placement.endpointId ? index?.endpointsById.get(placement.endpointId)?.endpoint : null
         // Multi-socket bodies and panel/overlay artwork can extend well beyond a
         // nominal symbol square. Keep a conservative envelope in canvas units.
         const radius =
@@ -278,14 +279,15 @@ export const PlanPlacementSymbolsLayer = React.memo(function PlanPlacementSymbol
       })
     )
   }, [placements, baseSymbolSizePx, electrical])
-  const viewport = usePlanPlacementViewport(placements, currentZoom, extents)
+  const { mountGroup, visiblePlacements, fullDetail, isSelected, zoom: viewportZoom } =
+    usePlanPlacementViewport(placements, currentZoom, extents)
   const colors = useThemeColors()
   const bounds = React.useMemo(
     () => placementBounds(placements, baseSymbolSizePx),
     [placements, baseSymbolSizePx]
   )
   return (
-    <Group ref={viewport.groupRef} name="plan-placement-symbol-details">
+    <Group ref={mountGroup} name="plan-placement-symbol-details">
       {placements.length > 500 && bounds && (
         <Rect
           name="plan-placement-logical-bounds"
@@ -295,7 +297,7 @@ export const PlanPlacementSymbolsLayer = React.memo(function PlanPlacementSymbol
           listening={false}
         />
       )}
-      {viewport.visiblePlacements.map((placement) => (
+      {visiblePlacements.map((placement) => (
         <PlanPlacementSymbolEntry
           key={placement.id}
           placement={placement}
@@ -310,10 +312,10 @@ export const PlanPlacementSymbolsLayer = React.memo(function PlanPlacementSymbol
           fontFamily={fontFamily}
           simplified={
             placements.length > 500 &&
-            !viewport.fullDetail &&
-            !viewport.isSelected(placement) &&
+            !fullDetail &&
+            !isSelected(placement) &&
             quickPlacerPlacementId !== placement.id &&
-            baseSymbolSizePx * placement.scale * viewport.zoom < 12
+            baseSymbolSizePx * placement.scale * viewportZoom < 12
           }
           proxyColor={colors.symbolColor}
         />
@@ -364,12 +366,13 @@ export const PlanPlacementLabelsLayer = React.memo(function PlanPlacementLabelsL
 }) {
   const electrical = useProjectStore((state) => state.currentProject?.disciplines.electrical)
   const extents = React.useMemo(() => {
-    const state = useProjectStore.getState()
+    const project = electrical ? { disciplines: { electrical } } : null
+    const index = electrical ? getElectricalLookupIndex(electrical.panels) : null
     return new Map<string, PlacementViewportExtent>(
       placements.map((placement) => {
-        const endpoint = placement.endpointId ? state.getEndpointById(placement.endpointId) : null
-        const trunk = placement.trunkDeviceId
-          ? state.getTrunkDeviceById(placement.trunkDeviceId)?.device
+        const endpoint = placement.endpointId ? index?.endpointsById.get(placement.endpointId)?.endpoint : null
+        const trunk = placement.trunkDeviceId && project
+          ? findProjectTrunkDevice(project, placement.trunkDeviceId)?.device
           : null
         const text =
           endpoint?.label ??
@@ -384,7 +387,8 @@ export const PlanPlacementLabelsLayer = React.memo(function PlanPlacementLabelsL
       })
     )
   }, [placements, labelPositions, labelFontSize, electrical])
-  const viewport = usePlanPlacementViewport(placements, undefined, extents)
+  const { mountGroup, visiblePlacements, fullDetail, isSelected, zoom: viewportZoom } =
+    usePlanPlacementViewport(placements, undefined, extents)
   const logicalBounds = React.useMemo(() => {
     if (extents.size === 0) return null
     let minX = Infinity,
@@ -400,11 +404,11 @@ export const PlanPlacementLabelsLayer = React.memo(function PlanPlacementLabelsL
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
   }, [extents])
   const visible =
-    viewport.fullDetail || placements.length <= 500 || labelFontSize * viewport.zoom >= 4
-      ? viewport.visiblePlacements
-      : viewport.visiblePlacements.filter(viewport.isSelected)
+    fullDetail || placements.length <= 500 || labelFontSize * viewportZoom >= 4
+      ? visiblePlacements
+      : visiblePlacements.filter(isSelected)
   return (
-    <Group ref={viewport.groupRef} name="plan-placement-label-details">
+    <Group ref={mountGroup} name="plan-placement-label-details">
       {placements.length > 500 && logicalBounds && (
         <Rect
           name="plan-placement-logical-bounds"

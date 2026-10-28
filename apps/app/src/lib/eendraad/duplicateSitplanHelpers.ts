@@ -111,7 +111,7 @@ export function clonePlacementsForDuplicate(
 
 /**
  * Sitplan placements for a duplicated endpoint.
- * Multiplier symbols (lights, impulse, …): copy all placements with a nudge.
+ * Multiplier symbols (lights, pushbuttons, …): copy all placements with a nudge.
  * Other sitplan symbols: copy the source placement (single) with a nudge when present;
  * otherwise {@link ensureSitplanPlacementsForEndpoints} adds one on the resolved target floor.
  */

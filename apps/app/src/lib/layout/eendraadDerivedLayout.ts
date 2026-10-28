@@ -30,7 +30,7 @@ type InfoBlockVariantCache = Map<string, BottomUpLayoutResult>
 /** Keyed by the one-wire frames array: frames move circuit notes. */
 type FramesCache = WeakMap<readonly Frame[], InfoBlockVariantCache>
 type OverrideCache = WeakMap<Map<string, Point>, FramesCache>
-type AssemblyCache = WeakMap<object, OverrideCache>
+type AssemblyCache = WeakMap<object, WeakMap<object, OverrideCache>>
 type PanelCache = WeakMap<object, AssemblyCache>
 
 const layoutCache = new WeakMap<object, PanelCache>()
@@ -285,7 +285,9 @@ export function getCachedEendraadLayout(
   const supplyAssembliesCacheKey = supplyAssemblies ?? layoutSource.disciplines?.electrical ?? installation
   const panelCache = getOrCreateWeakMap(layoutCache, installation, () => new WeakMap())
   const assemblyCache = getOrCreateWeakMap(panelCache, panels, () => new WeakMap())
-  const overrideCache = getOrCreateWeakMap(assemblyCache, supplyAssembliesCacheKey, () => new WeakMap())
+  const wireRunsKey = layoutSource.disciplines?.electrical?.wireRuns ?? supplyAssembliesCacheKey
+  const runCache = getOrCreateWeakMap(assemblyCache, wireRunsKey, () => new WeakMap())
+  const overrideCache = getOrCreateWeakMap(runCache, supplyAssembliesCacheKey, () => new WeakMap())
   const framesCache = getOrCreateWeakMap(overrideCache, overrides, () => new WeakMap())
   // Frames move circuit notes, so a frame edit must re-derive the layout.
   const variantCache = getOrCreateWeakMap(framesCache, frames, () => new Map())

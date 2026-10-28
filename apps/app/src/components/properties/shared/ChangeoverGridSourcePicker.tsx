@@ -143,6 +143,7 @@ export function ChangeoverGridSourcePicker({
       </div>
       <div
         role="radiogroup"
+        tabIndex={-1}
         aria-labelledby={headingId}
         className="grid grid-cols-2 gap-2"
         onKeyDown={onKeyDown}

@@ -238,6 +238,7 @@
     "exportProjectError": "Projekt-Download fehlgeschlagen. Bitte versuchen Sie es erneut.",
     "settings": "Einstellungen",
     "shortcuts": "Hotkeys",
+    "offlineApp": "Offline-App",
     "installOffline": "Zur Offline-Verwendung installieren",
     "contactSupport": "Kontaktieren Sie den Support",
     "documentation": "Dokumentation",
@@ -259,6 +260,8 @@
     }
   },
   "pwaInstall": {
+    "installedMessage": "Condui ist als App installiert. Öffnen Sie es über die Apps Ihres Geräts. Zur Neuinstallation entfernen Sie es in den App-Einstellungen des Browsers und rufen Condui erneut auf.",
+    "browserInstructions": "Öffnen Sie in Chrome oder Edge das Browsermenü und wählen Sie App installieren. Wählen Sie in Safari auf dem Mac Ablage → Zum Dock hinzufügen. Ist Condui bereits installiert, öffnen Sie es über Ihre Apps. Zur Neuinstallation entfernen Sie es in den App-Einstellungen des Browsers und rufen Condui erneut auf.",
     "iosTitle": "Zum Startbildschirm hinzufügen",
     "iosInstructions": "Tippen Sie in Safari auf „Teilen“ und wählen Sie „Zum Startbildschirm hinzufügen“.",
     "unavailableTitle": "Installation noch nicht verfügbar",
@@ -1917,7 +1920,7 @@
     "switch_shutter": "Rollladenschalter",
     "switch_1p_pull": "Zugschalter",
     "contact": "Kontakt",
-    "switch_impulse": "Impulsschalter",
+    "switch_impulse": "Taster",
     "switch_cross": "Kreuzschalter",
     "source_changeover": "Umschalter",
     "motion_detector": "Bewegungsmelder",
@@ -2002,7 +2005,7 @@
       "switch_1p_changeover": "Umschalter",
       "switch_shutter": "Rollladenschalter",
       "switch_1p_pull": "Zugschalter",
-      "switch_impulse": "Impulsschalter",
+      "switch_impulse": "Taster",
       "motion_detector": "Bewegungsmelder",
       "smoke_detector": "Rauchmelder",
       "relay": "Relais",
@@ -2511,6 +2514,10 @@
       "branchMultiplierEndpointsSplit": "Stromkreis {{circuitCode}}: Abzweig „{{branchLabel}}“ hat {{absorbCount}} zusätzliche Multiplikationssymbole als separate Endpunkte; sie sollten einen Endpunkt mit mehreren Platzierungen bilden. Verwenden Sie die Reparaturfunktion in der Prüfung verwaister Elemente."
     },
     "primitives": {
+      "undergroundCable": {
+        "message": "XVB/XGB im Erdreich: Schutzrohr prüfen",
+        "details": "XVB und XGB sind nicht zur direkten Erdverlegung vorgesehen. Verwenden Sie ein gut entwässertes Schutzrohr und prüfen Sie die Verlegevorschriften des Kabelherstellers."
+      },
       "feedbackSafety": {
         "rcdOverload": {
           "message": "Bemessungsstrom des FI-Schalters zu niedrig",
@@ -3143,7 +3150,7 @@
     "categoryEnergyMeters": "Energiezähler",
     "categorySockets": "Steckdosen",
     "categorySwitches": "Schalter",
-    "categoryImpulse": "Impulsschalter",
+    "categoryImpulse": "Taster",
     "categoryLights": "Lichtpunkte",
     "categoryRelays": "Relais",
     "categoryDomotica": "Hausautomation / Smart Home",
@@ -3198,10 +3205,12 @@
     "thickness": "Dicke",
     "fireClass": "Brandklasse",
     "inTube": "Rohr",
+    "conductorMarks": "Leitermarkierungen",
     "onWall": "An der Wand",
     "inWall": "In der Wand",
     "inGround": "Land",
     "inAir": "Luft",
+    "useUpstreamRoute": "Von Zuleitung übernehmen",
     "routeNone": "Keine",
     "routeLabel": "Kabelroute",
     "notFound": "Drahtsegment nicht gefunden",
@@ -3865,13 +3874,20 @@
     "shapeOf": "Form"
   },
   "materialListExport": {
+    "etimRelease": "ETIM-Version",
+    "etimClass": "ETIM-Klasse",
+    "etimClassName": "ETIM-Klassenname",
+    "etimClassVersion": "ETIM-Klassenversion",
+    "etimFeatures": "ETIM-Eigenschaften (JSON)",
+    "etimSource": "ETIM-Quelle",
+    "etimNotice": "ETIM 10.0. Bei nicht klassifizierten Artikeln bleiben die ETIM-Felder leer.",
     "cableMargin": "Kabelreserve (%)",
     "invalidCableMargin": "Geben Sie einen gültigen Prozentsatz ab 0 ein.",
     "skipSupplyPanel": "Material im Netboard überspringen",
     "title": "Materialliste exportieren",
     "menu": "Aufmaß / Materialliste",
     "export": "Exportieren",
-    "searchAliases": "Excel CSV Robaws Aufmaß Mengen Material",
+    "searchAliases": "Excel CSV ETIM Robaws Aufmaß Mengen Material",
     "preset": "Vorlage",
     "standard": "Standard",
     "format": "Dateiformat",

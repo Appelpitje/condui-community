@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useId, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export interface HiddenItem {
@@ -34,6 +34,7 @@ export default function HiddenItemsDialog({
   onCancel,
 }: HiddenItemsDialogProps) {
   const { t } = useTranslation()
+  const checkboxIdPrefix = useId()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     () => new Set(initialSelectedIds ?? items.map((item) => item.id))
   )
@@ -41,11 +42,12 @@ export default function HiddenItemsDialog({
   const defaultMoveToCurrentView = getMoveToCurrentViewDefault?.(selectedIdList) ?? true
   const [moveToCurrentView, setMoveToCurrentView] = useState(defaultMoveToCurrentView)
   const [moveToCurrentViewOverridden, setMoveToCurrentViewOverridden] = useState(false)
-
-  useEffect(() => {
+  const [previousDefaultMoveToCurrentView, setPreviousDefaultMoveToCurrentView] = useState(defaultMoveToCurrentView)
+  if (previousDefaultMoveToCurrentView !== defaultMoveToCurrentView) {
+    setPreviousDefaultMoveToCurrentView(defaultMoveToCurrentView)
     setMoveToCurrentView(defaultMoveToCurrentView)
     setMoveToCurrentViewOverridden(false)
-  }, [defaultMoveToCurrentView])
+  }
 
   const allChecked = useMemo(() => {
     if (items.length === 0) return false
@@ -126,20 +128,23 @@ export default function HiddenItemsDialog({
           </span>
         </label>
 
-        {items.map((item) => (
+        {items.map((item, index) => (
           <div
             key={item.id}
-            className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
-            onClick={() => handleToggleItem(item.id)}
+            className="relative flex items-center gap-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
             onMouseEnter={() => item.onHoverChange?.(true)}
             onMouseLeave={() => item.onHoverChange?.(false)}
           >
+            <label htmlFor={`${checkboxIdPrefix}-${index}`} className="absolute inset-0 cursor-pointer">
+              <span className="sr-only">{item.label}</span>
+            </label>
             <input
+              id={`${checkboxIdPrefix}-${index}`}
               type="checkbox"
               checked={selectedIds.has(item.id)}
               onChange={() => handleToggleItem(item.id)}
               onClick={(event) => event.stopPropagation()}
-              className="rounded border-gray-400 mt-0.5"
+              className="relative z-10 rounded border-gray-400 mt-0.5"
             />
             <div className="flex items-center gap-3 flex-1 min-w-0">
               {item.icon && (
@@ -150,7 +155,7 @@ export default function HiddenItemsDialog({
                       event.stopPropagation()
                       item.onSelect?.()
                     }}
-                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center bg-gray-100 hover:bg-sky-50 dark:bg-gray-700 dark:hover:bg-sky-900/30 rounded border border-gray-200 hover:border-sky-400 dark:border-gray-600 dark:hover:border-sky-500 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                    className="relative z-10 flex-shrink-0 w-9 h-9 flex items-center justify-center bg-gray-100 hover:bg-sky-50 dark:bg-gray-700 dark:hover:bg-sky-900/30 rounded border border-gray-200 hover:border-sky-400 dark:border-gray-600 dark:hover:border-sky-500 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                     aria-label={item.selectAriaLabel}
                     title={item.selectAriaLabel}
                   >

@@ -1,6 +1,6 @@
 import { useCanvasWindow, useViewport } from '@/components/viewport/ViewportContext'
 import { useViewportUIStore } from '@/components/viewport/ViewportUIStore'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
@@ -20,6 +20,7 @@ import CanvasFloatingControlRail from '@/components/canvas/CanvasFloatingControl
 import ContextMenuPortal from '@/components/canvas/ContextMenuPortal'
 import { FloatingControl } from '@/components/canvas/FloatingControls'
 import type { ContextMenuItem } from '@/components/common/ContextMenu'
+import { AddDocumentMenuItems } from './AddDocumentMenuItems'
 import ViewNavigationToolbar from '@/components/canvas/ViewNavigationToolbar'
 import { ZOOM_100 } from '@/constants/canvasConstants'
 import { CanvasOverlayScaleProvider } from '@/contexts/CanvasOverlayScaleContext'
@@ -89,9 +90,6 @@ const MIN_VIEW_ZOOM = ZOOM_100 * DOCUMENT_VIEWER_MIN_ZOOM
 const MAX_VIEW_ZOOM = ZOOM_100 * DOCUMENT_VIEWER_MAX_ZOOM
 const REJECTED_NOTICE_MS = 4000
 
-const menuItemClassName =
-  'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-gray-300 dark:hover:bg-gray-700'
-
 function hasDraggedFiles(event: React.DragEvent): boolean {
   return Array.from(event.dataTransfer.types).includes('Files')
 }
@@ -113,18 +111,17 @@ export default function DocumentsCanvas({ canEditProject = true }: { canEditProj
   const externalInfluences = useExternalInfluencesEntry()
   const requestedDocumentId = useProjectDocumentsStore((s) => s.openDocumentId)
   const [openDocumentId, setOpenDocumentId] = useState(requestedDocumentId)
-  const lastRequestedDocument = useRef(requestedDocumentId)
+  const [lastRequestedDocument, setLastRequestedDocument] = useState(requestedDocumentId)
   // External reveal actions target one Documents slot. Ordinary opening stays local.
   const firstDocumentSlot = useViewportWindowStore((s) => s.viewportLayout.panels.findIndex((p) => p.canvas === 'documents'))
   const openDocument = useCallback((id: string | null) => {
     setOpenDocumentId(id)
     if (!viewport) useProjectDocumentsStore.getState().openDocument(id)
   }, [viewport])
-  useEffect(() => {
-    if (lastRequestedDocument.current === requestedDocumentId) return
-    lastRequestedDocument.current = requestedDocumentId
+  if (lastRequestedDocument !== requestedDocumentId) {
+    setLastRequestedDocument(requestedDocumentId)
     if (!viewport || (!viewport.detached && viewport.panelIndex === firstDocumentSlot)) setOpenDocumentId(requestedDocumentId)
-  }, [requestedDocumentId, firstDocumentSlot, viewport])
+  }
   const selectedDocumentId = useUIStore((s) =>
     s.selection.type === 'document' ? (s.selection.ids[0] ?? null) : null
   )
@@ -139,6 +136,12 @@ export default function DocumentsCanvas({ canEditProject = true }: { canEditProj
   const [viewZoom, setViewZoom] = useState(ZOOM_100)
   const [fitKey, setFitKey] = useState(0)
   const fitTrigger = useViewportUIStore((s) => s.fitToViewTrigger.documents)
+  const [previousView, setPreviousView] = useState({ openDocumentId, fitTrigger: 0 })
+  if (previousView.openDocumentId !== openDocumentId || previousView.fitTrigger !== fitTrigger) {
+    setPreviousView({ openDocumentId, fitTrigger })
+    if (previousView.openDocumentId !== openDocumentId || fitTrigger !== 0) setViewZoom(ZOOM_100)
+    if (previousView.fitTrigger !== fitTrigger && fitTrigger !== 0) setFitKey((key) => key + 1)
+  }
   const [showSizes, setShowSizes] = useState(false)
   const [contextMenu, setContextMenu] = useState<
     | { kind: 'document'; document: ProjectDocument; position: { x: number; y: number } }
@@ -210,17 +213,6 @@ export default function DocumentsCanvas({ canEditProject = true }: { canEditProj
   ]
 
   useEffect(() => {
-    setViewZoom(ZOOM_100)
-  }, [openDocumentId])
-
-  // F over this canvas (or the fit button) frames the open document again.
-  useEffect(() => {
-    if (fitTrigger === 0) return
-    setViewZoom(ZOOM_100)
-    setFitKey((key) => key + 1)
-  }, [fitTrigger])
-
-  useEffect(() => {
     if (rejectedNotice.length === 0) return
     const timer = window.setTimeout(() => setRejectedNotice([]), REJECTED_NOTICE_MS)
     return () => window.clearTimeout(timer)
@@ -244,7 +236,7 @@ export default function DocumentsCanvas({ canEditProject = true }: { canEditProj
     openDocument(null)
   }
   const showOverviewRef = useRef(showOverview)
-  showOverviewRef.current = showOverview
+  useLayoutEffect(() => { showOverviewRef.current = showOverview })
   const hoveredRef = useRef(false)
 
   // Escape or Backspace over an open document returns to the list. Capture phase on window runs
@@ -724,20 +716,7 @@ export default function DocumentsCanvas({ canEditProject = true }: { canEditProj
               triggerTestId="project-documents-add"
             >
               <div className="min-w-[220px] space-y-1 rounded-md border border-gray-200 bg-white py-2 text-sm shadow-lg dark:border-gray-600 dark:bg-gray-800">
-                {addDocumentMenuItems.map((item, index) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    data-testid={index === 0 ? 'project-documents-upload' : undefined}
-                    className={menuItemClassName}
-                    disabled={item.disabled}
-                    onClick={item.onClick}
-                  >
-                    {item.icon}
-                    {item.label}
-                    {item.badge ? <span className="ml-auto pl-3">{item.badge}</span> : null}
-                  </button>
-                ))}
+                <AddDocumentMenuItems items={addDocumentMenuItems} />
               </div>
             </FloatingControl>
           </CanvasFloatingControlRail>

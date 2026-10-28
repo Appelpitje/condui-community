@@ -1,7 +1,8 @@
 import type { TallyData } from './buildHardwareTally'
 import type { ExportTable } from '@/utils/tabularWorkbook'
+import { ETIM_RELEASE, ETIM_ATTRIBUTION } from './etimClassification'
 
-export type MaterialListPreset = 'standard' | 'robaws'
+export type MaterialListPreset = 'standard' | 'robaws' | 'etim'
 export const DEFAULT_CABLE_MARGIN_PERCENT = 30
 
 export function isValidCableMarginPercent(value: number): boolean {
@@ -37,6 +38,7 @@ export function buildMaterialListTable(
     throw new RangeError('Cable margin must be a valid non-negative percentage')
   }
   const robaws = options.preset === 'robaws'
+  const etim = options.preset === 'etim'
   // Robaws' in-offer "Upload" maps these columns; this is not its articles import template.
   // https://support.robaws.com/nl/article/meetstaat-uploaden-in-offerte-1evshtx/
   const table: ExportTable = {
@@ -45,6 +47,17 @@ export function buildMaterialListTable(
       : [labels.category, labels.description, labels.quantity, labels.unit, labels.details],
     rows: [],
     widths: robaws ? [72, 14, 14] : [24, 60, 14, 14, 60],
+  }
+  if (etim) {
+    table.headers.push(
+      translate('materialListExport.etimRelease'),
+      translate('materialListExport.etimClass'),
+      translate('materialListExport.etimClassName'),
+      translate('materialListExport.etimClassVersion'),
+      translate('materialListExport.etimFeatures'),
+      translate('materialListExport.etimSource')
+    )
+    table.widths.push(14, 18, 54, 14, 64, 60)
   }
   let missingCableRuns = 0
   for (const category of data) {
@@ -75,6 +88,17 @@ export function buildMaterialListTable(
           ? [description, exportQuantity, unit]
           : [translate(category.labelKey), description, exportQuantity, unit, details.join('\n')]
       )
+      if (etim) {
+        const classification = group.etim
+        table.rows[table.rows.length - 1]!.push(
+          ETIM_RELEASE,
+          classification?.classCode ?? '',
+          classification?.className ?? '',
+          classification?.classVersion ?? '',
+          classification ? JSON.stringify(classification.features) : '',
+          ETIM_ATTRIBUTION
+        )
+      }
     }
   }
   return { table, missingCableRuns }

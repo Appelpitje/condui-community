@@ -238,6 +238,7 @@
     "exportProjectError": "Failed to download project. Please try again.",
     "settings": "Settings",
     "shortcuts": "Shortcuts",
+    "offlineApp": "Offline app",
     "installOffline": "Install for offline use",
     "contactSupport": "Contact support",
     "documentation": "Documentation",
@@ -259,6 +260,8 @@
     }
   },
   "pwaInstall": {
+    "installedMessage": "Condui is installed as an app. Open it from your device’s apps. To reinstall, remove it in your browser’s app settings, then visit Condui again.",
+    "browserInstructions": "In Chrome or Edge, open the browser menu and choose Install app. In Safari on Mac, choose File → Add to Dock. If Condui is already installed, open it from your apps. To reinstall, remove it in your browser’s app settings, then visit again.",
     "iosTitle": "Add to Home Screen",
     "iosInstructions": "Tap the Share button in Safari, then choose “Add to Home Screen”.",
     "unavailableTitle": "Install not available yet",
@@ -1917,7 +1920,7 @@
     "switch_shutter": "Roller Shutter Switch",
     "switch_1p_pull": "Pull switch",
     "contact": "Contact",
-    "switch_impulse": "Impulse/Push switch",
+    "switch_impulse": "Pushbutton",
     "switch_cross": "Cross switch",
     "source_changeover": "Source transfer switch",
     "motion_detector": "Motion detector",
@@ -2002,7 +2005,7 @@
       "switch_1p_changeover": "Changeover Switch",
       "switch_shutter": "Roller Shutter Switch",
       "switch_1p_pull": "Pull Switch",
-      "switch_impulse": "Impulse/Push Switch",
+      "switch_impulse": "Pushbutton",
       "motion_detector": "Motion detector",
       "smoke_detector": "Smoke detector",
       "relay": "Relay",
@@ -2511,6 +2514,10 @@
       "branchMultiplierEndpointsSplit": "Circuit {{circuitCode}}: branch \"{{branchLabel}}\" lists {{absorbCount}} extra multiplier symbol(s) (e.g. lights) as separate endpoints; they should be one endpoint with multiple plan placements. Use Repair in the Orphan Inspector."
     },
     "primitives": {
+      "undergroundCable": {
+        "message": "Underground XVB/XGB: check conduit protection",
+        "details": "XVB and XGB are not intended for direct burial. For underground use, provide a well-drained protective conduit and check the cable manufacturer’s installation requirements."
+      },
       "feedbackSafety": {
         "rcdOverload": {
           "message": "RCD current rating is too low",
@@ -3143,7 +3150,7 @@
     "categoryEnergyMeters": "Energy meters",
     "categorySockets": "Sockets",
     "categorySwitches": "Switches",
-    "categoryImpulse": "Impulse switches",
+    "categoryImpulse": "Pushbuttons",
     "categoryLights": "Light points",
     "categoryRelays": "Relays",
     "categoryDomotica": "Smarthome / Domotica",
@@ -3198,10 +3205,12 @@
     "thickness": "Thickness",
     "fireClass": "Fire class",
     "inTube": "Tube",
+    "conductorMarks": "Conductor markings",
     "onWall": "On wall",
     "inWall": "In wall",
     "inGround": "Ground",
     "inAir": "Air",
+    "useUpstreamRoute": "Use upstream",
     "routeNone": "None",
     "routeLabel": "Wire route",
     "notFound": "Wire segment not found",
@@ -3865,13 +3874,20 @@
     "shapeOf": "Shape"
   },
   "materialListExport": {
+    "etimRelease": "ETIM release",
+    "etimClass": "ETIM class",
+    "etimClassName": "ETIM class name",
+    "etimClassVersion": "ETIM class version",
+    "etimFeatures": "ETIM properties (JSON)",
+    "etimSource": "ETIM source",
+    "etimNotice": "ETIM 10.0. Unclassified items have empty ETIM fields.",
     "cableMargin": "Cable margin (%)",
     "invalidCableMargin": "Enter a valid percentage of 0 or more.",
     "skipSupplyPanel": "Skip items in the grid panel",
     "title": "Export material list",
     "menu": "Material list",
     "export": "Export",
-    "searchAliases": "Excel CSV Robaws bill of materials quantities",
+    "searchAliases": "Excel CSV ETIM Robaws bill of materials quantities",
     "preset": "Preset",
     "standard": "Standard",
     "format": "File format",

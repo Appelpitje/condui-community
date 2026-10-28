@@ -205,7 +205,7 @@ export function formatCableTypeLabel(cable: CableSpec, options?: FormatWireLabel
   return cable.kind
 }
 
-export function formatWireLabel(wire: WireSegment, options?: FormatWireLabelOptions): string {
+export function formatWireLabel(wire: Pick<WireSegment, 'cable'>, options?: FormatWireLabelOptions): string {
   const cable = wire.cable
   const type = formatCableTypeLabel(cable, options)
   const conductors = cable.conductors

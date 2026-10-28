@@ -26,7 +26,7 @@ export function fromWireRunRoute(route: WireRun['route']): {
 } {
   return route === 'on-wall'
     ? { wireRoute: 'wall', inWall: false }
-    : { wireRoute: route, inWall: route === 'wall' }
+    : { wireRoute: route === 'none' ? undefined : route, inWall: route === 'wall' }
 }
 
 /** Canonical wire-run collection query. Legacy inputs must normalize before calling this API. */

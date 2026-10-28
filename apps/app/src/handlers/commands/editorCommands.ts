@@ -27,7 +27,7 @@ import { toggleViewportPanelFocus, zoomVisibleCanvases } from './viewport'
 import { createProjectPaletteCommands } from './projectPaletteCommands'
 import { openFindPanel } from './findPanel'
 import { openMaterialListExport } from './exportMaterialList'
-import { openLabelSchemeDialog } from '@/components/canvas/eendraad/LabelSchemeSettings'
+import { openLabelSchemeDialog } from '@/handlers/eendraad/openLabelSchemeDialog'
 
 const canEdit = (ctx: CommandContext) => ctx.capabilities.canEditProject
 

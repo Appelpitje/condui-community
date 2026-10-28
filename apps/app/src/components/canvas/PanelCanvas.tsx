@@ -666,8 +666,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
 
   // Multi-drag: local preview so we don't update store on every move (like PlanCanvas wall points).
   const multiDragInitialRef = useRef<Map<string, { x: number; y: number }>>(new Map())
-  const multiDragPreviewRef = useRef<Map<string, { x: number; y: number }>>(new Map())
-  const [multiDragPreviewTick, setMultiDragPreviewTick] = useState(0)
+  const [multiDragPreview, setMultiDragPreview] = useState<Map<string, { x: number; y: number }>>(new Map())
 
   const isRefInSelection = useCallback(
     (ref: PanelGridModuleRef, sel: { type: string | null; ids: string[] }) => {
@@ -857,11 +856,11 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         if (start != null) {
           const dx = x - start.x
           const dy = y - start.y
-          const preview = multiDragPreviewRef.current
+          const preview = new Map<string, { x: number; y: number }>()
           for (const [k, pos] of initial) {
             preview.set(k, { x: pos.x + dx, y: pos.y + dy })
           }
-          setMultiDragPreviewTick((t) => t + 1)
+          setMultiDragPreview(preview)
           return
         }
       }
@@ -883,31 +882,28 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
       )
       if (selectedInZone.length < 2) return
       const initial = multiDragInitialRef.current
-      const preview = multiDragPreviewRef.current
+      const preview = new Map<string, { x: number; y: number }>()
       initial.clear()
-      preview.clear()
       for (const pl of selectedInZone) {
         const key = panelGridModuleRefKey(pl.ref)
         initial.set(key, { x: pl.x, y: pl.y })
         preview.set(key, { x: pl.x, y: pl.y })
       }
-      setMultiDragPreviewTick(1)
+      setMultiDragPreview(preview)
     },
     [combinedPlacements, selection, isRefInSelection]
   )
   void handleMultiDragStart
 
   const effectivePlacements = useMemo(() => {
-    if (multiDragPreviewTick === 0 || multiDragPreviewRef.current.size === 0)
-      return combinedPlacements
-    const preview = multiDragPreviewRef.current
+    if (multiDragPreview.size === 0) return combinedPlacements
     return combinedPlacements.map((pl) => {
       const key = panelGridModuleRefKey(pl.ref)
-      const pos = preview.get(key)
+      const pos = multiDragPreview.get(key)
       if (pos != null) return { ...pl, x: pos.x, y: pos.y }
       return pl
     })
-  }, [combinedPlacements, multiDragPreviewTick])
+  }, [combinedPlacements, multiDragPreview])
 
   const onFindElementsInRectangle = useCallback(
     (rect: { x: number; y: number; width: number; height: number }) => {
@@ -965,16 +961,17 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
       getProjectElectricalInstallation(currentProject)?.mainSupply?.supplyTrunkDevices ?? []
 
     // The first module in the supply chain is the first visible supply trunk device (uses effectivePlacements so multi-drag preview is included)
-    for (const device of supplyDevices) {
+    const placedSupply = supplyDevices.reduce<(typeof effectivePlacements)[number] | undefined>((found, device) => {
+      if (found) return found
       const ref: PanelGridModuleRef = { kind: 'trunkDevice', id: device.id, scope: 'supply' }
       const key = panelGridModuleRefKey(ref)
-      const pl = effectivePlacements.find((p) => panelGridModuleRefKey(p.ref) === key)
-      if (pl) {
-        if (dragOverride && panelGridModuleRefKey(dragOverride.ref) === key) {
-          return { ...pl, x: dragOverride.x, y: dragOverride.y }
-        }
-        return pl
+      return effectivePlacements.find((p) => panelGridModuleRefKey(p.ref) === key)
+    }, undefined)
+    if (placedSupply) {
+      if (dragOverride && panelGridModuleRefKey(dragOverride.ref) === panelGridModuleRefKey(placedSupply.ref)) {
+        return { ...placedSupply, x: dragOverride.x, y: dragOverride.y }
       }
+      return placedSupply
     }
 
     // No supply trunk devices placed — fall back to closest main-bus protection
@@ -1015,7 +1012,8 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         )
       : []
 
-    for (const d of sortedTrunks) {
+    const placedTrunk = sortedTrunks.reduce<(typeof effectivePlacements)[number] | undefined>((found, d) => {
+      if (found) return found
       const ref: PanelGridModuleRef = {
         kind: 'trunkDevice',
         id: d.id,
@@ -1023,13 +1021,13 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         circuitId: panelCircuit!.id,
       }
       const key = panelGridModuleRefKey(ref)
-      const pl = effectivePlacements.find((p) => panelGridModuleRefKey(p.ref) === key)
-      if (pl) {
-        if (dragOverride && panelGridModuleRefKey(dragOverride.ref) === key) {
-          return { ...pl, x: dragOverride.x, y: dragOverride.y }
-        }
-        return pl
+      return effectivePlacements.find((p) => panelGridModuleRefKey(p.ref) === key)
+    }, undefined)
+    if (placedTrunk) {
+      if (dragOverride && panelGridModuleRefKey(dragOverride.ref) === panelGridModuleRefKey(placedTrunk.ref)) {
+        return { ...placedTrunk, x: dragOverride.x, y: dragOverride.y }
       }
+      return placedTrunk
     }
 
     if (panelCircuit) {
@@ -1175,8 +1173,7 @@ export default function PanelCanvas({ onMultiFingerSwipe, capabilities }: PanelC
         selection: viewportUI.getState().selection,
       })
       multiDragInitialRef.current.clear()
-      multiDragPreviewRef.current.clear()
-      setMultiDragPreviewTick(0)
+      setMultiDragPreview(new Map())
       setDragOverride(null)
       setModuleDropPreview(null)
       if (!panel) {

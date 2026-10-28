@@ -1,4 +1,5 @@
-import { isSecondaryBusFeederAnchor } from '@/lib/wires/railWireRuns'
+import { isRailFeederAnchor } from '@/lib/wires/railWireRuns'
+import { buildWireBusIndex } from '@/lib/wires/wireBusIndex'
 import type { ProjectV2 } from '@/types/projectV2'
 import type { CommandCheck, EntityRef } from '@/lib/commands/project/types'
 import type { ExtraElectricalPropertyEdit } from './electricalPropertySchemas'
@@ -110,7 +111,8 @@ export function checkExtraElectricalPropertyEdit(
         (e) => e.properties?.wireAnchor === id
       )
       const medium = (edge?.properties?.wire as { medium?: string } | undefined)?.medium
-      if (!edge?.properties?.wireBusGroup && medium !== 'busbar' && !isSecondaryBusFeederAnchor(id))
+      if (!edge?.properties?.wireBusGroup && medium !== 'busbar' &&
+        !isRailFeederAnchor(id, buildWireBusIndex(getProjectElectricalPanels(project))))
         return { ok: false, code: 'invalid_medium', message: 'This connection cannot be a busbar' }
     }
     const next = {

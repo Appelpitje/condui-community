@@ -1,6 +1,6 @@
 import { editProperties, updatePanelGridProperties } from '@/handlers/properties/editProperties'
 import { buildPanelCodeById } from '@/lib/panel/panelDiagramLabels'
-import { openLabelSchemeDialog } from '@/components/canvas/eendraad/LabelSchemeSettings'
+import { openLabelSchemeDialog } from '@/handlers/eendraad/openLabelSchemeDialog'
 import { AutomaticNamingOverrideControl } from '@/components/properties/shared/AutomaticNamingOverrideControl'
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'

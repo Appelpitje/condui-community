@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@capacitor/core": "8.5.3",
-    "@mlightcad/libredwg-web": "0.7.17",
     "@napi-rs/canvas": "1.0.11",
+    "@node-projects/acad-ts": "3.6.0",
     "@tiptap/extension-text-style": "3.32.0",
     "@tiptap/extension-underline": "3.32.0",
     "@tiptap/pm": "3.32.0",

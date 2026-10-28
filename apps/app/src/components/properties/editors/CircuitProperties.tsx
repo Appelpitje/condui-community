@@ -64,7 +64,8 @@ export function CircuitProperties({
   const [localCode, setLocalCode] = React.useState(circuit?.code || '')
   const [customCodeDraft, setCustomCodeDraft] = React.useState(false)
   const codeInputRef = React.useRef<HTMLInputElement>(null)
-  const [focusCustomLabel, setFocusCustomLabel] = React.useState(false)
+  const [focusRequest, setFocusRequest] = React.useState(0)
+  const consumedFocusRequest = React.useRef(0)
   const derivedKind = circuit
     ? getDerivedCircuitKind(circuit, getProtectionForCircuit(circuitId))
     : 'other'
@@ -105,16 +106,18 @@ export function CircuitProperties({
         )
       : undefined
 
-  React.useEffect(() => {
+  const [codeSource, setCodeSource] = React.useState({ id: circuit?.id, code: circuit?.code })
+  if (codeSource.id !== circuit?.id || codeSource.code !== circuit?.code) {
+    setCodeSource({ id: circuit?.id, code: circuit?.code })
     setLocalCode(circuit?.code || '')
-  }, [circuit?.id, circuit?.code])
+  }
 
   React.useEffect(() => {
-    if (!focusCustomLabel || !manualLabelOverride) return
+    if (focusRequest === consumedFocusRequest.current || !manualLabelOverride) return
     codeInputRef.current?.focus()
     codeInputRef.current?.select()
-    setFocusCustomLabel(false)
-  }, [focusCustomLabel, manualLabelOverride])
+    consumedFocusRequest.current = focusRequest
+  }, [focusRequest, manualLabelOverride])
 
   const setCustomLabel = (focusInput = true) => {
     const rowCircuits = protectionForCircuit?.circuits ?? (circuit ? [circuit] : [])
@@ -124,7 +127,7 @@ export function CircuitProperties({
         edits: [{ kind: 'circuit', ids, set: { eendraadManualCodeLock: true } }],
       })
     }
-    if (focusInput) setFocusCustomLabel(true)
+    if (focusInput) setFocusRequest((request) => request + 1)
   }
 
   const useAutomaticLabel = () => {
@@ -356,18 +359,19 @@ export function CircuitProperties({
             placeholder={t('circuits.code', 'Code')}
           />
           {manualLabelOverride && (labelWarnings.nonStandard || labelWarnings.duplicate) ? (
-            <span
-              className="absolute right-3 top-1/2 -translate-y-1/2"
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2 border-0 bg-transparent p-0"
               title={labelWarningText}
               aria-label={labelWarningText}
-              role="img"
+              onClick={() => codeInputRef.current?.focus()}
               onMouseDown={(event) => {
                 event.preventDefault()
                 codeInputRef.current?.focus()
               }}
             >
               <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />
-            </span>
+            </button>
           ) : null}
         </div>
       </div>

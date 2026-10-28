@@ -15,6 +15,7 @@ import {
   removeEndpointIdsFromCircuit,
 } from '@/lib/eendraad/projectElectricalDomain'
 import { logger } from '@/lib/logger'
+import { reconnectDeletedBranchInputs } from '@/lib/wires/reconnectDeletedBranchInputs'
 import {
   isMainPanelDistributionEndpoint,
   resolvePanelForDistributionEndpoint,
@@ -86,6 +87,7 @@ export function deleteEndpointsFromProject(project: ProjectV2, ids: readonly str
       }
 
       const before = circuit.endpoints.length
+      reconnectDeletedBranchInputs(project, circuit, idsToDelete)
       removeEndpointIdsFromCircuit(circuit, idsToDelete)
       if (circuit.endpoints.length !== before) {
         normalizeDomoticaCircuit(circuit)

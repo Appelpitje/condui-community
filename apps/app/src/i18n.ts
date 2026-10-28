@@ -1,7 +1,4 @@
-import de from './locales/de.json'
-import pl from './locales/pl.json'
-import ro from './locales/ro.json'
-import i18n from 'i18next'
+import i18n, { type BackendModule } from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import { applyCanonicalLanguagePathIfNeeded } from '@/utils/languageRouting'
 import { resolveInitialLanguagePreference } from '@/utils/userPreferences'
@@ -10,11 +7,15 @@ if (typeof document !== 'undefined') {
   applyCanonicalLanguagePathIfNeeded()
 }
 
-import nlBE from './locales/nl-BE.json'
-import frBE from './locales/fr-BE.json'
-import en from './locales/en.json'
 import { symbolCategoryLabels } from './locales/symbolCategoryLabels'
 import { setDomainLanguage } from '@/lib/i18n/domainI18n'
+import {
+  DOMAIN_LANGUAGES,
+  getLoadedLocaleCatalog,
+  loadLocaleCatalog,
+  normalizeDomainLanguage,
+  type LocaleCatalog,
+} from '@/lib/i18n/localeCatalogs'
 
 function withSymbolCategoryLabels<T extends { symbols: Record<string, unknown> }>(
   locale: T,
@@ -29,13 +30,25 @@ function withSymbolCategoryLabels<T extends { symbols: Record<string, unknown> }
   }
 }
 
-const resources = {
-  de: { translation: withSymbolCategoryLabels(de, 'de') },
-  pl: { translation: withSymbolCategoryLabels(pl, 'pl') },
-  ro: { translation: withSymbolCategoryLabels(ro, 'ro') },
-  'nl-BE': { translation: withSymbolCategoryLabels(nlBE, 'nl-BE') },
-  'fr-BE': { translation: withSymbolCategoryLabels(frBE, 'fr-BE') },
-  en: { translation: withSymbolCategoryLabels(en, 'en') },
+// Bundle catalogs that are already in memory (nl-BE, or every language in tests); the
+// backend downloads the others the first time `changeLanguage` asks for them.
+const resources = Object.fromEntries(
+  DOMAIN_LANGUAGES.flatMap((language) => {
+    const catalog = getLoadedLocaleCatalog(language)
+    return catalog ? [[language, { translation: withSymbolCategoryLabels(catalog, language) }]] : []
+  })
+)
+
+const lazyLocaleBackend: BackendModule = {
+  type: 'backend',
+  init() {},
+  read(language, _namespace, callback) {
+    const normalized = normalizeDomainLanguage(language)
+    void loadLocaleCatalog(normalized).then(
+      (catalog: LocaleCatalog) => callback(null, withSymbolCategoryLabels(catalog, normalized)),
+      (error: unknown) => callback(error instanceof Error ? error : new Error(String(error)), false)
+    )
+  },
 }
 
 const getInitialLanguage = () => {
@@ -45,14 +58,20 @@ const getInitialLanguage = () => {
   return resolveInitialLanguagePreference(window.location.hostname)
 }
 
-i18n.use(initReactI18next).init({
-  resources,
-  lng: getInitialLanguage(),
-  fallbackLng: 'nl-BE',
-  interpolation: {
-    escapeValue: false, // React already escapes
-  },
-})
+/** Resolves once the initial language's catalog is loaded; render after it to avoid fallback text. */
+export const i18nReady = i18n
+  .use(lazyLocaleBackend)
+  .use(initReactI18next)
+  .init({
+    resources,
+    partialBundledLanguages: true,
+    load: 'currentOnly',
+    lng: getInitialLanguage(),
+    fallbackLng: 'nl-BE',
+    interpolation: {
+      escapeValue: false, // React already escapes
+    },
+  })
 
 setDomainLanguage(i18n.language)
 i18n.on('languageChanged', (language) => setDomainLanguage(language))

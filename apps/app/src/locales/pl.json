@@ -238,6 +238,7 @@
     "exportProjectError": "Pobieranie projektu nie powiodło się. Spróbuj ponownie.",
     "settings": "Klawisze skrótu",
     "shortcuts": "Skróty",
+    "offlineApp": "Aplikacja offline",
     "installOffline": "Zainstaluj do użytku w trybie offline",
     "contactSupport": "Skontaktuj się z pomocą techniczną",
     "documentation": "Dokumentacja",
@@ -259,6 +260,8 @@
     }
   },
   "pwaInstall": {
+    "installedMessage": "Condui jest zainstalowane jako aplikacja. Otwórz je z listy aplikacji urządzenia. Aby zainstalować ponownie, usuń je w ustawieniach aplikacji przeglądarki, a następnie ponownie odwiedź Condui.",
+    "browserInstructions": "W Chrome lub Edge otwórz menu przeglądarki i wybierz Zainstaluj aplikację. W Safari na Macu wybierz Plik → Dodaj do Docka. Jeśli Condui jest już zainstalowane, otwórz je z listy aplikacji. Aby zainstalować ponownie, usuń je w ustawieniach aplikacji przeglądarki i ponownie odwiedź Condui.",
     "iosTitle": "Dodaj do ekranu głównego",
     "iosInstructions": "Stuknij opcję Udostępnij w przeglądarce Safari i wybierz „Dodaj do ekranu głównego”.",
     "unavailableTitle": "Instalacja nie jest jeszcze dostępna",
@@ -1917,7 +1920,7 @@
     "switch_shutter": "Łącznik roletowy",
     "switch_1p_pull": "Przełącznik pociągany",
     "contact": "Styk",
-    "switch_impulse": "Przełącznik impulsowy",
+    "switch_impulse": "Przycisk",
     "switch_cross": "Przełącznik krzyżowy",
     "source_changeover": "Przełącznik",
     "motion_detector": "Czujnik ruchu",
@@ -2002,7 +2005,7 @@
       "switch_1p_changeover": "Przełącznik",
       "switch_shutter": "Łącznik roletowy",
       "switch_1p_pull": "Łącznik pociągany",
-      "switch_impulse": "Łącznik impulsowy",
+      "switch_impulse": "Przycisk",
       "motion_detector": "Czujnik ruchu",
       "smoke_detector": "Czujnik dymu",
       "relay": "Przekaźnik",
@@ -2511,6 +2514,10 @@
       "branchMultiplierEndpointsSplit": "Obwód {{circuitCode}}: gałąź „{{branchLabel}}” ma dodatkowe symbole mnożenia {{absorbCount}} jako oddzielne punkty końcowe; powinien być jednym punktem końcowym z wieloma miejscami docelowymi. Użyj naprawy podczas inspekcji sierot."
     },
     "primitives": {
+      "undergroundCable": {
+        "message": "XVB/XGB pod ziemią: sprawdź rurę ochronną",
+        "details": "Kable XVB i XGB nie są przeznaczone do bezpośredniego układania w ziemi. Zastosuj dobrze odwadnianą rurę ochronną i sprawdź wymagania montażowe producenta kabla."
+      },
       "feedbackSafety": {
         "rcdOverload": {
           "message": "Za mały prąd znamionowy wyłącznika różnicowoprądowego",
@@ -3143,7 +3150,7 @@
     "categoryEnergyMeters": "Liczniki energii",
     "categorySockets": "Gniazda wtyczkowe",
     "categorySwitches": "Przełączniki",
-    "categoryImpulse": "Przełączniki impulsowe",
+    "categoryImpulse": "Przyciski",
     "categoryLights": "Punkty świetlne",
     "categoryRelays": "Przekaźnik",
     "categoryDomotica": "Automatyka domowa / Inteligentny dom",
@@ -3198,10 +3205,12 @@
     "thickness": "Grubość",
     "fireClass": "Klasa ogniowa",
     "inTube": "Rura",
+    "conductorMarks": "Oznaczenia żył",
     "onWall": "Na ścianie",
     "inWall": "W ścianie",
     "inGround": "Ziemia",
     "inAir": "Powietrze",
+    "useUpstreamRoute": "Przejmij z zasilania",
     "routeNone": "Brak",
     "routeLabel": "Trasa przewodu",
     "notFound": "Nie znaleziono segmentu przewodu",
@@ -3865,13 +3874,20 @@
     "shapeOf": "Kształt"
   },
   "materialListExport": {
+    "etimRelease": "Wersja ETIM",
+    "etimClass": "Klasa ETIM",
+    "etimClassName": "Nazwa klasy ETIM",
+    "etimClassVersion": "Wersja klasy ETIM",
+    "etimFeatures": "Właściwości ETIM (JSON)",
+    "etimSource": "Źródło ETIM",
+    "etimNotice": "ETIM 10.0. Pola ETIM niesklasyfikowanych materiałów pozostają puste.",
     "cableMargin": "Zapas kabla (%)",
     "invalidCableMargin": "Wpisz prawidłowy procent nie mniejszy niż 0.",
     "skipSupplyPanel": "Pomiń elementy w rozdzielnicy sieciowej",
     "title": "Eksportuj listę materiałów",
     "menu": "Przedmiar / lista materiałów",
     "export": "Eksportuj",
-    "searchAliases": "Excel CSV Robaws przedmiar ilości materiały",
+    "searchAliases": "Excel CSV ETIM Robaws przedmiar ilości materiały",
     "preset": "Ustawienie wstępne",
     "standard": "Standardowe",
     "format": "Format pliku",

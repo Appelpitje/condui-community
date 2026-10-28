@@ -23,6 +23,9 @@ const NL_AREI_PATHS: Record<string, string> = {
 }
 
 export const VALIDATION_AREI_LINKS: Record<string, ValidationAreiLink> = {
+  'be.areibook1.2025.underground-cable-conduit': {
+    path: '/issues/wiring-installation', hash: 'installation-context',
+  },
   'be.areibook1.2025.rcd-overload-coordination': {
     path: '/issues/overcurrent-protection', hash: 'overload-short-circuit',
   },

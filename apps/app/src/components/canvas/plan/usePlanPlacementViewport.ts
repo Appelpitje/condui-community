@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Konva from 'konva'
 import { KonvaRenderer } from 'react-konva'
 import { useUIStore } from '@/stores/uiStore'
@@ -21,6 +21,7 @@ export function usePlanPlacementViewport<T extends Row>(
   extents?: ReadonlyMap<string, PlacementViewportExtent>
 ) {
   const groupRef = useRef<Konva.Group>(null)
+  const mountGroup = useCallback((group: Konva.Group | null) => { groupRef.current = group }, [])
   const selection = useUIStore((state) => state.selection)
   const selectedIds = useMemo(() => new Set(selection.ids), [selection.ids])
   const isSelected = (placement: T) =>
@@ -52,7 +53,7 @@ export function usePlanPlacementViewport<T extends Row>(
     return { ids, zoom }
   })
   const viewRef = useRef(view)
-  viewRef.current = view
+  useLayoutEffect(() => { viewRef.current = view }, [view])
 
   useLayoutEffect(() => {
     const group = groupRef.current
@@ -151,7 +152,7 @@ export function usePlanPlacementViewport<T extends Row>(
     selection.ids.length > 0 &&
     !['placement', 'endpoint', 'trunkDevice'].includes(selection.type ?? '')
   return {
-    groupRef,
+    mountGroup,
     zoom: view.zoom,
     fullDetail,
     isSelected,

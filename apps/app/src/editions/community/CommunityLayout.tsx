@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, FileDown, FileUp, Menu, Tag } from 'lucide-react'
 import {
@@ -63,6 +63,7 @@ import { EditorPreferencesToolbar } from '@/components/settings/EditorPreference
 import { SettingsBuildInfo, SettingsPanel } from '@/components/settings/SettingsPanel'
 import { ShortcutsDialog } from '@/components/shortcuts/ShortcutsDialog'
 import { useDialog } from '@/hooks/useDialog'
+import { OfflineAppMenuItem } from '@/components/menu/OfflineAppMenuItem'
 import { LabelStripExportDialog } from '@/components/export/LabelStripExportDialog'
 import { exportLabelStripsToPdf, type LabelStripExportOptions } from '@/lib/export/labelStripExport'
 import { OPEN_LABEL_STRIP_EXPORT_EVENT } from '@/lib/ui/labelStripExportDialog'
@@ -135,7 +136,7 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
   }, [])
 
   const openLabelStripExportRef = useRef<(() => void) | null>(null)
-  openLabelStripExportRef.current = null
+  useLayoutEffect(() => { openLabelStripExportRef.current = project ? openLabelStripExport : null })
   useEffect(() => {
     const openFromCanvas = () => openLabelStripExportRef.current?.()
     window.addEventListener(OPEN_LABEL_STRIP_EXPORT_EVENT, openFromCanvas)
@@ -225,7 +226,7 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
     useUIStore.getState().setViewMode('panel')
   }
 
-  const openLabelStripExport = () => {
+  function openLabelStripExport() {
     setMenuOpen(false)
     dialog.custom({
       id: 'label-strip-export',
@@ -245,8 +246,6 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
     })
   }
 
-  openLabelStripExportRef.current = openLabelStripExport
-
   const menuItemClass =
     'flex w-full items-center gap-2.5 px-5 py-2.5 text-left text-[1.09375rem] leading-snug text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
   const menuItemDisabledClass =
@@ -259,15 +258,19 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
     /* @project-documents-strip-end */
     false
   // Same Import/Export groups as the hosted editor; TRiK import is hosted-only.
-  const importMenuItems: MenuActionItem[] = demoMode
-    ? []
-    : createImportMenuItems({
+  const sharedImportItems = createImportMenuItems({
         t,
         menuIconClass,
         closeMenu,
-        documentInput: () => documentImportInputRef.current,
+        documentInput: null,
         documentsEnabled: projectDocumentsImportEnabled,
       })
+  const importMenuItems: MenuActionItem[] = demoMode ? [] : sharedImportItems.map((item) => item.id === 'document' ? {
+    ...item, onSelect: () => {
+      closeMenu()
+      documentImportInputRef.current?.click()
+    },
+  } : item)
   const exportMenuItems: MenuActionItem[] = [
     {
       id: 'pdf',
@@ -467,6 +470,7 @@ export default function CommunityLayout({ demoMode = false }: { demoMode?: boole
                 <ShortcutsIcon className={menuIconClass} />
                 {t('menu.shortcuts')}
               </button>
+              <OfflineAppMenuItem onClose={() => setMenuOpen(false)} className={menuItemClass} iconClassName={menuIconClass} />
             </div>
           ) : null}
           <span className="hidden select-none text-gray-400 sm:inline" aria-hidden>

@@ -1,6 +1,9 @@
 import { buildWireBusIndex } from './wireBusIndex'
+import { circuitIdFromWireAnchor, resolveConductorMarks } from './conductorMarks'
+import { isWireLabelVisibleForSegment } from '@/lib/wireLabelVisibility'
+import { wireRunAppearance } from './wireRunAppearance'
 import { applyWireInstallationSpecification, circuitWireSpecifications } from './circuitWireSpecifications'
-import { asRailCable, isSecondaryBusFeederAnchor, railRunByGroup } from './railWireRuns'
+import { asRailCable, isRailFeederAnchor, railRunByGroup, secondaryBusFeederCircuitId } from './railWireRuns'
 import {
   isProjectDefaultCableAnchor,
   resolveDerivedCircuitCable,
@@ -288,6 +291,26 @@ export function stampWireSegmentAnchors(
       if (segment.wireAnchors.length === 1) segment.wireAnchor = segment.wireAnchors[0]
     }
   }
+  joinDirectFeedStubs(segments, buses)
+}
+
+/** A lone nested protection has no rail above it: its short incoming piece continues the feeder. */
+function joinDirectFeedStubs(segments: WireSegment[], buses: ReturnType<typeof buildWireBusIndex>): void {
+  if (!buses.directFeedByProtection.size) return
+  const feederByCircuit = new Map<string, WireSegment>()
+  for (const segment of segments) {
+    const circuitId = segment.wireAnchor && secondaryBusFeederCircuitId(segment.wireAnchor)
+    if (circuitId) feederByCircuit.set(circuitId, segment)
+  }
+  for (const segment of segments) {
+    if (segment.fromElementType !== 'secondaryBus' || !segment.toElementId) continue
+    const circuitId = buses.directFeedByProtection.get(segment.toElementId)
+    const feeder = circuitId ? feederByCircuit.get(circuitId) : undefined
+    if (!feeder?.wireAnchor) continue
+    segment.wireAnchor = feeder.wireAnchor
+    segment.wireAnchors = [feeder.wireAnchor]
+    segment.cable = { ...feeder.cable }
+  }
 }
 
 /** Authored run values apply to every visual piece of the connection, including export. */
@@ -295,11 +318,13 @@ export function applyWireRunsToSegments(
   segments: WireSegment[],
   runs: readonly WireRun[],
   defaultCableKind?: CableSpec['kind'],
-  panels: Panel[] = []
+  panels: Panel[] = [],
+  installation?: Installation
 ): void {
   const buses = buildWireBusIndex(panels)
   const rails = railRunByGroup(buses, runs)
   const specifications = circuitWireSpecifications(panels, runs)
+  markConductorMarkBranchPieces(segments)
   for (const segment of segments) {
     let anchors = segment.wireAnchor
       ? [segment.wireAnchor]
@@ -326,7 +351,11 @@ export function applyWireRunsToSegments(
     }
     const followsDefault = anchors.every(isProjectDefaultCableAnchor)
     const run = findWireRunForAnchor(runs, anchors[0]!)
-    if (!run || !anchors.every((anchor) => findWireRunForAnchor(runs, anchor)?.id === run.id)) {
+    const appearance = run ? wireRunAppearance(run, anchors[0]!, specifications.get(anchors[0]!), defaultCableKind) : undefined
+    if (!run || !anchors.every((anchor) => {
+      const other = findWireRunForAnchor(runs, anchor)
+      return other && wireRunAppearance(other, anchor, specifications.get(anchor), defaultCableKind) === appearance
+    })) {
       if (followsDefault) segment.cable = resolveDerivedCircuitCable(segment.cable, defaultCableKind)
       const inherited = specifications.get(anchors[0]!)
       if (!run && inherited && anchors.every((anchor) => {
@@ -334,7 +363,7 @@ export function applyWireRunsToSegments(
         return other?.fireClass === inherited.fireClass && other?.route === inherited.route && other?.inTube === inherited.inTube
       }))
         applyWireInstallationSpecification(segment, inherited)
-      if (anchors.every(isSecondaryBusFeederAnchor)) {
+      if (anchors.every((anchor) => isRailFeederAnchor(anchor, buses))) {
         segment.cable = asRailCable(segment.cable)
         hideRailDecorations(segment)
       }
@@ -359,11 +388,63 @@ export function applyWireRunsToSegments(
       segment.showFireClassLabel = run.labels.showFireClassLabel
     if (run.labels?.showWireLengthLabel !== undefined)
       segment.showWireLengthLabel = run.labels.showWireLengthLabel
+    // Tick marks belong to the toggled run alone; a shared stem needs every member run to opt in.
+    // The branch piece of a stem's run has its own toggle.
+    const marksKey = segment.conductorMarksBranchPiece ? 'showBranchConductorMarks' : 'showConductorMarks'
+    if (anchors.every((anchor) => findWireRunForAnchor(runs, anchor)?.labels?.[marksKey] === true)) {
+      const marks = resolveConductorMarks({
+        cable: segment.cable,
+        domain: segment.domain,
+        circuitId: segment.circuitId ?? circuitIdFromWireAnchor(anchors[0]),
+        panels,
+        installation,
+      })
+      if (marks) segment.conductorMarks = marks
+    }
     if (run.medium === 'busbar') hideRailDecorations(segment)
+  }
+  keepConductorMarksOnOnePiece(segments.filter((segment) => !segment.conductorMarksBranchPiece))
+}
+
+/** Horizontal pieces sharing an anchor with a vertical piece: a stem's first branch. */
+function markConductorMarkBranchPieces(segments: readonly WireSegment[]): void {
+  const anchorsOf = (segment: WireSegment) =>
+    segment.wireAnchor ? [segment.wireAnchor] : segment.wireAnchors ?? []
+  const stemAnchors = new Set(
+    segments
+      .filter((segment) => segment.startPoint.x === segment.endPoint.x && segment.startPoint.y !== segment.endPoint.y)
+      .flatMap(anchorsOf)
+  )
+  for (const segment of segments) {
+    const horizontal = segment.startPoint.y === segment.endPoint.y && segment.startPoint.x !== segment.endPoint.x
+    const rail = segment.type === 'mainBus' || segment.type === 'secondaryBus'
+    if (horizontal && !rail && anchorsOf(segment).some((anchor) => stemAnchors.has(anchor)))
+      segment.conductorMarksBranchPiece = true
+  }
+}
+
+/**
+ * A run can span several drawn pieces (a stem and its first branch share an anchor). Draw its
+ * marks once: on the piece carrying the cable label, else a vertical piece, else the longest.
+ */
+function keepConductorMarksOnOnePiece(segments: WireSegment[]): void {
+  const length = (segment: WireSegment) =>
+    Math.abs(segment.endPoint.x - segment.startPoint.x) + Math.abs(segment.endPoint.y - segment.startPoint.y)
+  const rank = (segment: WireSegment) =>
+    (isWireLabelVisibleForSegment(segment) ? 2 : 0) + (segment.startPoint.x === segment.endPoint.x ? 1 : 0)
+  const marked = segments
+    .filter((segment) => segment.conductorMarks)
+    .sort((left, right) => rank(right) - rank(left) || length(right) - length(left))
+  const covered = new Set<string>()
+  for (const segment of marked) {
+    const anchors = segment.wireAnchor ? [segment.wireAnchor] : segment.wireAnchors ?? []
+    if (anchors.every((anchor) => covered.has(anchor))) delete segment.conductorMarks
+    else anchors.forEach((anchor) => covered.add(anchor))
   }
 }
 
 function hideRailDecorations(segment: WireSegment): void {
+  delete segment.conductorMarks
   segment.hideWireLabel = true
   segment.showFireClassLabel = false
   segment.showWireLengthLabel = false

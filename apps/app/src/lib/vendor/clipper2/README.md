@@ -16,9 +16,9 @@ Geometry operations currently used in practice by the wall-volume path:
 - `AreaPathD` to filter orientation and degenerate paths
 - `PathsD` / `MakePathD` for path construction and marshaling
 
-Experimental CSP-safer variant:
+CSP-safe variant (the default since the CSP dropped `'unsafe-eval'`):
 - Generated JS glue: `src/lib/vendor/clipper2/clipper2z.experimental.js`
 - Generated wasm copy: `src/lib/vendor/clipper2/clipper2z.experimental.wasm`
 - Generator: `scripts/generate-clipper2-experimental.mjs`
 
-The experimental variant keeps the same wasm and public API shape, but replaces embind's runtime `Function`-constructor invoker generation with a generic dispatcher. That targets the same unsafe-eval surface area that `-sDYNAMIC_EXECUTION=0` removes in Emscripten, while staying side-by-side with the current production bundle.
+The experimental variant keeps the same wasm and public API shape, but replaces embind's runtime `Function`-constructor invoker generation with a generic dispatcher. That targets the same unsafe-eval surface area that `-sDYNAMIC_EXECUTION=0` removes in Emscripten, while staying side-by-side with the original bundle. Builds use it unless `VITE_CSP_MODE=current` restores `'unsafe-eval'` and the original glue (see `csp.config.mjs`); `clipper2Runtime.test.ts` checks both produce identical wall volumes.

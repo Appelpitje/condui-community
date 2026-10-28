@@ -10,14 +10,17 @@ export function buildWireBusIndex(panels: Panel[]) {
   const protectionByCircuit = new Map<string, ProtectionDevice>()
   const groupByProtection = new Map<string, string>()
   const membersByGroup = new Map<string, string[]>()
+  const tapCountByCircuit = new Map<string, number>()
   const visit = (panel: Panel) => {
     const circuits = [
       ...(panel.circuits ?? []),
       ...panel.protections.flatMap((p) => p.circuits ?? []),
     ]
     const parentByCircuit = new Map<string, string>()
-    for (const circuit of circuits)
+    for (const circuit of circuits) {
       for (const child of circuit.subCircuitIds ?? []) parentByCircuit.set(child, circuit.id)
+      if (circuit.subCircuitIds?.length) tapCountByCircuit.set(circuit.id, circuit.subCircuitIds.length)
+    }
     for (const protection of panel.protections) {
       for (const circuit of protection.circuits ?? [])
         protectionByCircuit.set(circuit.id, protection)
@@ -49,6 +52,22 @@ export function buildWireBusIndex(panels: Panel[]) {
     panel.subPanels?.forEach(visit)
   }
   panels.forEach(visit)
+  // A secondary bus with one tap draws no rail: its feeder runs straight into
+  // that lone nested protection, so neither end belongs to a rail.
+  const directFeedCircuits = new Set<string>()
+  const directFeedByProtection = new Map<string, string>()
+  for (const [group, members] of membersByGroup) {
+    const circuitId = group.startsWith('circuit-bus:') ? group.slice('circuit-bus:'.length) : undefined
+    if (!circuitId || members.length !== 1 || tapCountByCircuit.get(circuitId) !== 1) continue
+    directFeedCircuits.add(circuitId)
+    membersByGroup.delete(group)
+    cableByGroup.delete(group)
+    for (const [protectionId, candidate] of groupByProtection)
+      if (candidate === group) {
+        groupByProtection.delete(protectionId)
+        directFeedByProtection.set(protectionId, circuitId)
+      }
+  }
   const groupByAnchor = new Map<string, string>()
   for (const [group, members] of membersByGroup) {
     if (group.startsWith('circuit-bus:')) {
@@ -57,5 +76,8 @@ export function buildWireBusIndex(panels: Panel[]) {
     }
     for (const member of members) groupByAnchor.set(member, group)
   }
-  return { protectionByCircuit, groupByProtection, membersByGroup, cableByGroup, cableByProtection, groupByAnchor }
+  return {
+    protectionByCircuit, groupByProtection, membersByGroup, cableByGroup, cableByProtection, groupByAnchor,
+    directFeedCircuits, directFeedByProtection,
+  }
 }

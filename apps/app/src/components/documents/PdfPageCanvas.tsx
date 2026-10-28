@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ProjectDocument } from '@/lib/documents/projectDocuments'
 import { loadPdfDocument } from './pdfDocuments'
 
@@ -36,7 +36,7 @@ export function PdfPageCanvas({
   const [renderWidth, setRenderWidth] = useState(width)
   // Metadata edits (name, export flag) replace the document object; only its source matters here.
   const documentRef = useRef(document)
-  documentRef.current = document
+  useLayoutEffect(() => { documentRef.current = document })
   const sourceKey = `${document.id}|${document.url}`
   const aspect = knownAspect ?? loadedAspect
 

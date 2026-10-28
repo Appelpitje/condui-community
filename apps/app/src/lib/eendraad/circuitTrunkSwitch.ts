@@ -5,7 +5,7 @@ import type { Circuit, TrunkDevice } from '@/types/schema'
 /**
  * Switching devices that may sit in series on an ordinary circuit trunk, where
  * they switch every branch downstream. Only the plain (1–4 pole) switch and the
- * relay qualify; staircase, changeover, dimmer, pull and impulse switches are
+ * relay qualify; staircase, changeover, dimmer, pull switches and pushbuttons are
  * branch-only because their meaning depends on the branch they control.
  */
 const CIRCUIT_TRUNK_SWITCH_SYMBOLS = new Set(['switch', 'relay'])

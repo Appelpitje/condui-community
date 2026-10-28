@@ -4,6 +4,7 @@
  */
 import type { RulePack } from '../../core/types'
 import { householdSafetyRules } from './householdSafetyRules'
+import { undergroundCableRules } from './undergroundCableRules'
 
 export const beAreiBook1_2025: RulePack = {
   id: 'be.areibook1.2025',
@@ -18,6 +19,7 @@ export const beAreiBook1_2025: RulePack = {
   },
   rules: [
     ...householdSafetyRules,
+    ...undergroundCableRules,
     {
       id: 'be.areibook1.2025.supply-mode-paths',
       title: 'Grid and backup supply paths',

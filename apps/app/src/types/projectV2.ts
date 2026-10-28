@@ -574,6 +574,11 @@ export interface WireRun {
   /** Shared cable spec: kind / sectionMm2 / fireClass / hasPE. */
   cable: CableSpec
   /**
+   * True when the fire class was explicitly set to none: `cable.fireClass` stays empty instead of
+   * inheriting the upstream connection's or circuit's class. Missing = an empty class inherits.
+   */
+  fireClassNone?: boolean
+  /**
    * True when `cable.kind` was never chosen for this AC circuit run and follows
    * `Installation.defaultCableKind`; the rest of `cable` stays authored. Missing = authored kind.
    */
@@ -605,8 +610,8 @@ export interface WireRun {
    * `segmentLengths`, not topology; the difference is typically 30–50 cm.
    */
   busTapLengthMode?: 'from-feeder' | 'chained'
-  /** `'wall'` is in the wall; `'on-wall'` is surface-mounted on it. */
-  route?: 'wall' | 'on-wall' | 'ground' | 'air'
+  /** `'wall'` is in-wall; `'on-wall'` is surface-mounted; `'none'` stops route inheritance. */
+  route?: 'none' | 'wall' | 'on-wall' | 'ground' | 'air'
   inTube?: boolean
   /** Per-member-edge run length in metres, keyed by the same anchor keys as {@link WireRun.members}. */
   segmentLengths?: Record<string, number>
@@ -620,6 +625,16 @@ export interface WireRun {
     hideWireLabel?: boolean
     showFireClassLabel?: boolean
     showWireLengthLabel?: boolean
+    /**
+     * Draw IEC 60617 conductor tick marks on this run in the one-wire and structure views.
+     * Applies to this run only: downstream connections have their own runs and toggle.
+     */
+    showConductorMarks?: boolean
+    /**
+     * Conductor tick marks on the horizontal branch piece of a run that also draws a vertical
+     * stem (the stem and its first branch share one run). Toggled apart from the stem.
+     */
+    showBranchConductorMarks?: boolean
   }
 }
 

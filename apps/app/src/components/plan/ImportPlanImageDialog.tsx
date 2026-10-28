@@ -1,3 +1,4 @@
+import { usePdfPlanImportTransaction } from '@/components/plan/usePdfPlanImportTransaction'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '@/stores/projectStore'
@@ -18,8 +19,6 @@ import {
   processPdfRasterBackground,
   svgHasMeaningfulColor,
   svgContentToDataUrl,
-  getVectorSvgThemePreviewUrl,
-  getRasterThemePreviewUrl,
   svgHasUnresolvedEmbeddedImages,
   cropImageDataUrl,
 } from '@/utils/planImageProcessing'
@@ -28,7 +27,6 @@ import {
   parsePdfFile,
   normalizePdfPageAsset,
   mapPreviewCropToPageCrop,
-  mapPdfScaleReferenceToAsset,
   type PdfImportCropBox,
   type PdfImportPageCandidate,
 } from '@/lib/plan/pdfImport'
@@ -39,18 +37,14 @@ import {
   isCadForegroundColor,
   mergeCadLayers,
 } from '@/lib/plan/cadLayers'
-import {
-  attachCadReferenceToPlanImportAsset,
-  buildCadReferenceForFloorImport,
-  defaultCropInAssetSpace,
-  type CadImportPipelineContext,
-} from '@/lib/plan/cadReferenceBuilder'
+import { type CadImportPipelineContext } from '@/lib/plan/cadReferenceBuilder'
 import {
   resolveDefaultImportFloorId,
   schedulePlanFitToViewAfterImport,
   shouldShowPdfDestinationOptions,
 } from './planImportFloor'
 import CustomDropdown from '@/components/common/CustomDropdown'
+import { usePlanImportPagePreviews } from './usePlanImportPagePreviews'
 import { querySitplanNotes } from '@/lib/projectV2/annotations'
 import {
   readLegacyCompatibilityFloors,
@@ -61,7 +55,7 @@ import {
   resolvePlanPxPerMeter,
   createPlanScaleReference,
 } from '@/lib/plan/planScale'
-import { rescaleImportedPlanAsset, scalePlanPoint } from '@/lib/plan/rescalePlan'
+import { scalePlanPoint } from '@/lib/plan/rescalePlan'
 import { selectProjectElectricalPanels } from '@/lib/projectV2/electrical'
 import {
   isRasterPlanImportFile,
@@ -69,7 +63,7 @@ import {
   PLAN_IMPORT_FILE_ACCEPT,
 } from './planImportFiles'
 import { isFloorplanScanEnabled } from '@/lib/vision/availability'
-import { useWallScanStore, type WallScanTarget } from '@/stores/wallScanStore'
+import { useWallScanStore } from '@/stores/wallScanStore'
 import { useWallRecognitionAccess, WallRecognitionToggle } from './WallRecognitionControls'
 import { liveProjectSession } from '@/stores/liveProjectCommandSession'
 import { CommandError, type CommandInvocation } from '@/lib/commands/project'
@@ -83,15 +77,20 @@ function ProcessedImagePreview({
   isDarkMode: boolean
 }) {
   const [previewUrl, setPreviewUrl] = useState<string>(processedDataUrl)
+  const [previewSource, setPreviewSource] = useState({ processedDataUrl, isDarkMode })
+  if (
+    previewSource.processedDataUrl !== processedDataUrl ||
+    previewSource.isDarkMode !== isDarkMode
+  ) {
+    setPreviewSource({ processedDataUrl, isDarkMode })
+    if (!isDarkMode) setPreviewUrl(processedDataUrl)
+  }
 
   useEffect(() => {
-    if (isDarkMode) {
-      applyDarkModeInversion(processedDataUrl)
-        .then((inverted) => setPreviewUrl(inverted))
-        .catch(() => setPreviewUrl(processedDataUrl))
-    } else {
-      setPreviewUrl(processedDataUrl)
-    }
+    if (!isDarkMode) return
+    applyDarkModeInversion(processedDataUrl)
+      .then((inverted) => setPreviewUrl(inverted))
+      .catch(() => setPreviewUrl(processedDataUrl))
   }, [processedDataUrl, isDarkMode])
 
   return <img src={previewUrl} alt="Processed" className="max-w-full max-h-full mx-auto" />
@@ -195,10 +194,6 @@ function ImportPlanImageDialog({
   const [pdfPageCroppedPreviewMap, setPdfPageCroppedPreviewMap] = useState<Record<number, string>>(
     {}
   )
-  const [pdfPageThemePreviewMap, setPdfPageThemePreviewMap] = useState<Record<number, string>>({})
-  const [pdfPageRasterThemePreviewMap, setPdfPageRasterThemePreviewMap] = useState<
-    Record<number, string>
-  >({})
   const [cropEditingPageIndex, setCropEditingPageIndex] = useState<number | null>(null)
   const [cadHiddenLayers, setCadHiddenLayers] = useState<ReadonlySet<string>>(() => new Set())
   const cadLayerRevisionRef = useRef(0)
@@ -245,7 +240,7 @@ function ImportPlanImageDialog({
   >({})
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const dropZoneRef = useRef<HTMLDivElement>(null)
+  const dropZoneRef = useRef<HTMLButtonElement>(null)
   const pasteHandlerRef = useRef<((e: ClipboardEvent) => void) | null>(null)
   const handledInitialFileRef = useRef<File | null>(null)
 
@@ -263,6 +258,18 @@ function ImportPlanImageDialog({
     pdfPages.length
   )
   const isDarkMode = theme.mode === 'dark'
+  const {
+    pdfPageThemePreviewMap,
+    setPdfPageThemePreviewMap,
+    pdfPageRasterThemePreviewMap,
+    setPdfPageRasterThemePreviewMap,
+  } = usePlanImportPagePreviews({
+    isPdfImport,
+    isCadMultiCropImport,
+    pdfPages,
+    pdfPageCroppedPreviewMap,
+    isDarkMode,
+  })
   const importPreviewSurfaceClass = isDarkMode ? 'bg-gray-900' : 'bg-gray-50'
   const shouldInvertCadByTheme = isCadMultiCropImport && isDarkMode
   const shouldInvertPreviewForPage = useCallback(
@@ -295,85 +302,6 @@ function ImportPlanImageDialog({
     },
     [pdfPageRasterThemePreviewMap, pdfPageCroppedPreviewMap, shouldInvertCadByTheme]
   )
-  const getPdfRasterThemePreviewUrl = useCallback(
-    async (dataUrl: string, darkMode: boolean): Promise<string> => {
-      const processed = await processPdfRasterBackground(dataUrl)
-      const source = processed.hasWhiteBackground ? processed.processedDataUrl : dataUrl
-      return darkMode ? applyDarkModeInversion(source) : source
-    },
-    []
-  )
-  useEffect(() => {
-    if ((!isPdfImport && !isCadMultiCropImport) || pdfPages.length === 0) {
-      setPdfPageThemePreviewMap({})
-      setPdfPageRasterThemePreviewMap({})
-      return
-    }
-    let cancelled = false
-    ;(async () => {
-      const thumbEntries = await Promise.all(
-        pdfPages.map(async (page) => {
-          const cropped = pdfPageCroppedPreviewMap[page.pageIndex]
-          if (cropped) {
-            return [
-              page.pageIndex,
-              isPdfImport
-                ? await getPdfRasterThemePreviewUrl(cropped, isDarkMode)
-                : await getRasterThemePreviewUrl(cropped, isDarkMode),
-            ] as const
-          }
-          if (page.vectorSvg && !svgHasUnresolvedEmbeddedImages(page.vectorSvg)) {
-            return [
-              page.pageIndex,
-              await getVectorSvgThemePreviewUrl(page.vectorSvg, isDarkMode),
-            ] as const
-          }
-          return [
-            page.pageIndex,
-            isPdfImport
-              ? await getPdfRasterThemePreviewUrl(page.previewDataUrl, isDarkMode)
-              : isDarkMode
-                ? await getRasterThemePreviewUrl(page.previewDataUrl, isDarkMode)
-                : page.previewDataUrl,
-          ] as const
-        })
-      )
-      if (cancelled) return
-      // Publish thumbnails first; full-size raster theming can take seconds per page.
-      const thumbMap = Object.fromEntries(thumbEntries)
-      setPdfPageThemePreviewMap(thumbMap)
-      const rasterEntries = await Promise.all(
-        pdfPages.map(async (page) => {
-          const cropped = pdfPageCroppedPreviewMap[page.pageIndex]
-          const themedVector = thumbMap[page.pageIndex]
-          if (isCadMultiCropImport && !cropped && page.vectorSvg && themedVector) {
-            // The themed SVG has the page's own size, so it serves the scale step
-            // without a per-pixel inversion pass.
-            return [page.pageIndex, themedVector] as const
-          }
-          const raster = cropped ?? page.rasterDataUrl
-          if (!isDarkMode) return [page.pageIndex, raster] as const
-          return [
-            page.pageIndex,
-            isPdfImport
-              ? await getPdfRasterThemePreviewUrl(raster, isDarkMode)
-              : await getRasterThemePreviewUrl(raster, isDarkMode),
-          ] as const
-        })
-      )
-      if (!cancelled) setPdfPageRasterThemePreviewMap(Object.fromEntries(rasterEntries))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [
-    isPdfImport,
-    isCadMultiCropImport,
-    pdfPages,
-    pdfPageCroppedPreviewMap,
-    isDarkMode,
-    getPdfRasterThemePreviewUrl,
-  ])
 
   const selectedCadHasMeaningfulColor = useMemo(() => {
     if (!isCadMultiCropImport) return true
@@ -394,17 +322,13 @@ function ImportPlanImageDialog({
   )
 
   // Pre-select target floor: current plan floor, else ground floor, else first floor.
-  useEffect(() => {
-    if (!isOpen || floors.length === 0) return
-    const needsFloorSelection =
-      step === 'floor' || (step === 'pdfPages' && pdfDestinationMode === 'replace-floor')
-    if (!needsFloorSelection) return
-
-    setSelectedFloorId((current) => {
-      if (current && floors.some((floor: Floor) => floor.id === current)) return current
-      return resolveDefaultImportFloorId(floors, activeFloorId)
-    })
-  }, [isOpen, step, pdfDestinationMode, floors, activeFloorId])
+  const needsFloorSelection =
+    isOpen &&
+    floors.length > 0 &&
+    (step === 'floor' || (step === 'pdfPages' && pdfDestinationMode === 'replace-floor'))
+  if (needsFloorSelection && !floors.some((floor: Floor) => floor.id === selectedFloorId)) {
+    setSelectedFloorId(resolveDefaultImportFloorId(floors, activeFloorId))
+  }
 
   // Handle file selection
   const handleFileSelect = useCallback(
@@ -640,7 +564,7 @@ function ImportPlanImageDialog({
       setStep('background')
       // Start processing when moving to background step
       if (croppedImageDataUrl) {
-        handleProcessImage(croppedImageDataUrl)
+        void handleProcessImage(croppedImageDataUrl)
       }
     },
     [croppedImageDataUrl, handleProcessImage]
@@ -652,7 +576,7 @@ function ImportPlanImageDialog({
     setStep('background')
     // Start processing when moving to background step
     if (croppedImageDataUrl) {
-      handleProcessImage(croppedImageDataUrl)
+      void handleProcessImage(croppedImageDataUrl)
     }
   }, [croppedImageDataUrl, handleProcessImage])
 
@@ -709,7 +633,7 @@ function ImportPlanImageDialog({
     setCadImportPipeline(null)
     setCadImportPipelinesByPage({})
     onClose()
-  }, [onClose])
+  }, [onClose, setPdfPageRasterThemePreviewMap, setPdfPageThemePreviewMap])
 
   const saveProjectAfterImport = useCallback(() => {
     const save = () => {
@@ -860,7 +784,7 @@ function ImportPlanImageDialog({
     scaleReference,
     processingResult,
     enableBackgroundProcessing,
-    getFloorById,
+    file?.name,
     setActiveFloor,
     t,
     onClose,
@@ -926,542 +850,34 @@ function ImportPlanImageDialog({
     [currentProject]
   )
 
-  const handlePdfImport = useCallback(
-    async (skipScale: boolean = false) => {
-      if (!currentProject || !file) return
-      if (isApplyingPdfImport) return
-      const expectedRevision = liveProjectSession.revision
-      const selectedPages = pdfPages.filter((page) => selectedPdfPages.includes(page.pageIndex))
-      if (selectedPages.length === 0) {
-        alert(t('planImport.selectAtLeastOnePage'))
-        return
-      }
-
-      setIsApplyingPdfImport(true)
-      try {
-        const normalized = await Promise.all(
-          selectedPages.map((page) =>
-            normalizePdfPageAsset(page, file.name, pdfPageCropMap[page.pageIndex])
-          )
-        )
-        const normalizedWithBackground = await Promise.all(
-          normalized.map(async (asset) => {
-            if (isCadMultiCropImport) {
-              // Greyscale is applied when drawing, so it can be switched back to colour later.
-              return {
-                ...asset,
-                processedDataUrl: undefined,
-                hasWhiteBackground: false,
-                darkModeAware: true,
-                grayscale: Boolean(asset.svgContent) && pdfConvertCadToGrayscale,
-              }
-            }
-            if (asset.kind === 'pdf-vector') {
-              return {
-                ...asset,
-                processedDataUrl: undefined,
-                hasWhiteBackground: false,
-                darkModeAware: true,
-              }
-            }
-            if (asset.kind === 'pdf-raster') {
-              const sourceDataUrl = asset.dataUrl
-              if (!sourceDataUrl) {
-                return {
-                  ...asset,
-                  processedDataUrl: undefined,
-                  hasWhiteBackground: false,
-                  darkModeAware: false,
-                }
-              }
-              const processed = await processPdfRasterBackground(sourceDataUrl)
-              return {
-                ...asset,
-                processedDataUrl: processed.hasWhiteBackground
-                  ? processed.processedDataUrl
-                  : undefined,
-                hasWhiteBackground: processed.hasWhiteBackground,
-                darkModeAware: true,
-              }
-            }
-            const sourceDataUrl = asset.dataUrl
-            if (!sourceDataUrl) {
-              return {
-                ...asset,
-                processedDataUrl: undefined,
-                hasWhiteBackground: false,
-                darkModeAware: false,
-              }
-            }
-            const processed = await processPlanImage(sourceDataUrl, false)
-            return {
-              ...asset,
-              processedDataUrl: processed.hasWhiteBackground
-                ? processed.processedDataUrl
-                : undefined,
-              hasWhiteBackground: processed.hasWhiteBackground,
-              darkModeAware: processed.hasWhiteBackground,
-            }
-          })
-        )
-
-        setImportError(null)
-        // Where each scanned page lands, so the background wall scan can be previewed there.
-        const wallScanTargets: WallScanTarget[] = []
-        const scansWalls = useWallScanStore.getState().status !== 'idle'
-        const addWallScanTarget = (target: WallScanTarget) => {
-          if (scansWalls) wallScanTargets.push(target)
-        }
-
-        const orderedSelectedPages = [...selectedPages].sort((a, b) => a.pageIndex - b.pageIndex)
-        const firstSelectedPage = orderedSelectedPages[0]
-        const firstSelectedReference = firstSelectedPage
-          ? pdfScalePerPage[firstSelectedPage.pageIndex]
-          : undefined
-        const computeImportedScale = async (
-          sourcePage: PdfImportPageCandidate | undefined,
-          importedAsset: {
-            dataUrl?: string | undefined
-            pageIndex: number
-            width: number
-            height: number
-          },
-          sourceReference: { p1: Point2; p2: Point2; meters: number } | undefined
-        ): Promise<{
-          reference: { p1: Point2; p2: Point2; meters: number }
-          pxPerMeter: number
-        } | null> => {
-          if (
-            skipScale ||
-            !sourcePage ||
-            pdfScaleSkippedPages[sourcePage.pageIndex] ||
-            !sourceReference ||
-            !importedAsset.dataUrl ||
-            sourceReference.meters <= 0
-          ) {
-            return null
-          }
-          const sourcePreviewForScale =
-            pdfPageCroppedPreviewMap[sourcePage.pageIndex] ?? sourcePage.rasterDataUrl
-          const sourceImageSizeForScale = await loadImageDimensions(sourcePreviewForScale)
-          return mapPdfScaleReferenceToAsset(
-            sourceReference,
-            sourceImageSizeForScale,
-            importedAsset
-          )
-        }
-
-        const firstSelectedNormalizedAsset = firstSelectedPage
-          ? normalizedWithBackground.find(
-              (asset) => asset.pageIndex === firstSelectedPage.pageIndex
-            )
-          : undefined
-        const firstScaleForReference =
-          applyPdfScaleToAll &&
-          firstSelectedPage &&
-          firstSelectedReference &&
-          firstSelectedNormalizedAsset
-            ? await computeImportedScale(
-                firstSelectedPage,
-                firstSelectedNormalizedAsset,
-                firstSelectedReference
-              )
-            : null
-
-        const getPerPageScale = async (
-          page: PdfImportPageCandidate
-        ): Promise<{
-          reference: { p1: Point2; p2: Point2; meters: number }
-          pxPerMeter: number
-        } | null> => {
-          if (skipScale) return null
-          if (applyPdfScaleToAll) return null
-          if (pdfScaleSkippedPages[page.pageIndex]) return null
-          const perPageRef = pdfScalePerPage[page.pageIndex]
-          if (!perPageRef) return null
-          const importedAsset = normalizedWithBackground.find(
-            (asset) => asset.pageIndex === page.pageIndex
-          )
-          if (!importedAsset) return null
-          return computeImportedScale(page, importedAsset, perPageRef)
-        }
-
-        // Import coordinates must match the building's existing physical units.
-        const targetPxPerMeter =
-          resolvePlanPxPerMeter(selectProjectPlanScale(currentProject)) ?? DEFAULT_PLAN_PX_PER_METER
-        const pageScales = new Map<number, Awaited<ReturnType<typeof computeImportedScale>>>()
-        for (const page of selectedPages) {
-          pageScales.set(
-            page.pageIndex,
-            applyPdfScaleToAll ? firstScaleForReference : await getPerPageScale(page)
-          )
-        }
-        const normalizedScale = (pageIndex: number): Floor['scale'] => {
-          const calibration = pageScales.get(pageIndex)
-          if (!calibration) return { pxPerMeter: targetPxPerMeter }
-          const factor = targetPxPerMeter / calibration.pxPerMeter
-          return {
-            pxPerMeter: targetPxPerMeter,
-            reference:
-              applyPdfScaleToAll && pageIndex !== firstSelectedPage?.pageIndex
-                ? undefined
-                : (createPlanScaleReference(
-                    scalePlanPoint(calibration.reference.p1, factor),
-                    scalePlanPoint(calibration.reference.p2, factor),
-                    calibration.reference.meters
-                  ) ?? undefined),
-          }
-        }
-
-        const floorNamePrefix = t('canvas.floor')
-        const usedFloorNames = new Set(
-          readLegacyCompatibilityFloors(currentProject).map((f: Floor) => f.name)
-        )
-        let nextFloorNumber = usedFloorNames.size + 1
-        const getImportedFloorName = (pageIndex: number) => {
-          const pageLabel = pdfPages.find((page) => page.pageIndex === pageIndex)?.label
-          if (pageLabel && !usedFloorNames.has(pageLabel)) {
-            usedFloorNames.add(pageLabel)
-            return pageLabel
-          }
-          let candidate = `${floorNamePrefix} ${nextFloorNumber}`
-          while (usedFloorNames.has(candidate)) {
-            nextFloorNumber++
-            candidate = `${floorNamePrefix} ${nextFloorNumber}`
-          }
-          usedFloorNames.add(candidate)
-          nextFloorNumber++
-          return candidate
-        }
-        const getCadPipeline = (pageIndex: number | undefined) =>
-          (pageIndex == null ? undefined : cadImportPipelinesByPage[pageIndex]) ?? cadImportPipeline
-        const getCadCropOffset = (
-          pageAsset: { pageIndex: number; width: number; height: number; crop?: PdfImportCropBox },
-          referenceAsset:
-            | { pageIndex: number; width: number; height: number; crop?: PdfImportCropBox }
-            | undefined
-        ): Point2 | undefined => {
-          if (!isCadMultiCropImport || !referenceAsset) return undefined
-          const pagePipeline = getCadPipeline(pageAsset.pageIndex)
-          const referencePipeline = getCadPipeline(referenceAsset.pageIndex)
-          if (pagePipeline && referencePipeline && pagePipeline !== referencePipeline) {
-            // DWG layout viewports are separate pages that share model coordinates,
-            // so overlapping views (stacked floors) align exactly in CAD space.
-            const toCadRect = (
-              pipeline: CadImportPipelineContext,
-              crop: PdfImportCropBox | undefined
-            ) => {
-              const scale = pipeline.svgNormalization.scale || 1
-              const rect = crop ?? { x: 0, y: 0, ...pipeline.uncroppedAssetSize }
-              return {
-                x: pipeline.rawViewBox.x + rect.x / scale,
-                y: pipeline.rawViewBox.y + rect.y / scale,
-                width: rect.width / scale,
-                height: rect.height / scale,
-              }
-            }
-            const pageRect = toCadRect(pagePipeline, pdfPageCropMap[pageAsset.pageIndex])
-            const referenceRect = toCadRect(
-              referencePipeline,
-              pdfPageCropMap[referenceAsset.pageIndex]
-            )
-            const overlaps =
-              pageRect.x < referenceRect.x + referenceRect.width &&
-              referenceRect.x < pageRect.x + pageRect.width &&
-              pageRect.y < referenceRect.y + referenceRect.height &&
-              referenceRect.y < pageRect.y + pageRect.height
-            if (overlaps) {
-              const scale = pagePipeline.svgNormalization.scale || 1
-              return {
-                x: (pageRect.x - referenceRect.x) * scale,
-                y: (pageRect.y - referenceRect.y) * scale,
-              }
-            }
-            return {
-              x: (referenceAsset.width - pageAsset.width) / 2,
-              y: (referenceAsset.height - pageAsset.height) / 2,
-            }
-          }
-          const pageCrop = pageAsset.crop ?? {
-            x: 0,
-            y: 0,
-            width: pageAsset.width,
-            height: pageAsset.height,
-          }
-          const referenceCrop = referenceAsset.crop ?? {
-            x: 0,
-            y: 0,
-            width: referenceAsset.width,
-            height: referenceAsset.height,
-          }
-          const dx = pageCrop.x - referenceCrop.x
-          const dy = pageCrop.y - referenceCrop.y
-          const absDx = Math.abs(dx)
-          const absDy = Math.abs(dy)
-          const sideBySide =
-            absDx > Math.max(pageCrop.width, referenceCrop.width) * 0.25 &&
-            absDy <= Math.max(pageCrop.height, referenceCrop.height) * 0.35
-          const stacked =
-            absDy > Math.max(pageCrop.height, referenceCrop.height) * 0.25 &&
-            absDx <= Math.max(pageCrop.width, referenceCrop.width) * 0.35
-          const centeredX = (referenceAsset.width - pageAsset.width) / 2
-          const centeredY = (referenceAsset.height - pageAsset.height) / 2
-
-          if (sideBySide) {
-            return { x: centeredX, y: dy }
-          }
-          if (stacked) {
-            return { x: dx, y: centeredY }
-          }
-          return { x: centeredX, y: centeredY }
-        }
-
-        const referenceSourcePage = orderedSelectedPages[0]
-        const referenceCropInAssetSpace =
-          referenceSourcePage && getCadPipeline(referenceSourcePage.pageIndex)
-            ? defaultCropInAssetSpace(
-                { width: referenceSourcePage.width, height: referenceSourcePage.height },
-                pdfPageCropMap[referenceSourcePage.pageIndex]
-              )
-            : undefined
-
-        const createPlanImportAsset = (
-          pageAsset: (typeof normalizedWithBackground)[number],
-          options: { isReferenceCrop: boolean; planImageOffset?: Point2 }
-        ) => {
-          const sourcePage =
-            selectedPages.find((page) => page.pageIndex === pageAsset.pageIndex) ??
-            referenceSourcePage
-          const base = {
-            id: nanoid(),
-            kind: pageAsset.kind,
-            sourceName: pageAsset.sourceName,
-            pageIndex: pageAsset.pageIndex,
-            pageCount: pageAsset.pageCount,
-            width: pageAsset.width,
-            height: pageAsset.height,
-            dataUrl: pageAsset.dataUrl,
-            processedDataUrl: pageAsset.processedDataUrl,
-            svgContent: pageAsset.svgContent,
-            hasWhiteBackground: pageAsset.hasWhiteBackground,
-            darkModeAware: pageAsset.darkModeAware,
-            ...('grayscale' in pageAsset && pageAsset.grayscale ? { grayscale: true } : {}),
-            crop: pageAsset.crop,
-          }
-          const calibration = pageScales.get(pageAsset.pageIndex)
-          const factor = calibration ? targetPxPerMeter / calibration.pxPerMeter : 1
-          const sourcePipeline = getCadPipeline(sourcePage?.pageIndex)
-          if (!isCadMultiCropImport || !sourcePipeline || !sourcePage)
-            return rescaleImportedPlanAsset(base, factor)
-          const sharesReferencePipeline =
-            sourcePipeline === getCadPipeline(referenceSourcePage?.pageIndex)
-          const cadReference = buildCadReferenceForFloorImport({
-            pipeline: sourcePipeline,
-            uncroppedPageSize: { width: sourcePage.width, height: sourcePage.height },
-            crop: pdfPageCropMap[sourcePage.pageIndex],
-            isReferenceCrop: options.isReferenceCrop,
-            referenceCropAssetRect:
-              options.isReferenceCrop || !sharesReferencePipeline
-                ? undefined
-                : referenceCropInAssetSpace,
-            planImageOffset: options.planImageOffset,
-          })
-          return rescaleImportedPlanAsset(
-            attachCadReferenceToPlanImportAsset(base, cadReference),
-            factor
-          )
-        }
-
-        const commands: CommandInvocation[] = []
-        const wallScanTargetSpecs: Array<{
-          pageIndex: number
-          floorId?: string
-          commandIndex?: number
-          imageSize: WallScanTarget['imageSize']
-          offset?: Point2
-        }> = []
-        let firstImportedFloorId: string | null = null
-
-        if (pdfDestinationMode === 'replace-floor') {
-          if (!selectedFloorId) {
-            alert(t('planImport.selectFloorOption'))
-            return
-          }
-          const first = normalizedWithBackground[0]
-          if (!first) return
-          const importedAsset = createPlanImportAsset(first, { isReferenceCrop: true })
-          commands.push({
-            id: 'plan.attachBackground',
-            input: {
-              floorId: selectedFloorId,
-              asset: importedAsset,
-              scale: normalizedScale(first.pageIndex),
-              planScaleNeedsCalibration: !pageScales.get(first.pageIndex),
-            },
-          })
-          commands.push({
-            id: 'floor.rename',
-            input: {
-              floorId: selectedFloorId,
-              name: getImportedFloorName(first.pageIndex),
-            },
-          })
-          wallScanTargetSpecs.push({
-            pageIndex: first.pageIndex,
-            floorId: selectedFloorId,
-            imageSize: importedAsset,
-            offset: getFloorById(selectedFloorId)?.planImageOffset,
-          })
-          firstImportedFloorId = selectedFloorId
-        } else {
-          const activeFloor = activeFloorId ? getFloorById(activeFloorId) : null
-          const fallbackEmptyFloor =
-            readLegacyCompatibilityFloors(currentProject).find((floor: Floor) =>
-              isFloorEmptyForAutoReplace(floor)
-            ) ?? null
-          const floorToReuse = isFloorEmptyForAutoReplace(activeFloor)
-            ? activeFloor
-            : fallbackEmptyFloor
-          const reuseActiveFloor = !!floorToReuse
-          const orderedAssets = [...normalizedWithBackground].sort(
-            (a, b) => a.pageIndex - b.pageIndex
-          )
-          const referenceAssetForAlignment = orderedAssets[0]
-
-          if (reuseActiveFloor && floorToReuse) {
-            const first = orderedAssets.shift()
-            if (first) {
-              const firstAsset = createPlanImportAsset(first, {
-                isReferenceCrop: true,
-                planImageOffset: getCadCropOffset(first, referenceAssetForAlignment),
-              })
-              const firstFactor = firstAsset.width / first.width
-              const planImageOffset = getCadCropOffset(first, referenceAssetForAlignment)
-                ? scalePlanPoint(getCadCropOffset(first, referenceAssetForAlignment)!, firstFactor)
-                : undefined
-              commands.push({
-                id: 'plan.attachBackground',
-                input: {
-                  floorId: floorToReuse.id,
-                  asset: firstAsset,
-                  planImageOffset,
-                  scale: normalizedScale(first.pageIndex),
-                  planScaleNeedsCalibration: !pageScales.get(first.pageIndex),
-                },
-              })
-              wallScanTargetSpecs.push({
-                pageIndex: first.pageIndex,
-                floorId: floorToReuse.id,
-                imageSize: firstAsset,
-                offset: planImageOffset,
-              })
-              firstImportedFloorId = floorToReuse.id
-            }
-          }
-
-          for (const [index, pageAsset] of orderedAssets.entries()) {
-            const importedAsset = createPlanImportAsset(pageAsset, {
-              isReferenceCrop: !reuseActiveFloor && index === 0,
-              planImageOffset: getCadCropOffset(pageAsset, referenceAssetForAlignment),
-            })
-            const originalOffset = getCadCropOffset(pageAsset, referenceAssetForAlignment)
-            const planImageOffset = originalOffset
-              ? scalePlanPoint(originalOffset, importedAsset.width / pageAsset.width)
-              : undefined
-            const commandIndex = commands.length
-            commands.push({
-              id: 'floor.create',
-              input: {
-                name: getImportedFloorName(pageAsset.pageIndex),
-                scale: normalizedScale(pageAsset.pageIndex),
-                planScaleNeedsCalibration: !pageScales.get(pageAsset.pageIndex),
-                planImageOffset,
-                asset: importedAsset,
-              },
-            })
-            wallScanTargetSpecs.push({
-              pageIndex: pageAsset.pageIndex,
-              commandIndex,
-              imageSize: importedAsset,
-              offset: planImageOffset,
-            })
-          }
-        }
-
-        if (commands.length === 0) return
-        const outcome = liveProjectSession.execute(commands, {
-          expectedRevision,
-          label: 'import PDF plan',
-          source: 'plan_import',
-        })
-        const resolvedWallScanTargets: WallScanTarget[] = []
-        for (const spec of wallScanTargetSpecs) {
-          const floorId =
-            spec.floorId ??
-            outcome.results[spec.commandIndex!]?.created.find((ref) => ref.kind === 'floor')?.id
-          if (!floorId) {
-            logger.warn('[planImport] PDF import omitted a created floor result:', {
-              pageIndex: spec.pageIndex,
-            })
-            continue
-          }
-          resolvedWallScanTargets.push({
-            pageIndex: spec.pageIndex,
-            floorId,
-            imageSize: spec.imageSize,
-            ...(spec.offset ? { offset: spec.offset } : {}),
-          })
-        }
-        for (const target of resolvedWallScanTargets) addWallScanTarget(target)
-        if (firstImportedFloorId) setActiveFloor(firstImportedFloorId)
-        else {
-          const createdFloor = outcome.results
-            .flatMap((result) => result.created)
-            .find((ref) => ref.kind === 'floor')
-          if (createdFloor) setActiveFloor(createdFloor.id)
-        }
-
-        if (scansWalls) {
-          useWallScanStore.getState().attach(currentProject.project.id, wallScanTargets)
-        }
-        schedulePlanFitToViewAfterImport()
-        handleClose()
-        clearProjectHistory()
-        saveProjectAfterImport()
-      } catch (error) {
-        logger.error('[planImport] Plan import failed:', error)
-        setImportError(t('planImport.importFailed'))
-      } finally {
-        setIsApplyingPdfImport(false)
-      }
-    },
-    [
-      currentProject,
-      file,
-      pdfPages,
-      selectedPdfPages,
-      pdfDestinationMode,
-      selectedFloorId,
-      pdfPageCropMap,
-      pdfPageCroppedPreviewMap,
-      applyPdfScaleToAll,
-      pdfScalePerPage,
-      pdfScaleSkippedPages,
-      pdfConvertCadToGrayscale,
-      isApplyingPdfImport,
-      isCadMultiCropImport,
-      cadImportPipeline,
-      cadImportPipelinesByPage,
-      activeFloorId,
-      getFloorById,
-      isFloorEmptyForAutoReplace,
-      loadImageDimensions,
-      setActiveFloor,
-      t,
-      handleClose,
-      saveProjectAfterImport,
-    ]
-  )
+  const { handlePdfImport } = usePdfPlanImportTransaction({
+    currentProject,
+    file,
+    isApplyingPdfImport,
+    pdfPages,
+    selectedPdfPages,
+    t,
+    setIsApplyingPdfImport,
+    pdfPageCropMap,
+    isCadMultiCropImport,
+    pdfConvertCadToGrayscale,
+    setImportError,
+    pdfScalePerPage,
+    pdfScaleSkippedPages,
+    pdfPageCroppedPreviewMap,
+    loadImageDimensions,
+    applyPdfScaleToAll,
+    cadImportPipelinesByPage,
+    cadImportPipeline,
+    pdfDestinationMode,
+    selectedFloorId,
+    getFloorById,
+    activeFloorId,
+    isFloorEmptyForAutoReplace,
+    setActiveFloor,
+    handleClose,
+    saveProjectAfterImport,
+  })
 
   /**
    * Starts the wall scan in the background as soon as the pages and crops are chosen, so it
@@ -1739,18 +1155,53 @@ function ImportPlanImageDialog({
     [isCadMultiCropImport, pdfPageCropMap]
   )
 
-  useEffect(() => {
-    if (step !== 'pdfBackground' || !isCadMultiCropImport || !file) return
+  const pdfBackgroundRequest = useMemo(() => {
+    if (step !== 'pdfBackground' || !isCadMultiCropImport || !file) return null
     const selected = selectedPdfPages.slice().sort((a, b) => a - b)
     const pageIndex = pdfPreviewPageIndex ?? selected[0] ?? null
-    if (pageIndex == null) return
+    if (pageIndex == null) return null
     const page = pdfPages.find((candidate) => candidate.pageIndex === pageIndex)
-    if (!page) return
-
+    return page
+      ? {
+          page,
+          pageIndex,
+          file,
+          crop: pdfPageCropMap[pageIndex],
+          isCadMultiCropImport,
+          isSvgImport,
+          pdfEnableDarkModeProcessing,
+        }
+      : null
+  }, [
+    step,
+    file,
+    pdfPages,
+    pdfPageCropMap,
+    selectedPdfPages,
+    pdfPreviewPageIndex,
+    isCadMultiCropImport,
+    isSvgImport,
+    pdfEnableDarkModeProcessing,
+  ])
+  const [previewRequestSource, setPreviewRequestSource] = useState(pdfBackgroundRequest)
+  if (previewRequestSource !== pdfBackgroundRequest) {
+    setPreviewRequestSource(pdfBackgroundRequest)
+    if (pdfBackgroundRequest) setIsPreparingPdfPreview(true)
+  }
+  useEffect(() => {
+    if (!pdfBackgroundRequest) return
+    const {
+      page,
+      pageIndex,
+      file: previewFile,
+      crop,
+      isCadMultiCropImport,
+      isSvgImport,
+      pdfEnableDarkModeProcessing,
+    } = pdfBackgroundRequest
     let cancelled = false
-    setIsPreparingPdfPreview(true)
 
-    normalizePdfPageAsset(page, file.name, pdfPageCropMap[pageIndex])
+    normalizePdfPageAsset(page, previewFile.name, crop)
       .then(async (asset) => {
         if (cancelled) return
         let sourceUrl =
@@ -1812,17 +1263,7 @@ function ImportPlanImageDialog({
     return () => {
       cancelled = true
     }
-  }, [
-    step,
-    file,
-    pdfPages,
-    pdfPageCropMap,
-    selectedPdfPages,
-    pdfPreviewPageIndex,
-    isCadMultiCropImport,
-    isSvgImport,
-    pdfEnableDarkModeProcessing,
-  ])
+  }, [pdfBackgroundRequest])
 
   if (!isOpen) return null
 
@@ -1877,9 +1318,10 @@ function ImportPlanImageDialog({
               </p>
 
               {/* Drop zone */}
-              <div
+              <button
+                type="button"
                 ref={dropZoneRef}
-                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-md p-12 text-center cursor-pointer hover:border-sky-400 transition-colors"
+                className="block w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-md p-12 text-center cursor-pointer hover:border-sky-400 transition-colors"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <svg
@@ -1895,16 +1337,16 @@ function ImportPlanImageDialog({
                     strokeLinejoin="round"
                   />
                 </svg>
-                <p className="mt-4 text-lg font-medium text-gray-700 dark:text-gray-300">
+                <span className="block mt-4 text-lg font-medium text-gray-700 dark:text-gray-300">
                   {t('planImport.dragDropOrClick')}
-                </p>
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                </span>
+                <span className="block mt-2 text-sm text-gray-500 dark:text-gray-400">
                   {t('planImport.orPaste')}
-                </p>
-                <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                </span>
+                <span className="block mt-2 text-xs text-gray-400 dark:text-gray-500">
                   {t('planImport.supportedFormats')}
-                </p>
-              </div>
+                </span>
+              </button>
 
               <input
                 ref={fileInputRef}

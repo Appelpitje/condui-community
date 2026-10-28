@@ -95,7 +95,7 @@ export function MaterialListExportDialog() {
       downloadBlob(
         blob,
         buildTimestampedExportFilename(
-          `${project.project.name || 'Condui'}-${robaws ? 'robaws-meetstaat' : 'material-list'}`,
+          `${project.project.name || 'Condui'}-${robaws ? 'robaws-meetstaat' : settings.preset === 'etim' ? 'etim-material-list' : 'material-list'}`,
           format
         ),
         ownerWindow.document
@@ -131,6 +131,7 @@ export function MaterialListExportDialog() {
           >
             <option value="standard">{t('materialListExport.standard')}</option>
             <option value="robaws">Robaws — meetstaat</option>
+            <option value="etim">ETIM</option>
           </select>
         </label>
         <label className="space-y-1 text-sm font-medium">
@@ -150,6 +151,11 @@ export function MaterialListExportDialog() {
       {robaws && (
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {t('materialListExport.robawsImport')}
+        </p>
+      )}
+      {settings.preset === 'etim' && (
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {t('materialListExport.etimNotice')}
         </p>
       )}
       <fieldset disabled={busy}>

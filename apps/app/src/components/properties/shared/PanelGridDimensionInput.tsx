@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useTouchPrimaryDevice } from '@/hooks/useTouchPrimaryDevice'
 
@@ -25,7 +25,9 @@ export function PanelGridDimensionInput({
   const draftRef = useRef(draft)
   const identityRef = useRef(resetKey)
   const currentRef = useRef({ value, min, max, onChange })
-  currentRef.current = { value, min, max, onChange }
+  useLayoutEffect(() => {
+    currentRef.current = { value, min, max, onChange }
+  }, [value, min, max, onChange])
 
   const setDraftValue = useCallback((next: string) => {
     draftRef.current = next

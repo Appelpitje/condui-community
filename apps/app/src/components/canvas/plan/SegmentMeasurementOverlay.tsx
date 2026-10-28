@@ -6,11 +6,8 @@ import { Group, Line, Rect, Text } from 'react-konva'
 import type { Wall } from '@/types/schema'
 import { screenPxToCanvasUnits } from '@/constants/canvasConstants'
 import { isPrimaryPlanActivationEvent } from '@/lib/canvas/planPointerEvent'
-import {
-  buildDistanceMeasurementGuides,
-  buildSegmentMeasurementGuides,
-  type DistanceMeasurementInterval,
-} from '@/lib/plan/segmentMeasurements'
+import type { DistanceMeasurementInterval } from '@/lib/plan/segmentMeasurements'
+import { useSegmentMeasurementGuides } from './useSegmentMeasurementGuides'
 import {
   normalizeDimensionRotationDeg,
   type DimensionDragModifiers,
@@ -39,6 +36,7 @@ interface SegmentMeasurementOverlayProps {
     modifiers: DimensionDragModifiers
   ) => void
 }
+const NO_DISTANCE_INTERVALS: DistanceMeasurementInterval[] = []
 
 interface DimensionDragState {
   source: 'pointer' | 'touch'
@@ -90,7 +88,7 @@ export function SegmentMeasurementOverlay({
   color = '#0284c7',
   textColor = '#ffffff',
   editableLabelFill = 'rgba(255,255,255,0.95)',
-  distanceIntervals = [],
+  distanceIntervals = NO_DISTANCE_INTERVALS,
   editableSegmentIndices = [],
   onSegmentLengthCommit,
   onOpeningDistanceCommit,
@@ -101,23 +99,16 @@ export function SegmentMeasurementOverlay({
   const [editingSegmentIndex, setEditingSegmentIndex] = useState<number | null>(null)
   const [draftText, setDraftText] = useState('')
   const dimensionDragRef = useRef<DimensionDragState | null>(null)
-  const distanceLabelSideRef = useRef(new Map<string, -1 | 1>())
   const suppressDimensionEditUntilRef = useRef(0)
   const editableSegmentSet = useMemo(
     () => new Set(editableSegmentIndices),
     [editableSegmentIndices]
   )
 
-  useEffect(() => {
-    if (
-      editingSegmentIndex != null &&
-      editingSegmentIndex >= 0 &&
-      !editableSegmentSet.has(editingSegmentIndex)
-    ) {
-      setEditingSegmentIndex(null)
-      setDraftText('')
-    }
-  }, [editableSegmentSet, editingSegmentIndex])
+  if (editingSegmentIndex != null && editingSegmentIndex >= 0 && !editableSegmentSet.has(editingSegmentIndex)) {
+    setEditingSegmentIndex(null)
+    setDraftText('')
+  }
 
   useEffect(() => {
     if (
@@ -318,24 +309,9 @@ export function SegmentMeasurementOverlay({
   const fontSize = screenPxToCanvasUnits(zoom, 12, 8, 18)
   const minDashedLength = screenPxToCanvasUnits(zoom, 36, 18, 72)
 
-  const guides = useMemo(
-    () => [
-      ...buildSegmentMeasurementGuides({
-        points: wall.points,
-        segmentIndices,
-        pxPerMeter,
-        extensionOffset,
-      }),
-      ...buildDistanceMeasurementGuides({
-        points: wall.points,
-        intervals: distanceIntervals,
-        pxPerMeter,
-        extensionOffset,
-        normalSideByKey: distanceLabelSideRef.current,
-      }),
-    ],
-    [distanceIntervals, extensionOffset, pxPerMeter, segmentIndices, wall.points]
-  )
+  const guides = useSegmentMeasurementGuides({
+    points: wall.points, segmentIndices, intervals: distanceIntervals, pxPerMeter, extensionOffset,
+  })
   const dimensionEditorOwnerId = `wall-segment:${wall.id}`
 
   useEffect(() => {

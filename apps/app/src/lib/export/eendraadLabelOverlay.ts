@@ -34,6 +34,7 @@ import {
   WIRE_LABEL_FONT_SIZE,
 } from '@/lib/wireTextLabel'
 import { getWireLengthLabel } from '@/lib/wires/wireFingerprint'
+import { getOneWireConductorMarkLabelShift } from '@/lib/wires/oneWireConductorMarkLayout'
 import { getSubPanelIncomingFeedLabelAnchors } from '@/lib/layout/layoutTree'
 import i18n from '@/i18n'
 import { exportLog } from './exportLogger'
@@ -436,13 +437,25 @@ export function collectEendraadWireLabelOverlays(
     const wireLengthText = isWireLengthLabelVisibleForSegment(wireSegment)
       ? getWireLengthLabel(wireSegment)
       : undefined
-    const offsetAlongWire = getWireLabelOffsetAlongWire(wireSegment)
     const labelAlign = getWireLabelAlignForSegment(wireSegment)
     const labelEndPoint = wireSegment.wireLabelBaseEndPoint ?? wireSegment.wireLabelEndPoint ?? wireSegment.endPoint
-    // Same anchor as the canvas WireTextLabel, so the PDF puts the caption where the one-wire does.
-    const exportLabelOrigin = getCanvasWireLabelOrigin(wireSegment.startPoint, labelEndPoint, labelAlign)
     const distanceFromWire =
       WIRE_LABEL_DISTANCE_FROM_WIRE + (wireSegment.wireRoute === 'air' ? 2 : 0)
+    // Conductor marks may push the label along the wire; follow the canvas label there.
+    const baseOffsetAlongWire = getWireLabelOffsetAlongWire(wireSegment)
+    const offsetAlongWire =
+      baseOffsetAlongWire +
+      getOneWireConductorMarkLabelShift(wireSegment, {
+        mainText,
+        fireClassText,
+        wireLengthText,
+        labelEndPoint,
+        fontFamily,
+        distanceFromWire,
+        offsetAlongWire: baseOffsetAlongWire,
+      })
+    // Same anchor as the canvas WireTextLabel, so the PDF puts the caption where the one-wire does.
+    const exportLabelOrigin = getCanvasWireLabelOrigin(wireSegment.startPoint, labelEndPoint, labelAlign)
     const debugWireLabelOrigin = exportLabelOrigin
     const debugWireLabelBase = getWireLabelBasePointForDebug(
       wireSegment,

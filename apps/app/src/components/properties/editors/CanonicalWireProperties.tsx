@@ -21,7 +21,9 @@ import {
 import { WireRouteAndCableForm, type WireRouteFormState } from '../shared/propertiesShared'
 import { panelStringT } from '../shared/propertiesSharedUtils'
 import { buildElectricalStructureSnapshot } from '@/lib/electricalStructure/builder'
-import { isSecondaryBusFeederAnchor } from '@/lib/wires/railWireRuns'
+import { isRailFeederAnchor } from '@/lib/wires/railWireRuns'
+import { buildWireBusIndex } from '@/lib/wires/wireBusIndex'
+import { circuitIdFromWireAnchor, resolveConductorMarks } from '@/lib/wires/conductorMarks'
 
 
 export function CanonicalWireProperties({
@@ -31,6 +33,7 @@ export function CanonicalWireProperties({
   defaults,
   sharedGeometry,
   sharedGeometryAnchors,
+  conductorMarksOnBranch = false,
 }: {
   anchor: string
   cable: CableSpec
@@ -38,6 +41,8 @@ export function CanonicalWireProperties({
   sharedGeometryAnchors?: readonly string[]
   defaults?: Partial<WireRouteFormState>
   domain?: 'AC' | 'DC'
+  /** The selected piece is a stem's branch, whose conductor marks toggle apart from the stem. */
+  conductorMarksOnBranch?: boolean
 }) {
   const { t } = useTranslation()
   const project = useProjectStore((s) => s.currentProject)
@@ -82,7 +87,8 @@ export function CanonicalWireProperties({
   if (!project) return null
   const isRailEdge = liveWires.some((wire) => wire?.medium === 'busbar')
   const liveWire = liveWires[0]
-  const railEligible = isRailEdge || !!liveWire?.busGroup || isSecondaryBusFeederAnchor(anchor)
+  const railEligible = isRailEdge || !!liveWire?.busGroup ||
+    isRailFeederAnchor(anchor, buildWireBusIndex(getProjectElectricalPanels(project)))
   const defaultKind = resolveProjectDefaultCableKind(getProjectElectricalInstallation(project))
   const defaultEligible = !isRailEdge && domain !== 'DC' && isProjectDefaultCableAnchor(anchor)
   const followsDefault = defaultEligible && liveWire?.followsDefaultCable === true
@@ -105,6 +111,9 @@ export function CanonicalWireProperties({
         }
       : defaults),
   }
+  // The form's toggle edits the selected piece's own flag.
+  const marksKey = conductorMarksOnBranch ? 'showBranchConductorMarks' : 'showConductorMarks'
+  if (run) state.showConductorMarks = run.labels?.[marksKey]
   if (!isRailEdge && inherited) {
     state.cable = { ...state.cable, fireClass: inherited.fireClass ?? state.cable.fireClass }
     Object.assign(state, fromWireRunRoute(inherited.route), { inTube: inherited.inTube })
@@ -121,6 +130,7 @@ export function CanonicalWireProperties({
               hideWireLabel: state.hideWireLabel,
               showFireClassLabel: state.showFireClassLabel,
               showWireLengthLabel: state.showWireLengthLabel,
+              [marksKey]: state.showConductorMarks,
             },
           }
     if (value.cable) {
@@ -129,15 +139,29 @@ export function CanonicalWireProperties({
       if (followsDefault && value.cable.kind === state.cable.kind)
         changes.followsDefaultCable = true
       else setChangedAnchor(anchor)
+      // None is a choice of its own; an empty class would otherwise inherit the circuit's again.
+      if (!value.cable.fireClass && state.cable.fireClass) changes.fireClassNone = true
     }
-    if ('wireRoute' in value) changes.route = toWireRunRoute(value.wireRoute, value.inWall)
+    if ('wireRoute' in value) changes.route = toWireRunRoute(value.wireRoute, value.inWall) ?? 'none'
     if ('inTube' in value) changes.inTube = value.inTube
     if ('wireLengthM' in value) changes.lengthM = value.wireLengthM
     for (const key of ['hideWireLabel', 'showFireClassLabel', 'showWireLengthLabel'] as const) {
       if (key in value) changes.labels = { ...changes.labels, [key]: value[key] }
     }
+    if ('showConductorMarks' in value)
+      changes.labels = { ...changes.labels, [marksKey]: value.showConductorMarks }
     update(anchor, state.cable, changes)
   }
+  // Same derivation the diagrams use, so the button previews exactly what will be drawn.
+  const conductorMarks = isRailEdge
+    ? undefined
+    : resolveConductorMarks({
+        cable: state.cable,
+        domain,
+        circuitId: circuitIdFromWireAnchor(anchor),
+        panels: getProjectElectricalPanels(project),
+        installation: getProjectElectricalInstallation(project),
+      })
   const canBecomeDefault =
     changedAnchor === anchor &&
     state.cable.kind !== defaultKind &&
@@ -179,6 +203,13 @@ export function CanonicalWireProperties({
         railEligible ? (medium, cable) => update(anchor, state.cable, { medium, cable }) : undefined
       }
       cableHint={cableHint}
+      routeHint={run?.route !== undefined ? (
+        <button type="button" className={linkClass}
+          onClick={() => update(anchor, state.cable, { route: undefined })}>
+          {t('wires.useUpstreamRoute')}
+        </button>
+      ) : null}
+      conductorMarks={conductorMarks}
       lengthPlaceholder={lengthSuggestion.placeholder}
       lengthHint={lengthSuggestion.hint}
       t={panelStringT(t)}

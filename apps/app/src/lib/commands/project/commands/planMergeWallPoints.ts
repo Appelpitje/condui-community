@@ -64,8 +64,8 @@ export const planMergeWallPoints = defineProjectCommand({
     return { ok: true }
   },
   apply(draft, input) {
-    let changed: EntityRef[] = []
-    let removed: EntityRef[] = []
+    const changed: EntityRef[] = []
+    const removed: EntityRef[] = []
     const floor = mutateBuildingFloorView(draft, input.floorId, (floorView) => {
       const plan = floorView.floorPlan
       if (!plan) return

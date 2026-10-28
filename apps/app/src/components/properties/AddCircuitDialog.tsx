@@ -2,7 +2,7 @@
  * Dialog to add a new circuit (with protection) from the endpoint properties circuit dropdown.
  * Creates protection + circuit on the given panel at the end of the main bus, then assigns the endpoint.
  */
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import { getProtectionCurveOptions } from './protectionCurveOptions'
 import { getProtectionResidualTypeOptions } from './protectionResidualTypeOptions'
@@ -99,9 +99,11 @@ export default function AddCircuitDialog({
 
   const sensitivityOptions = isRCBO ? [10, 30, 100, 300] : [10, 30, 100, 300, 500]
 
-  useEffect(() => {
+  const [defaultSource, setDefaultSource] = useState({ protectionType, polesConfig })
+  if (defaultSource.protectionType !== protectionType || defaultSource.polesConfig !== polesConfig) {
+    setDefaultSource({ protectionType, polesConfig })
     const defaults = getProtectionCreationProps(
-      useProjectStore.getState().currentProject,
+      currentProject,
       protectionType
     )
     setRatingA((defaults.ratingA as number) ?? '')
@@ -113,7 +115,7 @@ export default function AddCircuitDialog({
     setBreakingCapacityKa(defaults.breakingCapacityKa)
     setBreakingCapacityOption(defaults.breakingCapacityOption)
     setPolesConfigLocal(defaults.polesConfig ?? polesConfig)
-  }, [protectionType, polesConfig])
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

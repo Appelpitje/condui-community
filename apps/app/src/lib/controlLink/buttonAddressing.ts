@@ -1,7 +1,7 @@
 import type { ControlAddressing, ControlButtonAddress, Endpoint } from '@/types/schema'
 import { normalizeChannel, normalizeGroups } from './controlAddress'
 
-/** Only the impulse-switch symbol multiplies independently addressed pushbuttons. */
+/** Only the pushbutton symbol supports multiple independently addressed buttons. */
 export function getControlButtonCount(endpoint: Endpoint): number {
   const count = endpoint.symbol === 'switch_impulse' ? endpoint.switchProps?.switchingCount : undefined
   return count != null && Number.isFinite(count) ? Math.max(1, Math.floor(count)) : 1

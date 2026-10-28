@@ -1,3 +1,4 @@
+import { useModuleArtwork } from './useModuleArtwork'
 import { memo, useCallback, useRef, useEffect, useState } from 'react'
 import { Circle, Rect, Group, Text, Image, Line } from 'react-konva'
 import { useUIStore } from '@/stores/uiStore'
@@ -15,14 +16,11 @@ import Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import {
   DOMOTICA_CONTROL_OVERLAY_PATHS,
-  getSwitchDisplaySvgPath,
   getSymbolById,
   getDomainForSymbol,
 } from '@/lib/symbols'
-import { loadProcessedSymbol } from '@/lib/symbolImage'
 import { getSurgeProtectionSymbolPath } from '@/lib/surgeProtectionSymbol'
 import {
-  CONVERTER_ARTWORK_PATHS,
   getConverterArtworkLayout,
   getConverterCornerPosition,
   getConverterDomainCorner,
@@ -217,15 +215,6 @@ function ModuleBox({
   const tooltipVisibleRef = useRef(false)
   const mousePositionRef = useRef<{ clientX: number; clientY: number }>({ clientX: 0, clientY: 0 })
 
-  const [domoticaMainImage, setDomoticaMainImage] = useState<HTMLImageElement | null>(null)
-  const [domoticaControlImages, setDomoticaControlImages] = useState<
-    Partial<
-      Record<
-        'programmed_control' | 'wireless_control' | 'detection_control' | 'button_control',
-        HTMLImageElement | null
-      >
-    >
-  >({})
   const [liveWidth, setLiveWidth] = useState<number | null>(null)
   const [resizeInvalid, setResizeInvalid] = useState(false)
 
@@ -235,9 +224,9 @@ function ModuleBox({
     }
   }, [])
 
+  if (isMarqueeSelecting && isHovered) setIsHovered(false)
   useEffect(() => {
     if (!isMarqueeSelecting) return
-    setIsHovered(false)
     onHoverRefChange?.(null)
     if (tooltipTimerRef.current) {
       clearTimeout(tooltipTimerRef.current)
@@ -725,154 +714,10 @@ function ModuleBox({
     ? getSurgeProtectionSymbolPath(spdDevice.surgeProtectionKind)
     : null
 
-  const [acSymbolImage, setAcSymbolImage] = useState<HTMLImageElement | null>(null)
-  const [dcSymbolImage, setDcSymbolImage] = useState<HTMLImageElement | null>(null)
-  const [energyDeviceImage, setEnergyDeviceImage] = useState<HTMLImageElement | null>(null)
-  const [energyBaseImage, setEnergyBaseImage] = useState<HTMLImageElement | null>(null)
-  const [energyDiagonalImage, setEnergyDiagonalImage] = useState<HTMLImageElement | null>(null)
-  const [rotatingSwitchImage, setRotatingSwitchImage] = useState<HTMLImageElement | null>(null)
-  const [spdSymbolImage, setSpdSymbolImage] = useState<HTMLImageElement | null>(null)
-  const [relaySymbolImage, setRelaySymbolImage] = useState<HTMLImageElement | null>(null)
-  const [relayControlOverlayImage, setRelayControlOverlayImage] = useState<HTMLImageElement | null>(
-    null
-  )
-
-  // Load AC/DC domain symbols for energy conversion modules (panel view)
-  useEffect(() => {
-    if (!isEnergyConversionModule) {
-      setAcSymbolImage(null)
-      setDcSymbolImage(null)
-      return
-    }
-    const isDark = themeMode === 'dark'
-    loadProcessedSymbol('/symbols/energy-conversion/symbol_AC.svg', isDark)
-      .then(setAcSymbolImage)
-      .catch(() => setAcSymbolImage(null))
-    loadProcessedSymbol('/symbols/energy-conversion/symbol_DC.svg', isDark)
-      .then(setDcSymbolImage)
-      .catch(() => setDcSymbolImage(null))
-  }, [isEnergyConversionModule, themeMode])
-
-  // Show the actual conversion-device symbol in the center of the panel module.
-  useEffect(() => {
-    if (!isEnergyConversionModule || isDirectionalEnergyConversion || !energySymbolMeta?.svgPath) {
-      setEnergyDeviceImage(null)
-      return
-    }
-    loadProcessedSymbol(energySymbolMeta.svgPath, themeMode === 'dark')
-      .then(setEnergyDeviceImage)
-      .catch(() => setEnergyDeviceImage(null))
-  }, [
-    energySymbolMeta?.svgPath,
-    isDirectionalEnergyConversion,
-    isEnergyConversionModule,
-    themeMode,
-  ])
-
-  useEffect(() => {
-    if (!isDirectionalEnergyConversion) {
-      setEnergyBaseImage(null)
-      setEnergyDiagonalImage(null)
-      return
-    }
-    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.base, themeMode === 'dark')
-      .then(setEnergyBaseImage)
-      .catch(() => setEnergyBaseImage(null))
-    loadProcessedSymbol(CONVERTER_ARTWORK_PATHS.diagonal, themeMode === 'dark')
-      .then(setEnergyDiagonalImage)
-      .catch(() => setEnergyDiagonalImage(null))
-  }, [isDirectionalEnergyConversion, themeMode])
-
-  useEffect(() => {
-    if (!isSelectorSwitchModule || !rotatingSwitchSymbolMeta?.svgPath) {
-      setRotatingSwitchImage(null)
-      return
-    }
-    loadProcessedSymbol(rotatingSwitchSymbolMeta.svgPath, themeMode === 'dark')
-      .then(setRotatingSwitchImage)
-      .catch(() => setRotatingSwitchImage(null))
-  }, [isSelectorSwitchModule, rotatingSwitchSymbolMeta?.svgPath, themeMode])
-
-  useEffect(() => {
-    if (!spdSymbolPath) {
-      setSpdSymbolImage(null)
-      return
-    }
-    loadProcessedSymbol(spdSymbolPath, themeMode === 'dark')
-      .then(setSpdSymbolImage)
-      .catch(() => setSpdSymbolImage(null))
-  }, [spdSymbolPath, themeMode])
-
-  useEffect(() => {
-    if (!info.relay) {
-      setRelaySymbolImage(null)
-      setRelayControlOverlayImage(null)
-      return
-    }
-    const isDark = themeMode === 'dark'
-    loadProcessedSymbol(info.relay.symbolPath, isDark)
-      .then(setRelaySymbolImage)
-      .catch(() => setRelaySymbolImage(null))
-    loadProcessedSymbol(info.relay.controlOverlayPath, isDark)
-      .then(setRelayControlOverlayImage)
-      .catch(() => setRelayControlOverlayImage(null))
-  }, [info.relay, themeMode])
-
-  // Load domotica main symbol image for panel modules
-  useEffect(() => {
-    if (moduleRef.kind !== 'domotica' || !domoticaProps) {
-      setDomoticaMainImage(null)
-      return
-    }
-    let path: string | null = null
-    if (domoticaMainType === 'switch' && domoticaProps.mainSwitchSymbol) {
-      path = getSwitchDisplaySvgPath(domoticaProps.mainSwitchSymbol, domoticaProps.mainSwitchProps)
-    } else if (domoticaMainType === 'socket' && domoticaProps.mainSocketSymbol) {
-      const sym = getSymbolById(domoticaProps.mainSocketSymbol)
-      path = sym?.svgPath ?? null
-    }
-    if (!path) {
-      setDomoticaMainImage(null)
-      return
-    }
-    const isDark = themeMode === 'dark'
-    loadProcessedSymbol(path, isDark)
-      .then(setDomoticaMainImage)
-      .catch(() => setDomoticaMainImage(null))
-  }, [
-    moduleRef.kind,
-    domoticaMainType,
-    domoticaProps,
-    domoticaProps?.mainSwitchSymbol,
-    domoticaProps?.mainSwitchProps,
-    domoticaProps?.mainSocketSymbol,
-    themeMode,
-  ])
-
-  // Load domotica control overlay icons (shared SVGs per key) for panel modules
-  useEffect(() => {
-    if (moduleRef.kind !== 'domotica') {
-      setDomoticaControlImages({})
-      return
-    }
-    const keys: Array<keyof typeof DOMOTICA_CONTROL_OVERLAY_PATHS> = [
-      'programmed_control',
-      'wireless_control',
-      'detection_control',
-      'button_control',
-    ]
-    keys.forEach((key) => {
-      const path = DOMOTICA_CONTROL_OVERLAY_PATHS[key]
-      const isDark = themeMode === 'dark'
-      loadProcessedSymbol(path, isDark)
-        .then((img) => {
-          setDomoticaControlImages((prev) => ({ ...prev, [key]: img }))
-        })
-        .catch(() => {
-          setDomoticaControlImages((prev) => ({ ...prev, [key]: null }))
-        })
-    })
-  }, [moduleRef.kind, themeMode])
+  const { acSymbolImage, dcSymbolImage, energyDeviceImage, energyBaseImage, energyDiagonalImage, rotatingSwitchImage, spdSymbolImage, relaySymbolImage, relayControlOverlayImage, domoticaMainImage, domoticaControlImages } = useModuleArtwork({
+    moduleKind: moduleRef.kind, domoticaProps, info, themeMode, isEnergyConversionModule,
+    isDirectionalEnergyConversion, energySymbolMeta, isSelectorSwitchModule, rotatingSwitchSymbolMeta, spdSymbolPath,
+  })
 
   return (
     <Group

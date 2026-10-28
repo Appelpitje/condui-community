@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react'
 import type Konva from 'konva'
 import { Group, Line, Rect, Shape } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
@@ -7,11 +7,16 @@ import type { LayoutNode } from '@/lib/layout/layoutTree'
 import type { BottomUpPanelLayout } from '@/lib/layout/bottomUpLayout'
 import { useThemeColors } from '@/lib/theme/hooks'
 import { PanelFrame } from './PanelFrame'
+import RenderNode from './RenderNode'
+import { useOverviewInteraction } from './OverviewInteractionContext'
 
-export type ForwardOverviewInteraction = (
-  targetName: string,
-  event: KonvaEventObject<Event>
-) => void
+/** Auxiliary subtrees are constructed only after the overview itself mounts. */
+export function DiagramAuxiliaryNodes({ nodes, nodeProps }: {
+  nodes: readonly LayoutNode[]
+  nodeProps: Omit<ComponentProps<typeof RenderNode>, 'node'>
+}) {
+  return nodes.map((node) => <RenderNode key={node.id} node={node} {...nodeProps} />)
+}
 
 /** Transparent proxies need native hit drawing and geometry, but no scene rasterization. */
 function OverviewHitTargets({ children }: { children: ReactNode }) {
@@ -39,15 +44,14 @@ function OverviewHitTargets({ children }: { children: ReactNode }) {
 export function DiagramOverview({
   model,
   panelLayout,
-  forward,
-  renderAuxiliaryNode,
+  auxiliaryNodes,
 }: {
   model: NonNullable<ReturnType<typeof buildDiagramOverview>>
   panelLayout: BottomUpPanelLayout
-  forward: ForwardOverviewInteraction
-  renderAuxiliaryNode: (node: LayoutNode) => ReactNode
+  auxiliaryNodes?: ReactNode
 }) {
   const colors = useThemeColors()
+  const forward = useOverviewInteraction()
   const events = (targetName: string) => ({
     onClick: (event: KonvaEventObject<MouseEvent>) => forward(targetName, event),
     onTap: (event: KonvaEventObject<TouchEvent>) => forward(targetName, event),
@@ -108,9 +112,7 @@ export function DiagramOverview({
             />
           ))}
         </OverviewHitTargets>
-        {model.auxiliaryNodes.map((node) => (
-          <Fragment key={node.id}>{renderAuxiliaryNode(node)}</Fragment>
-        ))}
+        {auxiliaryNodes}
       </Group>
     </PanelFrame>
   )

@@ -46,6 +46,15 @@ export function LabelStripPdfPreview({ blob }: LabelStripPdfPreviewProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [visiblePages, setVisiblePages] = useState<Set<number>>(() => new Set())
+  const [previousBlob, setPreviousBlob] = useState(blob)
+  if (previousBlob !== blob) {
+    setPreviousBlob(blob)
+    setPdfDocument(null)
+    setPageNumbers([])
+    setVisiblePages(new Set())
+    setIsLoading(true)
+    setLoadError(false)
+  }
   const canvasRefs = useRef<Record<number, HTMLCanvasElement | null>>({})
   const pageRefs = useRef<Record<number, HTMLElement | null>>({})
   const previewContainerRef = useRef<HTMLDivElement>(null)
@@ -55,12 +64,7 @@ export function LabelStripPdfPreview({ blob }: LabelStripPdfPreviewProps) {
     let cancelled = false
     let loadedDocument: PdfDocumentLike | null = null
 
-    setPdfDocument(null)
-    setPageNumbers([])
-    setVisiblePages(new Set())
     renderedAtZoomRef.current = {}
-    setIsLoading(true)
-    setLoadError(false)
 
     void (async () => {
       try {

@@ -15,7 +15,7 @@ import { getProjectElectricalInstallation, getProjectElectricalPanels } from '@/
 import { circuitConverterEndpointConnections, circuitWireNodeKind } from './circuitWireIdentity'
 import { secondaryFeederPartnerAnchors } from './secondaryFeederRuns'
 import { isProjectDefaultCableAnchor, resolveProjectDefaultCableKind } from './circuitWireDefaults'
-import { isSecondaryBusFeederAnchor, sharedRailRun } from './railWireRuns'
+import { isRailFeederAnchor, sharedRailRun } from './railWireRuns'
 import { buildWireBusIndex } from './wireBusIndex'
 import type { Circuit, Panel } from '@/types/schema'
 
@@ -30,6 +30,8 @@ export interface WireRunChanges {
   lengthSource?: 'estimated'
   /** `true` hands the cable type back to the project default; a `cable` change makes it authored. */
   followsDefaultCable?: boolean
+  /** `true` stores an explicit "no fire class"; choosing a class or `false` restores inheritance. */
+  fireClassNone?: boolean
 }
 
 function pickMemberEntries<T>(
@@ -236,7 +238,7 @@ export function editWireRunAtAnchor(
     for (let index = runs.length - 1; index >= 0; index -= 1)
       if (runs[index]?.members.length === 0) runs.splice(index, 1)
   }
-  const railEligible = isRailEdge || !!liveEdge.properties?.wireBusGroup || isSecondaryBusFeederAnchor(anchor)
+  const railEligible = isRailEdge || !!liveEdge.properties?.wireBusGroup || isRailFeederAnchor(anchor, buses)
   if (changes.medium && (changes.medium === 'cable' || railEligible)) {
     run.medium = changes.medium
     if (changes.medium === 'busbar') run.material = 'copper'
@@ -263,7 +265,10 @@ export function editWireRunAtAnchor(
     if (!run.conductorsOverridden)
       run.conductors = reconcileConductors(run.conductors, deriveSeedConductors(run.cable))
     delete run.followsDefaultCable
+    if (run.cable.fireClass) delete run.fireClassNone
   }
+  if (changes.fireClassNone && !run.cable.fireClass && run.medium !== 'busbar') run.fireClassNone = true
+  else if (changes.fireClassNone === false) delete run.fireClassNone
   if (changes.followsDefaultCable && run.medium !== 'busbar' && isProjectDefaultCableAnchor(anchor))
     run.followsDefaultCable = true
   else if (changes.followsDefaultCable === false) delete run.followsDefaultCable
@@ -286,6 +291,7 @@ export function editWireRunAtAnchor(
     run.inTube = undefined
     run.labels = undefined
     delete run.followsDefaultCable
+    delete run.fireClassNone
     if (!run.conductorsOverridden)
       run.conductors = reconcileConductors(run.conductors, deriveSeedConductors(run.cable))
   }

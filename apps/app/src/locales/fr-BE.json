@@ -238,6 +238,7 @@
     "exportProjectError": "Échec du téléchargement du projet. Veuillez réessayer.",
     "settings": "Paramètres",
     "shortcuts": "Raccourcis",
+    "offlineApp": "Application hors ligne",
     "installOffline": "Installer pour utilisation hors ligne",
     "contactSupport": "Contacter le support",
     "documentation": "Documentation",
@@ -259,6 +260,8 @@
     }
   },
   "pwaInstall": {
+    "installedMessage": "Condui est installé comme application. Ouvrez-le depuis les applications de votre appareil. Pour le réinstaller, supprimez-le dans les paramètres des applications du navigateur, puis revenez sur Condui.",
+    "browserInstructions": "Dans Chrome ou Edge, ouvrez le menu du navigateur et choisissez Installer l’application. Dans Safari sur Mac, choisissez Fichier → Ajouter au Dock. Si Condui est déjà installé, ouvrez-le depuis vos applications. Pour le réinstaller, supprimez-le dans les paramètres des applications du navigateur, puis revenez sur Condui.",
     "iosTitle": "Ajouter à l'écran d'accueil",
     "iosInstructions": "Appuyez sur Partager dans Safari, puis choisissez « Sur l'écran d'accueil ».",
     "unavailableTitle": "Installation pas encore disponible",
@@ -2512,6 +2515,10 @@
       "branchMultiplierEndpointsSplit": "Circuit {{circuitCode}} : la dérivation « {{branchLabel}} » contient {{absorbCount}} symbole(s) multiplicateur(s) en trop comme points séparés ; fusionnez en un seul point avec plusieurs placements. Utilisez Réparer dans l’inspecteur d’orphelins."
     },
     "primitives": {
+      "undergroundCable": {
+        "message": "XVB/XGB enterré : vérifiez le conduit de protection",
+        "details": "Les câbles XVB et XGB ne sont pas destinés à être enterrés directement. Utilisez un conduit de protection bien drainé et vérifiez les prescriptions de pose du fabricant."
+      },
       "feedbackSafety": {
         "rcdOverload": {
           "message": "Courant nominal du différentiel trop faible",
@@ -3143,7 +3150,7 @@
     "categoryEnergyMeters": "Compteurs d'énergie",
     "categorySockets": "Prises",
     "categorySwitches": "Interrupteurs",
-    "categoryImpulse": "Interrupteurs à impulsion",
+    "categoryImpulse": "Boutons-poussoirs",
     "categoryLights": "Points lumineux",
     "categoryRelays": "Relais",
     "categoryDomotica": "Domotique / Smarthome",
@@ -3198,10 +3205,12 @@
     "thickness": "Épaisseur",
     "fireClass": "Classe de feu",
     "inTube": "Tube",
+    "conductorMarks": "Marquages des conducteurs",
     "onWall": "Sur mur",
     "inWall": "Dans le mur",
     "inGround": "Terre",
     "inAir": "Air",
+    "useUpstreamRoute": "Reprendre en amont",
     "routeNone": "Aucun",
     "routeLabel": "Trajet du câble",
     "notFound": "Segment de fil introuvable",
@@ -3865,13 +3874,20 @@
     "shapeOf": "Forme"
   },
   "materialListExport": {
+    "etimRelease": "Version ETIM",
+    "etimClass": "Classe ETIM",
+    "etimClassName": "Nom de classe ETIM",
+    "etimClassVersion": "Version de classe ETIM",
+    "etimFeatures": "Propriétés ETIM (JSON)",
+    "etimSource": "Source ETIM",
+    "etimNotice": "ETIM 10.0. Les champs ETIM des éléments non classés restent vides.",
     "cableMargin": "Marge de câble (%)",
     "invalidCableMargin": "Saisissez un pourcentage valide supérieur ou égal à 0.",
     "skipSupplyPanel": "Exclure le matériel du tableau réseau",
     "title": "Exporter la liste de matériel",
     "menu": "Métré / liste de matériel",
     "export": "Exporter",
-    "searchAliases": "Excel CSV Robaws métré quantités matériel",
+    "searchAliases": "Excel CSV ETIM Robaws métré quantités matériel",
     "preset": "Préréglage",
     "standard": "Standard",
     "format": "Format du fichier",

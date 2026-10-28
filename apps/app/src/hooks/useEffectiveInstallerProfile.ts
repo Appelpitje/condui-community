@@ -51,7 +51,7 @@ export function useEffectiveInstallerProfile(project: ProjectWithInstallerOverri
   const { installerBranding } = useEditionFeatureAvailability(project?.project.id)
 
   useEffect(() => {
-    loadProfile()
+    void loadProfile()
   }, [loadProfile])
 
   const rawProfile: InstallerProfile | null = project?.project?.installerOverride

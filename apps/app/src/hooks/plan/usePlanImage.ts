@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import { withCadDisplayLineWeight } from '@/lib/plan/cadLineWeight'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useProjectStore } from '@/stores/projectStore'
@@ -34,25 +34,26 @@ export function usePlanImage(
   canvasRef: React.RefObject<{ fitToView: () => void } | null>
 ) {
   const theme = useSettingsStore((state) => state.theme)
-  const activeFloorIdRef = useRef<string | null>(null)
-  activeFloorIdRef.current = activeFloor?.id ?? null
+  const activeFloorId = activeFloor?.id ?? null
+  const activeFloorIdRef = useRef(activeFloorId)
+  useLayoutEffect(() => {
+    activeFloorIdRef.current = activeFloorId
+  }, [activeFloorId])
+
+  const persistedOffset = activeFloor?.planImageOffset
+  const savedOffset = useProjectStore((state) =>
+    activeFloorId ? state.planCanvasPlanImageOffsetByFloorId[activeFloorId] : undefined
+  )
+  const [positionSource, setPositionSource] = useState({ activeFloorId, persistedOffset })
 
   const [planImage, setPlanImage] = useState<HTMLImageElement | null>(null)
-  const [planImagePosition, setPlanImagePosition] = useState<{ x: number; y: number }>({
-    x: 0,
-    y: 0,
-  })
-
-  useEffect(() => {
-    const id = activeFloor?.id
-    if (!id) {
-      setPlanImagePosition({ x: 0, y: 0 })
-      return
-    }
-    const persistedOffset = activeFloor?.planImageOffset
-    const saved = useProjectStore.getState().planCanvasPlanImageOffsetByFloorId[id]
-    setPlanImagePosition(persistedOffset ?? saved ?? { x: 0, y: 0 })
-  }, [activeFloor?.id, activeFloor?.planImageOffset])
+  const [planImagePosition, setPlanImagePosition] = useState(
+    () => persistedOffset ?? savedOffset ?? { x: 0, y: 0 }
+  )
+  if (positionSource.activeFloorId !== activeFloorId || positionSource.persistedOffset !== persistedOffset) {
+    setPositionSource({ activeFloorId, persistedOffset })
+    setPlanImagePosition(persistedOffset ?? savedOffset ?? { x: 0, y: 0 })
+  }
 
   const canonicalAsset = activeFloor?.planImportAsset
   const { sourceDataUrl: planImageDataUrl, processedDataUrl: planImageProcessedDataUrl } =
@@ -76,13 +77,11 @@ export function usePlanImage(
     [rawSvgContent, cadAssetWidth, isCadAsset]
   )
   const grayscale = canonicalAsset?.grayscale === true
+  if (!planImageDataUrl && !svgContent && planImage !== null) setPlanImage(null)
 
   // Load image when plan asset changes
   useEffect(() => {
-    if (!planImageDataUrl && !svgContent) {
-      setPlanImage(null)
-      return
-    }
+    if (!planImageDataUrl && !svgContent) return
 
     let cancelled = false
 
@@ -165,7 +164,7 @@ export function usePlanImage(
       }
     }
 
-    loadImage()
+    void loadImage()
     return () => {
       cancelled = true
     }

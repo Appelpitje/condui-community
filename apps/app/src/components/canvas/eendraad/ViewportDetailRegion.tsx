@@ -25,7 +25,7 @@ export function ViewportDetailRegion({
   const groupRef = useRef<Konva.Group>(null)
   const [visible, setVisible] = useState(false)
   const visibleRef = useRef(visible)
-  visibleRef.current = visible
+  useLayoutEffect(() => { visibleRef.current = visible }, [visible])
   useLayoutEffect(() => {
     const group = groupRef.current,
       layer = group?.getLayer(),

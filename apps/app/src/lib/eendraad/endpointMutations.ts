@@ -36,6 +36,7 @@ import {
 } from '@/lib/eendraad/sameSymbolAddMore'
 import { selectProjectBuildingFloors } from '@/lib/projectV2/buildingFloors'
 import type { DropTarget } from '@/lib/layout/findDropTarget'
+import { connectEmptyProtectionWire } from '@/lib/wires/connectEmptyProtectionWire'
 
 /**
  * Detach an ordinary AC point for immediate reinsertion by the shared drop engine. This is
@@ -501,6 +502,9 @@ export function addEndpointToProject(
                     ? 'protection already had a label; not overwritten'
                     : null,
         })
+      }
+      if (parentProtection) {
+        connectEmptyProtectionWire(project, result.circuit, parentProtection.id, endpoint.id)
       }
       // Insert at position or append (all mutation inside set() so state is writable)
       // null = insert at very start, string = insert after that endpoint, undefined = append

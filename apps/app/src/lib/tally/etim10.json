@@ -1,0 +1,253 @@
+{
+  "release": "10.0",
+  "source": "https://www.etim-international.com/wp-content/uploads/2024/12/ETIM-10.0-ALL-SECTORS-CSV-METRIC-EI-2024-12-05.zip",
+  "sha256": "9b2aa17f105315884661fe6a7a35f5fdbc8835d768a5906117cbc420420b6214",
+  "license": "https://opendatacommons.org/licenses/by/1-0/",
+  "classes": {
+    "EC000003": {
+      "name": "Residual current circuit breaker (RCCB)",
+      "version": 10,
+      "features": {
+        "EF001391": {
+          "name": "Number of poles",
+          "type": "N"
+        },
+        "EF000227": {
+          "name": "Rated current",
+          "type": "N",
+          "unit": "A"
+        },
+        "EF002358": {
+          "name": "Rated fault current",
+          "type": "N",
+          "unit": "A"
+        },
+        "EF002560": {
+          "name": "Leakage current type",
+          "type": "A",
+          "values": {
+            "EV000896": "A",
+            "EV000460": "AC",
+            "EV000074": "B",
+            "EV010681": "B+",
+            "EV000334": "F",
+            "EV000154": "Other"
+          }
+        },
+        "EF002561": {
+          "name": "Selective protection",
+          "type": "L"
+        }
+      }
+    },
+    "EC000025": {
+      "name": "Dimmer",
+      "version": 10,
+      "features": {}
+    },
+    "EC000029": {
+      "name": "Push button",
+      "version": 10,
+      "features": {
+        "EF001391": {
+          "name": "Number of poles",
+          "type": "N"
+        },
+        "EF000227": {
+          "name": "Rated current",
+          "type": "N",
+          "unit": "A"
+        }
+      }
+    },
+    "EC000042": {
+      "name": "Miniature circuit breaker (MCB)",
+      "version": 9,
+      "features": {
+        "EF000889": {
+          "name": "Release characteristic",
+          "type": "A",
+          "values": {
+            "EV000896": "A",
+            "EV000074": "B",
+            "EV000084": "C",
+            "EV005300": "Cs",
+            "EV000413": "D",
+            "EV000647": "E",
+            "EV000334": "F",
+            "EV004701": "G",
+            "EV000247": "K",
+            "EV010785": "KM",
+            "EV014062": "MA",
+            "EV002065": "S",
+            "EV003530": "Z",
+            "EV000154": "Other"
+          }
+        },
+        "EF008618": {
+          "name": "Number of poles (total)",
+          "type": "N"
+        },
+        "EF000227": {
+          "name": "Rated current",
+          "type": "N",
+          "unit": "A"
+        }
+      }
+    },
+    "EC000125": {
+      "name": "Socket outlet",
+      "version": 10,
+      "features": {
+        "EF000336": {
+          "name": "Number of socket outlets",
+          "type": "N"
+        },
+        "EF002358": {
+          "name": "Rated fault current",
+          "type": "N",
+          "unit": "mA"
+        }
+      }
+    },
+    "EC000133": {
+      "name": "Movement sensor/presence detector complete",
+      "version": 10,
+      "features": {}
+    },
+    "EC000905": {
+      "name": "Earth leakage circuit breaker",
+      "version": 10,
+      "features": {
+        "EF008618": {
+          "name": "Number of poles (total)",
+          "type": "N"
+        },
+        "EF000227": {
+          "name": "Rated current",
+          "type": "N",
+          "unit": "A"
+        },
+        "EF002358": {
+          "name": "Rated fault current",
+          "type": "N",
+          "unit": "A"
+        },
+        "EF002560": {
+          "name": "Leakage current type",
+          "type": "A",
+          "values": {
+            "EV000896": "A",
+            "EV000460": "AC",
+            "EV000074": "B",
+            "EV010681": "B+",
+            "EV000334": "F",
+            "EV000154": "Other"
+          }
+        },
+        "EF000889": {
+          "name": "Release characteristic",
+          "type": "A",
+          "values": {
+            "EV000896": "A",
+            "EV000074": "B",
+            "EV000084": "C",
+            "EV000413": "D",
+            "EV000647": "E",
+            "EV000247": "K",
+            "EV000154": "Other"
+          }
+        }
+      }
+    },
+    "EC000993": {
+      "name": "Single core single insulated wire",
+      "version": 9,
+      "features": {
+        "EF000060": {
+          "name": "Nominal cross section conductor",
+          "type": "N",
+          "unit": "mm²"
+        }
+      }
+    },
+    "EC001506": {
+      "name": "Electricity meter",
+      "version": 10,
+      "features": {}
+    },
+    "EC001590": {
+      "name": "Installation switch",
+      "version": 10,
+      "features": {
+        "EF002960": {
+          "name": "Wiring system",
+          "type": "A",
+          "values": {
+            "EV006435": "Intermediate switch",
+            "EV006675": "Normally open contact (NO)",
+            "EV000398": "Reverser",
+            "EV000943": "Series switch",
+            "EV024764": "Switch 1x2-pole + 1x1-pole",
+            "EV000500": "Switch 2-pole",
+            "EV006374": "Switch 3-pole",
+            "EV009624": "Switch 1-pole",
+            "EV006342": "Switch 2x1-pole",
+            "EV006343": "Switch 3x1-pole",
+            "EV000648": "Two-way switch",
+            "EV006530": "Two-way/two-way switch",
+            "EV000154": "Other"
+          }
+        },
+        "EF000227": {
+          "name": "Rated current",
+          "type": "N",
+          "unit": "A"
+        }
+      }
+    },
+    "EC001763": {
+      "name": "Fire detector",
+      "version": 10,
+      "features": {}
+    },
+    "EC003248": {
+      "name": "Power cable < 1 kV, for permanent installation",
+      "version": 3,
+      "features": {
+        "EF000060": {
+          "name": "Nominal cross section conductor",
+          "type": "N",
+          "unit": "mm²"
+        },
+        "EF001792": {
+          "name": "Number of cores",
+          "type": "N"
+        },
+        "EF007468": {
+          "name": "With protective conductor",
+          "type": "L"
+        }
+      }
+    },
+    "EC003250": {
+      "name": "Power cable < 1 kV, for moving application",
+      "version": 3,
+      "features": {
+        "EF000060": {
+          "name": "Nominal cross section conductor",
+          "type": "N",
+          "unit": "mm²"
+        },
+        "EF001792": {
+          "name": "Number of cores",
+          "type": "N"
+        },
+        "EF007468": {
+          "name": "With protective conductor",
+          "type": "L"
+        }
+      }
+    }
+  }
+}

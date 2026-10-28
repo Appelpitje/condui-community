@@ -138,4 +138,3 @@ export function PlanFloorReferenceOverlays({
   )
 }
 
-export { DEFAULT_PLAN_IMAGE_OFFSET }

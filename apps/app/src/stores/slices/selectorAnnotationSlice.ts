@@ -6,13 +6,11 @@ import { syncDerivedEndpointFlags } from '@/lib/eendraad/endpointInsertAfter'
 import { pruneEendraadFrames } from '@/lib/eendraad/frameContent'
 import {
   collectAllGroundTrunkDevices,
-  findGroundTrunkDeviceOwner,
 } from '@/lib/eendraad/panelGround'
 import {
   findCircuitById,
   findEndpointById,
   findPanelContainingCircuit,
-  findSupplyDeviceContainer,
   getAllCircuits,
   getAllEndpoints,
   getAllProtections,
@@ -33,6 +31,7 @@ import {
 } from '@/lib/panel/healSupplyTrunkGrid'
 import { setPanelFeedOrganizationInProject } from '@/lib/panel/panelFeedOrganization'
 import { findPanelById } from '@/lib/panel/panelTree'
+import { findProjectTrunkDevice } from '@/lib/projectV2/trunkDeviceLookup'
 import {
   getSupplyDeviceVisibilitySurface,
   isSupplyDeviceVisibleInPanel,
@@ -404,49 +403,7 @@ export const createSelectorAnnotationSlice: ProjectSliceCreator = (set, get) => 
 
   getTrunkDeviceById: (deviceId) => {
     const { currentProject } = get()
-    if (!currentProject) return undefined
-
-    // Check shared/root supply trunk devices first
-    const supplyContainer = findSupplyDeviceContainer(currentProject, deviceId)
-    const supplyDevice = supplyContainer?.devices.find((d) => d.id === deviceId)
-    if (supplyDevice) {
-      return {
-        device: supplyDevice,
-        circuit: null,
-        isSupplyDevice: true,
-        supplyFeedScope: supplyContainer?.scope,
-        supplyPanelId: supplyContainer?.panelId,
-      }
-    }
-
-    // Check ground trunk devices
-    const installation = selectProjectElectricalInstallation(currentProject)
-    const groundOwner = findGroundTrunkDeviceOwner(
-      selectProjectElectricalPanels(currentProject),
-      installation,
-      deviceId
-    )
-    if (groundOwner) {
-      return {
-        device: groundOwner.devices[groundOwner.index]!,
-        circuit: null,
-        isGroundDevice: true,
-      }
-    }
-
-    // Check circuit trunk devices
-    for (const panel of selectProjectElectricalPanels(currentProject)) {
-      const circuits = getAllCircuits(panel)
-      for (const circuit of circuits) {
-        const device =
-          circuit.trunkDevices?.find((d) => d.id === deviceId) ??
-          circuit.branches
-            ?.flatMap((branch) => branch.branchDevices ?? [])
-            .find((d) => d.id === deviceId)
-        if (device) return { device, circuit, isSupplyDevice: false }
-      }
-    }
-    return undefined
+    return currentProject ? findProjectTrunkDevice(currentProject, deviceId) : undefined
   },
 
   // Helper to find parent circuit for an endpoint (works for endpoints in main or secondary panels)

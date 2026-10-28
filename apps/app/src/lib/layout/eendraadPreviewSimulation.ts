@@ -1,4 +1,3 @@
-import { isSupplyBranchDevice } from '@/lib/supplyAssembly/electricalTopology'
 import { nanoid } from 'nanoid'
 import { hideInlineConverterMetadataByDefault } from '@/lib/conversionLabels'
 import type {
@@ -19,27 +18,17 @@ import { symbolSupportsWireDomain, type SymbolMetadata } from '@/lib/symbols'
 import type { DropTarget } from '@/lib/layout/findDropTarget'
 import {
   circuitAcceptsTrunkSwitch,
-  createCircuitTrunkSwitchDevice,
-  getCircuitTrunkSwitchPositionForDrop,
   isCircuitTrunkSwitchDropTarget,
   isCircuitTrunkSwitchSymbol,
 } from '@/lib/eendraad/circuitTrunkSwitch'
-import { initializeBranchesIfNeeded, getCircuitBranches } from '@/lib/layout/endpointChains'
+import { initializeBranchesIfNeeded } from '@/lib/layout/endpointChains'
 import { getEndpointTypeFromSymbol, getSymbolKeyFromSymbol } from '@/utils'
 import {
-  isFixedApplianceSymbol,
-  isActualEndpointSymbol,
-  isInBetweenDevice,
-  isActualEndpoint,
-} from '@/utils/symbolMapping'
-import {
-  canChainLightOnLightBranch,
+  computeEndpointInsertAfter,
   isDcOnlyEndpointSymbol,
-  isEnergyConversionEndpointSymbol,
   normalizeDomoticaChildDropIntent,
   shouldDefaultRelayToImpulse,
 } from '@/lib/eendraad/endpointInsertAfter'
-import { DEFAULT_ELECTRICAL_DOMAIN } from '@/types/schema'
 import { resolveSymbolPortsForWire } from '@/lib/symbols'
 import { getNextAvailableCircuitCode } from '@/utils/project'
 import {
@@ -50,15 +39,11 @@ import {
 } from '@/lib/protectionDefaults'
 import {
   PROTECTION_SYMBOL_ID_TO_TYPE,
-  PROTECTION_SYMBOL_IDS,
   isCircuitTrunkAddOnProtectionType,
   resolveInitialProtectionBusLabel,
 } from '@/lib/protectionKind'
 import { generateId } from '@/utils'
-import {
-  getNextTerminalStripLabel,
-  getTerminalStripTrunkConnectionProps,
-} from '@/lib/terminalStrip/labels'
+import { getTerminalStripTrunkConnectionProps } from '@/lib/terminalStrip/labels'
 import {
   circuitContainsJunctionPanelIdentity,
   getJunctionIdentity,
@@ -69,11 +54,10 @@ import {
   createDefaultAcCircuitCable,
   DEFAULT_AC_CIRCUIT_WIRE_LABEL_FLAGS,
 } from '@/lib/wires/circuitWireDefaults'
-import { ensureRootFeedForBusSection, getSupplyFeedDevicesForPanel } from '@/lib/feedTopology'
+import { getSupplyFeedDevicesForPanel } from '@/lib/feedTopology'
 import {
   domoticaChildRefForEndpoint,
   updateDomoticaChainHeadAfterInsert,
-  getDomoticaEndpointInputDomain,
   resolveDomoticaConversionDropTarget,
   domoticaChildRefForBranchInsert,
   insertDomoticaChildEndpoint,
@@ -81,7 +65,6 @@ import {
 import { syncSequentialEndpointBranchLabelsToCircuit } from '@/lib/eendraad/automaticEndpointBranchNaming'
 import { getAllCircuits } from '@/lib/eendraad/projectElectricalDomain'
 import { getMainBusItemsWithIndices } from '@/lib/eendraad/mainBusOrder'
-import { resolvePanelSupplyLinksForSourcePanel } from '@/lib/eendraad/panelSupplyLink'
 import {
   isEndpointBranchDropTarget,
   refreshBranchDropTargetAfterInsert,
@@ -92,21 +75,13 @@ import { clamp } from '@/lib/geometry'
 import {
   findOrdinaryCircuitDcBusForOutput,
   getCircuitConverterPrimaryBranch,
-  promoteOrdinaryCircuitBranchesToDcBus,
 } from './circuitConverterGeometry'
 import {
   liftCircuitContentAboveOwnProtection,
   moveCircuitToCircuitContentPosition,
 } from '@/lib/eendraad/circuitContentInsertion'
-import {
-  getProjectElectricalInstallation,
-  getEditableProjectElectricalInstallation,
-  getEditableProjectElectricalPanels,
-  getProjectElectricalPanels,
-  type ProjectWithOptionalV2Electrical,
-} from '@/lib/projectV2/electrical'
+import { getEditableProjectElectricalInstallation } from '@/lib/projectV2/electrical'
 import { findPanelById } from '@/lib/panel/panelTree'
-import { applySecondaryPanelEarthingStem } from '@/lib/eendraad/panelGround'
 import { getMainBusInsertionSectionId } from '@/lib/panel/panelBusSections'
 import { getPanelFeedOrganization } from '@/lib/panel/panelFeedOrganization'
 import { canCreateSupplyTopologyFromDrop } from '@/lib/supplyTopologyFeature'
@@ -120,9 +95,6 @@ import {
   movePanelAttachmentToMainBus,
 } from '@/lib/eendraad/panelAttachmentMove'
 import {
-  directConverterBackupInlineDevicesToTrunkDevices,
-  findDirectConverterBackupProtection,
-  getDirectConverterOutputChainForChangeover,
   panelHasPopulatedDirectConverterBackup,
   resolveDirectConverterChangeoverInsertIndex,
 } from '@/lib/supplyAssembly/directConverterBackupUpgrade'
@@ -139,28 +111,30 @@ import { applyCommandBatch } from '@/lib/commands/project/transaction'
 import { CommandError } from '@/lib/commands/project/types'
 import type { ElectricalEnclosureRef } from '@/types/supplyAssembly'
 
-type PreviewProject = ProjectWithOptionalV2Electrical
-let outputPlacementRegistry: ProjectCommandRegistry | undefined
+import {
+  circuitIsTerminalPanelFeederSim,
+  countPanelsSim,
+  findCircuitInProject,
+  findPanelForCircuit,
+  findProtectionByCircuitIdInProject,
+  findProtectionByIdInProject,
+  mutableProjectInstallation,
+  mutableProjectPanels,
+  projectPanels,
+  type EendraadPreviewChangeSet,
+  type PreviewProject,
+} from './eendraadPreviewModel'
+import { getCircuitTrunkPositionForDropSim, getWireDomainAtDropTargetSim } from './eendraadPreviewWireDomain'
+import {
+  simulateEarthingStemDrop,
+  simulateGroundTrunkDevice,
+  simulateSupplyTrunkDevice,
+  simulateTrunkDeviceOnCircuit,
+} from './eendraadPreviewTrunkPlacement'
 
-export interface EendraadPreviewChangeSet {
-  project: PreviewProject
-  /** Panels whose layout is affected by this simulated drop. */
-  affectedPanelIds: string[]
-  /** Circuits that were created or structurally changed (endpoints/branches/trunkDevices). */
-  affectedCircuitIds: string[]
-  /** Endpoints that were created by this drop. */
-  createdEndpointIds: string[]
-  /** Protections that were created (e.g. new MCB for nested circuit). */
-  createdProtectionIds: string[]
-  /** Trunk devices that were created on a circuit or supply. */
-  createdTrunkDeviceIds: string[]
-  /** Existing circuit trunk devices repositioned in this preview (same id). */
-  movedTrunkDeviceIds: string[]
-  /** Supply trunk devices created on installation.mainSupply.supplyTrunkDevices. */
-  createdSupplyTrunkDeviceIds: string[]
-  /** Ground trunk devices created on installation.groundTrunkDevices. */
-  createdGroundTrunkDeviceIds: string[]
-}
+export type { EendraadPreviewChangeSet } from './eendraadPreviewModel'
+
+let outputPlacementRegistry: ProjectCommandRegistry | undefined
 
 /**
  * Shallow clone helper for preview projects.
@@ -168,58 +142,6 @@ export interface EendraadPreviewChangeSet {
  */
 function cloneProject<T extends PreviewProject>(project: T): T {
   return JSON.parse(JSON.stringify(project)) as T
-}
-
-function projectPanels(project: PreviewProject): Panel[] {
-  return getProjectElectricalPanels(project)
-}
-
-function mutableProjectPanels(project: PreviewProject): Panel[] {
-  return getEditableProjectElectricalPanels(project)
-}
-
-function projectInstallation(project: PreviewProject) {
-  return getProjectElectricalInstallation(project)
-}
-
-function mutableProjectInstallation(project: PreviewProject) {
-  return getEditableProjectElectricalInstallation(project)
-}
-
-function findPanelForCircuit(project: PreviewProject, circuitId: string): Panel | null {
-  const stack = [...projectPanels(project)]
-  while (stack.length) {
-    const p = stack.pop()!
-    if (p.circuits.some((c) => c.id === circuitId)) return p
-    if (p.protections) {
-      for (const prot of p.protections) {
-        if (prot.circuits?.some((c) => c.id === circuitId)) return p
-      }
-    }
-    if (p.subPanels?.length) stack.push(...p.subPanels)
-  }
-  return null
-}
-
-function findCircuitInProject(project: PreviewProject, circuitId: string): Circuit | null {
-  const panels: Panel[] = []
-  const stack = [...projectPanels(project)]
-  while (stack.length) {
-    const p = stack.pop()!
-    panels.push(p)
-    if (p.subPanels?.length) stack.push(...p.subPanels)
-  }
-  for (const panel of panels) {
-    const direct = panel.circuits.find((c) => c.id === circuitId)
-    if (direct) return direct
-    if (panel.protections) {
-      for (const prot of panel.protections) {
-        const fromProt = prot.circuits?.find((c) => c.id === circuitId)
-        if (fromProt) return fromProt
-      }
-    }
-  }
-  return null
 }
 
 function removeEndpointFromPreviewCircuit(circuit: Circuit, endpointId: string): void {
@@ -245,239 +167,6 @@ function removeEndpointFromPreviewCircuit(circuit: Circuit, endpointId: string):
       ),
     }
   }
-}
-
-function findProtectionByIdInProject(
-  project: PreviewProject,
-  protectionId: string
-): ProtectionDevice | null {
-  const stack = [...projectPanels(project)]
-  while (stack.length) {
-    const panel = stack.pop()!
-    const protection = panel.protections?.find((p) => p.id === protectionId) ?? null
-    if (protection) return protection
-    if (panel.subPanels?.length) stack.push(...panel.subPanels)
-  }
-  return null
-}
-
-function findProtectionByCircuitIdInProject(
-  project: PreviewProject,
-  circuitId: string
-): ProtectionDevice | null {
-  const stack = [...projectPanels(project)]
-  while (stack.length) {
-    const panel = stack.pop()!
-    for (const protection of panel.protections ?? []) {
-      if (protection.circuits?.some((c) => c.id === circuitId)) {
-        return protection
-      }
-    }
-    if (panel.subPanels?.length) stack.push(...panel.subPanels)
-  }
-  return null
-}
-
-function countPanelsSim(panels: Panel[]): number {
-  let count = 0
-  const stack = [...panels]
-  while (stack.length) {
-    const panel = stack.pop()!
-    count++
-    if (panel.subPanels?.length) stack.push(...panel.subPanels)
-  }
-  return count
-}
-
-/**
- * True if the given circuit feeds a sub-panel via its protection device.
- * When this is the case the circuit is terminal: no additional endpoints
- * or trunk devices should be previewed on that circuit.
- */
-function circuitFeedsSubPanelSim(project: PreviewProject, circuitId: string): boolean {
-  const stack: Panel[] = [...projectPanels(project)]
-  while (stack.length) {
-    const p = stack.pop()!
-    for (const link of resolvePanelSupplyLinksForSourcePanel(project, p)) {
-      if (link.feederCircuit?.id === circuitId && !link.sourcePanelEndpoint?.domoticaChildProps) return true
-    }
-    if (p.subPanels?.length) stack.push(...p.subPanels)
-  }
-  return false
-}
-
-/**
- * Compute trunk position similarly to existing getCircuitTrunkPositionForDrop, but purely on Circuit.
- */
-function getCircuitTrunkPositionForDropSim(target: DropTarget, circuit: Circuit): number {
-  if (target.insertAfterCircuitContent) {
-    return Math.max(getCircuitBranches(circuit).length, ...(circuit.trunkDevices ?? []).map((device) => device.trunkPosition ?? 0))
-  }
-  const trunkDevices = [...(circuit.trunkDevices ?? [])].sort(
-    (a, b) => (a.trunkPosition ?? 0) - (b.trunkPosition ?? 0)
-  )
-
-  if (typeof target.circuitTrunkSegmentIndex === 'number') {
-    const segmentIndex = target.circuitTrunkSegmentIndex
-    if (segmentIndex <= 0 || trunkDevices.length === 0) return 0
-    const prevDevice = trunkDevices[Math.min(segmentIndex - 1, trunkDevices.length - 1)]
-    return prevDevice?.trunkPosition ?? 0
-  }
-
-  if (target.insertAfterEndpointId) {
-    const branches = getCircuitBranches(circuit)
-    for (let i = 0; i < branches.length; i++) {
-      const branch = branches[i]
-      if (branch?.some((ep) => ep.id === target.insertAfterEndpointId)) {
-        return i + 1
-      }
-    }
-  }
-
-  return 0
-}
-
-/**
- * Determine the electrical domain on a circuit trunk based purely on the simulated project.
- */
-function getWireDomainAtDropTargetSim(
-  target: DropTarget,
-  project: PreviewProject
-): typeof DEFAULT_ELECTRICAL_DOMAIN {
-  if (target.wireDomain) {
-    return target.wireDomain as typeof DEFAULT_ELECTRICAL_DOMAIN
-  }
-  const AC = 'AC' as const
-
-  if (target.type === 'supplyWire') {
-    const installation = projectInstallation(project)
-    const targetPanel = target.panelId
-      ? findPanelById(projectPanels(project), target.panelId)
-      : null
-    const panelSupplyCircuit = targetPanel?.circuits?.find((c) => c.code === 'PANEL')
-    const panelSupply = [...(panelSupplyCircuit?.trunkDevices ?? [])].sort(
-      (a, b) => (a.trunkPosition ?? 0) - (b.trunkPosition ?? 0)
-    )
-    const supply =
-      panelSupply.length > 0 || (targetPanel && !targetPanel.isMain)
-        ? panelSupply
-        : targetPanel?.isMain && target.panelId && installation
-          ? getSupplyFeedDevicesForPanel(
-              installation,
-              projectPanels(project),
-              target.panelId,
-              target.supplyFeedScope ?? 'shared'
-            )
-          : (installation?.mainSupply?.supplyTrunkDevices ?? [])
-    const insertIndex = target.supplyDeviceInsertIndex ?? 0
-    if (insertIndex === 0) return AC
-    let domain: typeof DEFAULT_ELECTRICAL_DOMAIN = AC
-    for (let i = 0; i < insertIndex; i++) {
-      const prevDevice = supply[i]
-      if (!prevDevice) continue
-      const resolved = resolveSymbolPortsForWire(prevDevice.symbol, domain)
-      if (resolved.matched && resolved.oppositePortDomain) {
-        domain = resolved.oppositePortDomain
-      }
-    }
-    return domain
-  }
-
-  // Direct-converter right/top insertion slots are explicit DC lanes; there
-  // is no ordinary serial supply prefix to walk for domain inference here.
-  if (target.type === 'supplyConverterDcWire') return 'DC'
-
-  if (target.type === 'circuit' && target.circuitId && !target.branchEndpoints?.length) {
-    const circuit = findCircuitInProject(project, target.circuitId)
-    if (!circuit) return AC
-    const trunkDevices = [...(circuit.trunkDevices ?? [])].sort(
-      (a, b) => (a.trunkPosition ?? 0) - (b.trunkPosition ?? 0)
-    )
-    if (!trunkDevices.length) return AC
-
-    if (typeof target.circuitTrunkSegmentIndex === 'number' && !target.insertAfterCircuitContent) {
-      const segmentIndex = target.circuitTrunkSegmentIndex
-      if (segmentIndex <= 0) return AC
-      let domain: typeof DEFAULT_ELECTRICAL_DOMAIN = AC
-      const endExclusive = Math.min(segmentIndex, trunkDevices.length)
-      for (let i = 0; i < endExclusive; i++) {
-        const prevDevice = trunkDevices[i]
-        if (!prevDevice) continue
-        const resolved = resolveSymbolPortsForWire(prevDevice.symbol, domain)
-        if (resolved.matched && resolved.oppositePortDomain) {
-          domain = resolved.oppositePortDomain
-        }
-      }
-      return domain
-    }
-
-    const trunkPosition = getCircuitTrunkPositionForDropSim(target, circuit)
-    if (trunkPosition === 0) return AC
-    const prevDevices = target.insertAfterCircuitContent
-      ? trunkDevices
-      : trunkDevices.filter((d) => (d.trunkPosition ?? 0) < trunkPosition)
-    let domain: typeof DEFAULT_ELECTRICAL_DOMAIN = AC
-    for (const prevDevice of prevDevices) {
-      const resolved = resolveSymbolPortsForWire(prevDevice.symbol, domain)
-      if (resolved.matched && resolved.oppositePortDomain) {
-        domain = resolved.oppositePortDomain
-      }
-    }
-    return domain
-  }
-
-  if (target.type === 'endpoint' || (target.type === 'circuit' && target.branchEndpoints?.length)) {
-    const circuitId = target.circuitId
-    if (!circuitId) return AC
-    const circuit = findCircuitInProject(project, circuitId)
-    if (!circuit) return AC
-    const branchIndex = getCircuitBranches(circuit).findIndex((branch) =>
-      branch.some((endpoint) => endpoint.id === target.endpointId || target.branchEndpoints?.includes(endpoint.id)))
-    const trunkDevices = (circuit.trunkDevices ?? []).filter((device) =>
-      branchIndex < 0 || (device.trunkPosition ?? 0) <= branchIndex)
-    const sorted = [...trunkDevices].sort((a, b) => (a.trunkPosition ?? 0) - (b.trunkPosition ?? 0))
-    let domain: typeof DEFAULT_ELECTRICAL_DOMAIN = AC
-    for (const td of sorted) {
-      const resolved = resolveSymbolPortsForWire(td.symbol, domain)
-      if (resolved.matched && resolved.oppositePortDomain) {
-        domain = resolved.oppositePortDomain
-      }
-    }
-
-    // Branch drops must account for upstream in-branch conversion symbols.
-    const targetEndpoint = circuit.endpoints.find((endpoint) => endpoint.id === target.endpointId)
-    if (targetEndpoint && (targetEndpoint.domoticaChildProps || target.domoticaOutput)) {
-      const input = getDomoticaEndpointInputDomain(circuit, targetEndpoint.id, domain)
-      if (target.domoticaOutput || target.domoticaChildDropIntent === 'insertBefore') return input
-      if (!targetEndpoint.symbol) return input
-      const resolved = resolveSymbolPortsForWire(targetEndpoint.symbol, input)
-      return resolved.matched ? (resolved.oppositePortDomain ?? input) : input
-    }
-    const branchIds = target.branchEndpoints ?? []
-    if (branchIds.length > 0) {
-      let upstreamIds: string[] = []
-      if (target.insertAfterEndpointId === null) {
-        upstreamIds = []
-      } else if (typeof target.insertAfterEndpointId === 'string') {
-        const idx = branchIds.indexOf(target.insertAfterEndpointId)
-        upstreamIds = idx >= 0 ? branchIds.slice(0, idx + 1) : []
-      } else {
-        upstreamIds = [...branchIds]
-      }
-
-      for (const endpointId of upstreamIds) {
-        const endpoint = circuit.endpoints.find((ep) => ep.id === endpointId)
-        if (!endpoint?.symbol) continue
-        const resolved = resolveSymbolPortsForWire(endpoint.symbol, domain)
-        if (resolved.matched && resolved.oppositePortDomain) {
-          domain = resolved.oppositePortDomain
-        }
-      }
-    }
-    return domain
-  }
-
-  return AC
 }
 
 /**
@@ -512,9 +201,8 @@ function simulateEndpointDrop(
 
   if (!circuitId) return
 
-  // Circuits that feed a secondary panel are terminal: the MCB output
-  // goes exclusively to the sub‑panel, so no extra endpoints should be previewed.
-  if (circuitFeedsSubPanelSim(project, circuitId)) {
+  // Dedicated board feeders stay terminal; mixed consumer branches remain editable.
+  if (circuitIsTerminalPanelFeederSim(project, circuitId)) {
     return
   }
 
@@ -593,101 +281,14 @@ function simulateEndpointDrop(
     : initializeBranchesIfNeeded(circuit)
 
   let branchEndpointIds = target.branchEndpoints?.length ? target.branchEndpoints : null
-  const inBetween = isInBetweenDevice(symbol)
-  const actualEndpoint = isActualEndpointSymbol(symbol)
+  let { insertAfterEndpointId, createNewBranch } = computeEndpointInsertAfter(target, circuit, symbol)
 
-  let insertAfterEndpointId: string | null | undefined = target.insertAfterEndpointId
-  let createNewBranch = false
-
-  // Domotica body or output wire drop: treat as adding to that output (first output when dropping on body).
   if (isDomoticaOutputDrop && target.domoticaOutput && target.endpointId) {
-    insertAfterEndpointId = target.endpointId
     endpoint.domoticaChildProps = {
       parentEndpointId: target.endpointId,
       outputGroup: 'endpoint',
       outputIndex: target.domoticaOutput.index,
     }
-  }
-
-  if (target.domoticaChildDropIntent === 'insertBefore' && branchEndpointIds?.length) {
-    createNewBranch = false
-  }
-
-  if (target.domoticaChildDropIntent === 'insertBefore' && branchEndpointIds?.length) {
-    // Keep the preview on the existing Domotica chain using the preceding endpoint.
-  } else if (inBetween) {
-    if (branchEndpointIds?.length) {
-      // Clamp in-between devices so they never end up after an actual endpoint.
-      if (typeof insertAfterEndpointId === 'string') {
-        const idx = branchEndpointIds.indexOf(insertAfterEndpointId)
-        if (idx >= 0) {
-          const ep = circuit.endpoints.find((e) => e.id === insertAfterEndpointId)
-          const isDomoticaAfterConversion = symbol.id === 'domotica' && isEnergyConversionEndpointSymbol(ep?.symbol)
-          if (ep && isActualEndpoint(ep) && !isDomoticaAfterConversion) {
-            insertAfterEndpointId = idx > 0 ? branchEndpointIds[idx - 1] : null
-          }
-        }
-      }
-    }
-  } else if (actualEndpoint) {
-    const insertAfterEp =
-      typeof insertAfterEndpointId === 'string'
-        ? circuit.endpoints.find((e) => e.id === insertAfterEndpointId)
-        : undefined
-
-    if (branchEndpointIds?.length && insertAfterEp?.domoticaChildProps) {
-      createNewBranch = false
-    } else {
-      const isFixed = isFixedApplianceSymbol(symbol)
-
-      // Static devices are the actual endpoints that may legally be inserted
-      // *after* a socket on the same branch. This includes branch-local energy
-      // conversion devices; mirror the runtime computeInsertAfter behaviour.
-      const isFixedAfterSocket =
-        !!branchEndpointIds?.length && isFixed && insertAfterEp?.type === 'socket'
-      const isDcAfterConversion =
-        !!branchEndpointIds?.length &&
-        isDcOnlyEndpointSymbol(symbol) &&
-        isEnergyConversionEndpointSymbol(insertAfterEp?.symbol)
-
-      if (isFixedAfterSocket || isDcAfterConversion) {
-        // insertAfterEndpointId already points to the socket; createNewBranch
-        // (or converter) stays false so the static device is appended on the same branch.
-      } else if (
-        branchEndpointIds?.length &&
-        canChainLightOnLightBranch(branchEndpointIds, circuit, symbol)
-      ) {
-        insertAfterEndpointId = branchEndpointIds[branchEndpointIds.length - 1]
-        createNewBranch = false
-      } else if (branchEndpointIds?.length) {
-        // General rule for actual endpoints:
-        // - If the branch already has a terminal (socket/light), a new terminal
-        //   must start a new branch.
-        // - Otherwise append at the end of the current branch.
-        const hasTerminalAlready = branchEndpointIds.some((id) => {
-          const ep = circuit.endpoints.find((e) => e.id === id)
-          return ep && (ep.type === 'socket' || ep.type === 'light_point')
-        })
-        if (hasTerminalAlready) {
-          // Keep hovered-position intent for unchainable endpoint drops:
-          // before lead-in wire => before hovered branch, otherwise after.
-          if (insertAfterEndpointId !== null) {
-            const lastId = branchEndpointIds[branchEndpointIds.length - 1]
-            insertAfterEndpointId = lastId
-          }
-          createNewBranch = true
-        } else {
-          const lastId = branchEndpointIds[branchEndpointIds.length - 1]
-          insertAfterEndpointId = lastId
-          createNewBranch = false
-        }
-      }
-    }
-  }
-
-  if (target.type === 'circuit' && typeof target.branchInsertIndex === 'number') {
-    insertAfterEndpointId = undefined
-    createNewBranch = true
   }
 
   // A converter's direct backup output is intentionally one simple circuit.
@@ -989,7 +590,7 @@ function simulateProtectionDrop(
     target.insertAfterCircuitContent !== true &&
     typeof target.secondaryBusInsertIndex !== 'number'
   if (isInlineCircuitProtectionDrop && target.circuitId) {
-    if (circuitFeedsSubPanelSim(project, target.circuitId)) return
+    if (circuitIsTerminalPanelFeederSim(project, target.circuitId)) return
     const circuit = findCircuitInProject(project, target.circuitId)
     if (!circuit) return
     const segmentIndex = target.circuitTrunkSegmentIndex
@@ -1363,483 +964,6 @@ export function simulateProtectionRelocationOnProject(
   }
 }
 
-/**
- * Simulate dropping an energy meter or other trunk device on a circuit trunk.
- */
-function simulateTrunkDeviceOnCircuit(
-  project: PreviewProject,
-  target: DropTarget,
-  symbol: SymbolMetadata,
-  type: TrunkDevice['type'],
-  changeSet: EendraadPreviewChangeSet
-): void {
-  if (!target.circuitId) return
-  const circuit = findCircuitInProject(project, target.circuitId)
-  if (!circuit) return
-
-  // Do not preview additional trunk devices on circuits that feed a sub-panel.
-  if (circuitFeedsSubPanelSim(project, circuit.id)) {
-    return
-  }
-
-  const segmentPosition = getCircuitTrunkPositionForDropSim(target, circuit)
-  const trunkPosition = isCircuitTrunkSwitchSymbol(symbol.id)
-    ? getCircuitTrunkSwitchPositionForDrop(target, segmentPosition)
-    : segmentPosition
-  const deviceId = generateId()
-  const trunkDevice: TrunkDevice = isCircuitTrunkSwitchSymbol(symbol.id)
-    ? createCircuitTrunkSwitchDevice(symbol.id, deviceId, trunkPosition)
-    : {
-        id: deviceId,
-        type,
-        symbol: symbol.id as TrunkDevice['symbol'],
-        label:
-          symbol.id === 'terminal_strip'
-            ? getNextTerminalStripLabel(project, undefined, target.circuitId)
-            : type === 'conversion' || type === 'switch' || type === 'relay'
-              ? ''
-              : (symbol.name ?? ''),
-        trunkPosition,
-        ...(type === 'switch' ? { poles: 1, polesConfig: '1P' as const } : {}),
-        ...(target.converterDcConnection
-          ? { converterDcConnection: { ...target.converterDcConnection } }
-          : {}),
-        ...(type === 'dc_bus' ? { dcBusProps: {} } : {}),
-        ...(symbol.id === 'terminal_strip'
-          ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId)
-          : isSharedJunctionSymbol(symbol.id)
-            ? { junctionIdentity: getNextJunctionIdentity(project, symbol.id) }
-            : {}),
-      }
-
-  const list = [...(circuit.trunkDevices ?? []), trunkDevice]
-  // Order according to segment index if available
-  if (typeof target.circuitTrunkSegmentIndex === 'number' && !target.insertAfterCircuitContent) {
-    const segIndex = target.circuitTrunkSegmentIndex
-    list.sort((a, b) => (a.trunkPosition ?? 0) - (b.trunkPosition ?? 0))
-    const currentIdx = list.findIndex((d) => d.id === deviceId)
-    if (currentIdx !== -1) {
-      list.splice(currentIdx, 1)
-      const insertIdx = clamp(segIndex, 0, list.length)
-      list.splice(insertIdx, 0, trunkDevice)
-    }
-  }
-
-  circuit.trunkDevices = list
-  if (isCircuitTrunkSwitchSymbol(symbol.id)) {
-    syncSequentialEndpointBranchLabelsToCircuit(
-      circuit,
-      findPanelForCircuit(project, circuit.id) ?? undefined
-    )
-  }
-  if (type === 'dc_bus') {
-    circuit.branches = promoteOrdinaryCircuitBranchesToDcBus(
-      circuit,
-      deviceId,
-      target.converterDcConnection
-    )
-  }
-
-  changeSet.affectedCircuitIds.push(circuit.id)
-  const owningPanel = findPanelForCircuit(project, circuit.id)
-  if (owningPanel && !changeSet.affectedPanelIds.includes(owningPanel.id)) {
-    changeSet.affectedPanelIds.push(owningPanel.id)
-  }
-  changeSet.createdTrunkDeviceIds.push(deviceId)
-}
-
-/**
- * Simulate adding a device to the supply trunk wire (installation.mainSupply.supplyTrunkDevices).
- * Mirrors addSupplyTrunkDevice in dropBehaviors for preview.
- */
-function simulateSupplyTrunkDevice(
-  project: PreviewProject,
-  target: DropTarget,
-  symbol: SymbolMetadata,
-  changeSet: EendraadPreviewChangeSet
-): void {
-  if (symbol.id === 'energy_meter') {
-    return
-  }
-
-  const targetPanel = target.panelId ? findPanelById(projectPanels(project), target.panelId) : null
-  const panelSupplyCircuit = targetPanel?.circuits?.find((c) => c.code === 'PANEL')
-  if (targetPanel && !targetPanel.isMain && panelSupplyCircuit) {
-    const list = [...(panelSupplyCircuit.trunkDevices ?? [])]
-    const deviceId = generateId()
-    const insertIndex = target.supplyDeviceInsertIndex ?? list.length
-    let deviceType: TrunkDevice['type'] = 'energy_meter'
-    let label = ''
-    if (symbol.id === 'energy_meter') {
-      deviceType = 'energy_meter'
-      label = 'kWh'
-    } else if (symbol.id === 'relay') {
-      deviceType = 'relay'
-    } else if (symbol.id === 'junction_box') {
-      deviceType = 'junction_box'
-      label = ''
-    } else if (symbol.id === 'terminal_strip') {
-      deviceType = 'terminal_strip'
-      label = getNextTerminalStripLabel(project, undefined, target.circuitId)
-    } else if (symbol.id === 'junction_panel') {
-      deviceType = 'junction_panel'
-      label = 'JP1'
-    } else if (symbol.id === 'source_changeover') {
-      deviceType = 'changeover'
-      label = ''
-    } else if (symbol.id === 'domotica') {
-      deviceType = 'domotica'
-      label = ''
-    } else if (['transformer', 'rectifier', 'inverter', 'dc_dc_converter'].includes(symbol.id)) {
-      deviceType = 'conversion'
-      label = symbol.name ?? ''
-    } else if (
-      ['mcb', 'rcd', 'rcbo', 'fuse', 'main_switch', 'spd', 'rotating_switch'].includes(symbol.id)
-    ) {
-      deviceType = 'protection'
-      const protectionType = PROTECTION_SYMBOL_ID_TO_TYPE[symbol.id]
-      label = protectionType === 'ROTATING_SWITCH' ? '' : symbol.id.toUpperCase()
-    }
-    const trunkDevice: TrunkDevice = {
-      id: deviceId,
-      type: deviceType,
-      symbol: symbol.id as TrunkDevice['symbol'],
-      label,
-      ...(symbol.id === 'terminal_strip' ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId) : {}),
-      trunkPosition: 0,
-      ...(symbol.id === 'domotica'
-        ? { domoticaProps: { endpointCount: 1, endpointChildEndpointIds: [] } }
-        : {}),
-    }
-    const idx = clamp(insertIndex, 0, list.length)
-    list.splice(idx, 0, trunkDevice)
-    list.forEach((d, i) => {
-      d.trunkPosition = i
-    })
-    panelSupplyCircuit.trunkDevices = list
-    changeSet.createdTrunkDeviceIds.push(deviceId)
-    if (!changeSet.affectedPanelIds.includes(targetPanel.id)) {
-      changeSet.affectedPanelIds.push(targetPanel.id)
-    }
-    changeSet.affectedCircuitIds.push(panelSupplyCircuit.id)
-    return
-  }
-
-  const installation = mutableProjectInstallation(project)
-  if (!installation) return
-  if (!installation.mainSupply) {
-    installation.mainSupply = {
-      cable: { kind: 'XVB', conductors: 3, sectionMm2: 6, hasPE: true },
-      origin: 'grid',
-    }
-  }
-  const mainTargetPanel = target.panelId
-    ? findPanelById(projectPanels(project), target.panelId)
-    : null
-  const supplyDevices: TrunkDevice[] =
-    mainTargetPanel?.isMain && target.panelId
-      ? [
-          ...getSupplyFeedDevicesForPanel(
-            installation,
-            projectPanels(project),
-            target.panelId,
-            target.supplyFeedScope ?? 'shared',
-            target.busSectionId,
-          ),
-        ]
-      : installation.mainSupply.supplyTrunkDevices
-        ? [...installation.mainSupply.supplyTrunkDevices]
-        : []
-
-  const deviceId = generateId()
-  let insertIndex = target.supplyDeviceInsertIndex ?? supplyDevices.length
-
-  if (symbol.id === 'source_changeover') {
-    const directConverter = supplyDevices.find((device) => device.supplyPath === 'converter-branch')
-    if (directConverter) {
-      const normalizedInsertIndex = resolveDirectConverterChangeoverInsertIndex(
-        supplyDevices,
-        insertIndex,
-        Boolean(
-          mainTargetPanel && getPanelFeedOrganization(project, mainTargetPanel) === 'split-backup'
-        )
-      )
-      const converterOutputChain = getDirectConverterOutputChainForChangeover(
-        supplyDevices,
-        normalizedInsertIndex ?? undefined
-      )
-      if (!converterOutputChain) return
-      insertIndex = normalizedInsertIndex!
-      const directBackup = target.panelId
-        ? findDirectConverterBackupProtection(project, target.panelId, directConverter.id)
-        : null
-      directConverter.supplyPath = 'backup'
-      converterOutputChain.forEach((device) => {
-        device.supplyPath =
-          mainTargetPanel && getPanelFeedOrganization(project, mainTargetPanel) === 'split-backup'
-            ? 'changeover-grid'
-            : 'backup-output'
-      })
-      if (directBackup) {
-        const owningPanel = findPanelById(projectPanels(project), target.panelId!)
-        if (owningPanel) {
-          owningPanel.protections = owningPanel.protections.filter(
-            (protection) => protection.id !== directBackup.protection.id
-          )
-        }
-        supplyDevices.push(...directConverterBackupInlineDevicesToTrunkDevices(directBackup))
-      }
-    }
-  }
-
-  let deviceType: TrunkDevice['type'] = 'energy_meter'
-  let label = ''
-
-  if (symbol.id === 'energy_meter') {
-    deviceType = 'energy_meter'
-    label = 'kWh'
-  } else if (symbol.id === 'relay') {
-    deviceType = 'relay'
-  } else if (symbol.id === 'junction_box') {
-    deviceType = 'junction_box'
-    label = ''
-  } else if (symbol.id === 'terminal_strip') {
-    deviceType = 'terminal_strip'
-    label = getNextTerminalStripLabel(project, undefined, target.circuitId)
-  } else if (symbol.id === 'junction_panel') {
-    deviceType = 'junction_panel'
-    label = 'JP1'
-  } else if (symbol.id === 'source_changeover') {
-    deviceType = 'changeover'
-    label = ''
-  } else if (
-    symbol.id === 'transformer' ||
-    symbol.id === 'rectifier' ||
-    symbol.id === 'inverter' ||
-    symbol.id === 'dc_dc_converter'
-  ) {
-    deviceType = 'conversion'
-    label = symbol.name ?? ''
-  } else if (symbol.id === 'battery') {
-    deviceType = 'storage'
-  } else if (symbol.id === 'solar_panel') {
-    deviceType = 'generation'
-  } else if (symbol.id === 'dc_bus') {
-    deviceType = 'dc_bus'
-    label = 'DC'
-  } else if (symbol.id === 'domotica') {
-    deviceType = 'domotica'
-    label = ''
-  } else if (
-    PROTECTION_SYMBOL_IDS.includes(symbol.id as (typeof PROTECTION_SYMBOL_IDS)[number]) ||
-    symbol.category === 'switches'
-  ) {
-    deviceType = 'protection'
-    const protectionType = PROTECTION_SYMBOL_ID_TO_TYPE[symbol.id]
-    label = protectionType && protectionType !== 'ROTATING_SWITCH' ? symbol.id.toUpperCase() : ''
-  }
-
-  const voltagePoles = getVoltagePolesConfig(project)
-  const protectionType = PROTECTION_SYMBOL_ID_TO_TYPE[symbol.id]
-  const protectionDefaults =
-    deviceType === 'protection'
-      ? getDefaultTrunkDeviceProtectionProps(protectionType ?? 'OTHER', voltagePoles)
-      : {}
-
-  const trunkDevice: TrunkDevice = {
-    id: deviceId,
-    type: deviceType,
-    symbol: symbol.id as TrunkDevice['symbol'],
-    label,
-    ...(symbol.id === 'terminal_strip' ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId) : {}),
-    trunkPosition: insertIndex,
-    ...(target.type === 'supplyWire' &&
-    target.supplyFeedScope === 'root' &&
-    ['transformer', 'rectifier', 'inverter', 'dc_dc_converter'].includes(symbol.id)
-      ? { supplyPath: 'converter-branch' as const }
-      : target.type === 'supplyBackupWire'
-        ? {
-            supplyPath: ['transformer', 'rectifier', 'inverter', 'dc_dc_converter'].includes(
-              symbol.id
-            )
-              ? ('backup' as const)
-              : ('backup-output' as const),
-          }
-        : target.type === 'supplyBackupOutputWire'
-          ? { supplyPath: 'backup-output' as const }
-          : target.type === 'supplyChangeoverGridWire'
-            ? {
-                supplyPath: 'changeover-grid' as const,
-                ...(target.changeoverGridPlacement
-                  ? { changeoverGridPlacement: target.changeoverGridPlacement }
-                  : {}),
-              }
-            : target.type === 'supplyConverterGridWire'
-              ? {
-                  supplyPath: 'converter-grid' as const,
-                  ...(target.converterGridPlacement
-                    ? { converterGridPlacement: target.converterGridPlacement }
-                    : {}),
-                }
-              : target.type === 'supplyConverterDcWire'
-                ? {
-                    supplyPath:
-                      target.supplyConverterDcBranch === 'top'
-                        ? ('converter-dc-top' as const)
-                        : ('converter-dc' as const),
-                    supplyConverterDcConnectionIndex:
-                      target.supplyConverterDcConnectionIndex ??
-                      (target.supplyConverterDcBranch === 'top' ? 1 : 0),
-                    ...(target.supplyDcBusId
-                      ? {
-                          supplyDcBusId: target.supplyDcBusId,
-                          supplyDcBusBranchId: target.supplyDcBusBranchId ?? generateId(),
-                        }
-                      : {}),
-                    ...(target.converterDcConnection
-                      ? { converterDcConnection: { ...target.converterDcConnection } }
-                      : {}),
-                  }
-                : {}),
-    ...(symbol.id === 'battery' ? { batteryProps: { voltageV: 48, capacityKWh: 5 } } : {}),
-    ...(symbol.id === 'solar_panel' ? { solarPanelProps: { wattageW: 1000 } } : {}),
-    ...(symbol.id === 'dc_bus' ? { dcBusProps: {} } : {}),
-    ...(symbol.id === 'domotica'
-      ? { domoticaProps: { endpointCount: 1, endpointChildEndpointIds: [] } }
-      : {}),
-    ...(symbol.id === 'source_changeover'
-      ? { changeoverProps: { port1Label: '1', port2Label: '2' } }
-      : {}),
-    ...(deviceType === 'protection' && protectionType
-      ? { protectionType, ...protectionDefaults }
-      : deviceType === 'protection'
-        ? protectionDefaults
-        : {}),
-  }
-
-  if (target.supplyPanelInput && !isSupplyBranchDevice(trunkDevice)) trunkDevice.supplyPanelInput = true
-  if (insertIndex >= 0 && insertIndex <= supplyDevices.length) {
-    supplyDevices.splice(insertIndex, 0, trunkDevice)
-  } else {
-    supplyDevices.push(trunkDevice)
-  }
-  supplyDevices.forEach((device, index) => {
-    device.trunkPosition = index
-  })
-
-  if (mainTargetPanel?.isMain && target.panelId) {
-    const topology = installation.feedTopology
-    if (target.supplyFeedScope === 'root') {
-      const rootFeed = target.busSectionId
-        ? ensureRootFeedForBusSection(
-            installation, projectPanels(project), target.panelId, target.busSectionId
-          )
-        : topology?.rootFeeds.find((feed) => feed.panelId === target.panelId)
-      if (rootFeed) rootFeed.trunkDevices = supplyDevices
-    } else {
-      // Shared feed topology is derived from mainSupply by ensureInstallationFeedTopology().
-      // Store the preview ghost in the same source of truth so relayout can render it.
-      installation.mainSupply.supplyTrunkDevices = supplyDevices
-    }
-  } else {
-    installation.mainSupply.supplyTrunkDevices = supplyDevices
-  }
-  changeSet.createdSupplyTrunkDeviceIds.push(deviceId)
-  changeSet.createdTrunkDeviceIds.push(deviceId)
-
-  // Mark main panel as affected so preview overlay runs for its wires.
-  const mainPanel = projectPanels(project).find((p) => p.isMain) ?? projectPanels(project)[0]
-  if (mainPanel && !changeSet.affectedPanelIds.includes(mainPanel.id)) {
-    changeSet.affectedPanelIds.push(mainPanel.id)
-  }
-}
-
-/**
- * Simulate adding a device to the ground trunk wire (installation.groundTrunkDevices).
- * Mirrors addGroundTrunkDevice in dropBehaviors for preview.
- */
-function simulateGroundTrunkDevice(
-  project: PreviewProject,
-  target: DropTarget,
-  symbol: SymbolMetadata,
-  changeSet: EendraadPreviewChangeSet
-): void {
-  const panel = target.panelId ? findPanelById(projectPanels(project), target.panelId) : undefined
-  const installation = mutableProjectInstallation(project)
-  const usePanelStem = panel?.isMain === false
-  if (!usePanelStem && !installation) return
-  const groundDevices: TrunkDevice[] = usePanelStem
-    ? [...(panel.groundTrunkDevices ?? [])]
-    : [...(installation?.groundTrunkDevices ?? [])]
-  const deviceId = generateId()
-  const insertIndex = target.groundDeviceInsertIndex ?? groundDevices.length
-
-  let deviceType: TrunkDevice['type'] = 'earthing_separator'
-  let label = 'Aardingsonderbreker'
-
-  if (symbol.id === 'junction_box') {
-    deviceType = 'junction_box'
-    label = ''
-  } else if (symbol.id === 'terminal_strip') {
-    deviceType = 'terminal_strip'
-    label = getNextTerminalStripLabel(project, undefined, target.circuitId)
-  } else if (symbol.id === 'junction_panel') {
-    deviceType = 'junction_panel'
-    label = 'JP1'
-  }
-
-  const trunkDevice: TrunkDevice = {
-    id: deviceId,
-    type: deviceType,
-    symbol:
-      deviceType === 'earthing_separator'
-        ? ('earthing_separator' as TrunkDevice['symbol'])
-        : (symbol.id as TrunkDevice['symbol']),
-    label,
-    ...(symbol.id === 'terminal_strip' ? getTerminalStripTrunkConnectionProps(project, undefined, target.circuitId) : {}),
-    trunkPosition: insertIndex,
-  }
-
-  if (insertIndex >= 0 && insertIndex <= groundDevices.length) {
-    groundDevices.splice(insertIndex, 0, trunkDevice)
-  } else {
-    groundDevices.push(trunkDevice)
-  }
-
-  if (usePanelStem && panel) {
-    panel.groundTrunkDevices = groundDevices
-    panel.hasGround = true
-    if (!changeSet.affectedPanelIds.includes(panel.id)) changeSet.affectedPanelIds.push(panel.id)
-  } else if (installation) {
-    installation.groundTrunkDevices = groundDevices
-    const mainPanel = projectPanels(project).find((p) => p.isMain) ?? projectPanels(project)[0]
-    if (mainPanel && !changeSet.affectedPanelIds.includes(mainPanel.id)) {
-      changeSet.affectedPanelIds.push(mainPanel.id)
-    }
-  }
-  changeSet.createdGroundTrunkDeviceIds.push(deviceId)
-  changeSet.createdTrunkDeviceIds.push(deviceId)
-}
-
-function simulateEarthingStemDrop(
-  project: PreviewProject,
-  target: DropTarget,
-  changeSet: EendraadPreviewChangeSet
-): void {
-  const panel = target.panelId ? findPanelById(projectPanels(project), target.panelId) : undefined
-  if (panel?.isMain === false) {
-    applySecondaryPanelEarthingStem(panel)
-    if (!changeSet.affectedPanelIds.includes(panel.id)) changeSet.affectedPanelIds.push(panel.id)
-    return
-  }
-  const installation = mutableProjectInstallation(project)
-  if (installation) installation.hasGround = true
-  const mainPanel = projectPanels(project).find((p) => p.isMain) ?? projectPanels(project)[0]
-  if (mainPanel && !changeSet.affectedPanelIds.includes(mainPanel.id)) {
-    changeSet.affectedPanelIds.push(mainPanel.id)
-  }
-}
-
 function isConversionTrunkSymbolId(symbolId: string): boolean {
   return ['transformer', 'rectifier', 'inverter', 'dc_dc_converter'].includes(symbolId)
 }
@@ -1945,7 +1069,7 @@ export function mutateTrunkDeviceRelocation(
   if (fromIndex === -1) return false
 
   // Validate before mutating — never remove the device and then abort (would orphan/delete it).
-  if (circuitFeedsSubPanelSim(project, target.circuitId)) {
+  if (circuitIsTerminalPanelFeederSim(project, target.circuitId)) {
     return false
   }
 
@@ -2477,7 +1601,7 @@ export function simulateDropOnProject(
         if (
           circuit &&
           shouldApplySmartSwitchExpansion(target, circuit, symbol) &&
-          !circuitFeedsSubPanelSim(project, circuitId!)
+          !circuitIsTerminalPanelFeederSim(project, circuitId!)
         ) {
           let workingTarget = target
           let lastAddedId: string | undefined

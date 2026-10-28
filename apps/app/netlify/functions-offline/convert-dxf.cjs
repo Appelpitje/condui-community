@@ -1,16 +1,10 @@
 const Busboy = require('busboy')
-const path = require('path')
-const { createRequire } = require('module')
 const { gzipSync } = require('zlib')
 const { DOMParser, XMLSerializer } = require('@xmldom/xmldom')
+const { convertCadBuffer } = require('./_cad-views.cjs')
 
 const MAX_UPLOAD_BYTES = Number(process.env.DXF_CONVERT_MAX_UPLOAD_BYTES || 20 * 1024 * 1024)
 const MAX_CROP_AXIS = Number(process.env.DXF_CONVERT_MAX_CROP_AXIS || 100000)
-
-const nodeRequire = createRequire(__filename)
-
-let libredwgPromise = null
-let wasmPathResolved = null
 
 const LAMBDA_RESPONSE_LIMIT = 6_000_000
 
@@ -180,60 +174,12 @@ function cropSvg(svgContent, crop) {
   return new XMLSerializer().serializeToString(svg)
 }
 
-function getWasmDir() {
-  if (wasmPathResolved) return wasmPathResolved
-  const entryPath = nodeRequire.resolve('@mlightcad/libredwg-web')
-  wasmPathResolved = path.join(path.dirname(entryPath), '..', 'wasm') + path.sep
-  return wasmPathResolved
-}
-
-async function getLibreDwgModule() {
-  if (!libredwgPromise) {
-    libredwgPromise = import('@mlightcad/libredwg-web')
-  }
-  return libredwgPromise
-}
-
 async function convertDxfToSvg(fileBuffer) {
-  const mod = await getLibreDwgModule()
-  const wasmDir = getWasmDir()
-  const libredwg = await mod.LibreDwg.create(wasmDir)
-  const input = fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength)
-  let dxf = null
-  if (typeof libredwg.dxf_read_file === 'function') {
-    const fileName = 'tmp.dxf'
-    try {
-      libredwg.FS.writeFile(fileName, new Uint8Array(input))
-      const result = libredwg.dxf_read_file(fileName)
-      if (result?.error && result.error !== 0) {
-        throw new Error(`DXF read failed with code ${result.error}.`)
-      }
-      dxf = result?.data
-    } finally {
-      if (libredwg.FS.analyzePath(fileName, false).exists) {
-        libredwg.FS.unlink(fileName)
-      }
-    }
-  } else {
-    dxf = libredwg.dwg_read_data(input, mod.Dwg_File_Type.DXF)
+  const converted = await convertCadBuffer(fileBuffer, 'dxf')
+  if (converted.views.length === 0) {
+    throw new Error('DXF drawing has no visible model-space content.')
   }
-  if (!dxf) {
-    throw new Error('DXF reader returned no drawing data.')
-  }
-  try {
-    const db = libredwg.convert(dxf)
-    return {
-      svgContent: libredwg.dwg_to_svg(db),
-      cadMetadata: {
-        insunits: db?.header?.INSUNITS,
-        measurement: db?.header?.MEASUREMENT,
-        extmin: db?.header?.EXTMIN,
-        extmax: db?.header?.EXTMAX,
-      },
-    }
-  } finally {
-    libredwg.dwg_free(dxf)
-  }
+  return { ...converted, svgContent: converted.views[0].svgContent }
 }
 
 function escapeXml(value) {
@@ -470,22 +416,22 @@ exports.handler = async event => {
   if (cropWarning) warnings.push(cropWarning)
 
   try {
-    let fallbackWarnings = []
     let cadMetadata = undefined
     let svgContent
+    let convertedViews = []
     try {
       const converted = await convertDxfToSvg(fileBuffer)
       svgContent = converted.svgContent
       cadMetadata = converted.cadMetadata
+      convertedViews = converted.views
+      warnings.push(...converted.warnings)
     } catch (conversionError) {
       const fallback = convertDxfTextToSvg(fileBuffer.toString('utf8'))
       svgContent = fallback.svgContent
       cadMetadata = fallback.cadMetadata
-      fallbackWarnings = fallback.warnings
-      const message = conversionError instanceof Error ? conversionError.message : 'libredwg DXF reader failed.'
-      warnings.push(`libredwg DXF conversion unavailable: ${message}`)
+      const message = conversionError instanceof Error ? conversionError.message : 'DXF reader failed.'
+      warnings.push(`DXF reader unavailable: ${message}`, ...fallback.warnings)
     }
-    warnings.push(...fallbackWarnings)
     let { width, height } = parseSvgDimensions(svgContent)
     if (crop && width > 0 && height > 0) {
       const clamped = clampCrop(crop, width, height)
@@ -496,10 +442,21 @@ exports.handler = async event => {
     if (width <= 0 || height <= 0) {
       warnings.push('SVG dimensions were not explicit; width/height defaulted to 0.')
     }
+    // Crop requests apply to the single legacy SVG; per-viewport views are returned uncropped.
+    const views = !crop && convertedViews.length > 0
+      ? convertedViews.map(view => ({
+          id: view.id,
+          label: view.label,
+          svgContent: view.svgContent,
+          layers: view.layers,
+          ...parseSvgDimensions(view.svgContent),
+        }))
+      : undefined
     return jsonResponse(200, {
       svgContent,
       width,
       height,
+      ...(views ? { views } : {}),
       warnings,
       cadMetadata,
       sourceName: fileName || 'upload.dxf',

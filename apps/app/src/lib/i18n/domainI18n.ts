@@ -1,26 +1,14 @@
-import de from '@/locales/de.json'
-import pl from '@/locales/pl.json'
-import ro from '@/locales/ro.json'
 import { createInstance } from 'i18next'
-import nlBE from '@/locales/nl-BE.json'
-import frBE from '@/locales/fr-BE.json'
-import en from '@/locales/en.json'
+import { logger } from '@/lib/logger'
+import {
+  DOMAIN_LANGUAGES,
+  getLoadedLocaleCatalog,
+  loadLocaleCatalog,
+  normalizeDomainLanguage,
+  type DomainLanguage,
+} from '@/lib/i18n/localeCatalogs'
 
-export const DOMAIN_LANGUAGES = ['nl-BE', 'en', 'fr-BE', 'de', 'pl', 'ro'] as const
-export type DomainLanguage = (typeof DOMAIN_LANGUAGES)[number]
-
-/** Normalize browser, project, and test locale values to the catalogs domain code owns. */
-export function normalizeDomainLanguage(language: string | null | undefined): DomainLanguage {
-  const normalized = language?.trim().replace('_', '-').toLowerCase()
-  if (!normalized) return 'nl-BE'
-  if (normalized === 'nl' || normalized.startsWith('nl-')) return 'nl-BE'
-  if (normalized === 'fr' || normalized.startsWith('fr-')) return 'fr-BE'
-  if (normalized === 'en' || normalized.startsWith('en-')) return 'en'
-  if (normalized === 'de' || normalized.startsWith('de-')) return 'de'
-  if (normalized === 'pl' || normalized.startsWith('pl-')) return 'pl'
-  if (normalized === 'ro' || normalized.startsWith('ro-')) return 'ro'
-  return 'nl-BE'
-}
+export { DOMAIN_LANGUAGES, normalizeDomainLanguage, type DomainLanguage } from '@/lib/i18n/localeCatalogs'
 
 /**
  * React-free translation instance for domain code shared with web workers.
@@ -29,30 +17,71 @@ export function normalizeDomainLanguage(language: string | null | undefined): Do
 const domainI18n = createInstance()
 
 void domainI18n.init({
-  resources: {
-    de: { translation: de },
-    pl: { translation: pl },
-    ro: { translation: ro },
-    'nl-BE': { translation: nlBE },
-    'fr-BE': { translation: frBE },
-    en: { translation: en },
-  },
+  // Every catalog already in memory: nl-BE, or all languages when tests registered them.
+  resources: Object.fromEntries(
+    DOMAIN_LANGUAGES.flatMap((language) => {
+      const catalog = getLoadedLocaleCatalog(language)
+      return catalog ? [[language, { translation: catalog }]] : []
+    })
+  ),
   lng: 'nl-BE',
   fallbackLng: 'nl-BE',
   initAsync: false,
   interpolation: { escapeValue: false },
 })
 
+/** Add an in-memory catalog to the instance; false when it still has to be downloaded. */
+function attachLoadedCatalog(language: DomainLanguage): boolean {
+  if (domainI18n.hasResourceBundle(language, 'translation')) return true
+  const catalog = getLoadedLocaleCatalog(language)
+  if (!catalog) return false
+  domainI18n.addResourceBundle(language, 'translation', catalog)
+  return true
+}
+
+/** True when the language translates synchronously right now. */
+export function isDomainLanguageLoaded(language: string | null | undefined): boolean {
+  return attachLoadedCatalog(normalizeDomainLanguage(language))
+}
+
+/** Download a language's catalog if needed; afterwards it translates synchronously. */
+export async function ensureDomainLanguage(language: string | null | undefined): Promise<DomainLanguage> {
+  const normalized = normalizeDomainLanguage(language)
+  if (!attachLoadedCatalog(normalized)) {
+    await loadLocaleCatalog(normalized)
+    attachLoadedCatalog(normalized)
+  }
+  return normalized
+}
+
+let requestedLanguage: DomainLanguage = 'nl-BE'
+
 export function setDomainLanguage(language: string | null | undefined): void {
   const normalized = normalizeDomainLanguage(language)
+  requestedLanguage = normalized
   if (domainI18n.language === normalized) return
+  if (!attachLoadedCatalog(normalized)) {
+    // Keep the previous language until the catalog arrives instead of showing fallback text.
+    ensureDomainLanguage(normalized)
+      .then(() => {
+        if (requestedLanguage === normalized) setDomainLanguage(normalized)
+      })
+      .catch((error: unknown) => logger.warn('[domainI18n] language load failed:', normalized, error))
+    return
+  }
   void domainI18n.changeLanguage(normalized)
 }
 
 /** A locale-bound translator for deterministic domain-generated labels. */
 export function getDomainTranslator(language: string | null | undefined) {
-  const locale = language == null ? normalizeDomainLanguage(domainI18n.language) : language
-  return domainI18n.getFixedT(normalizeDomainLanguage(locale))
+  const locale = normalizeDomainLanguage(language == null ? domainI18n.language : language)
+  if (!attachLoadedCatalog(locale)) {
+    // Falls back to nl-BE for this call; callers that need the language await ensureDomainLanguage.
+    ensureDomainLanguage(locale).catch((error: unknown) =>
+      logger.warn('[domainI18n] language load failed:', locale, error)
+    )
+  }
+  return domainI18n.getFixedT(locale)
 }
 
 export default domainI18n

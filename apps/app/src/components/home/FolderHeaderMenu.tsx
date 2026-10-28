@@ -23,7 +23,7 @@ export function FolderHeaderMenu({ onRename, onDelete }: FolderHeaderMenuProps) 
     'w-full text-left px-3 py-2 text-sm rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100'
 
   return (
-    <div ref={anchorRef} className="shrink-0" data-folder-actions onClick={(e) => e.stopPropagation()}>
+    <div ref={anchorRef} className="shrink-0" data-folder-actions>
       <button
         type="button"
         onClick={toggleMenu}

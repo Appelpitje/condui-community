@@ -48,7 +48,7 @@ export function buildPathForLanguage(pathWithoutLanguage: string, language: Supp
     : `/${pathWithoutLanguage}`
   const cleanedPath = normalizedPath === '/' ? '' : normalizedPath
   if (language === 'en') {
-    return `/en${cleanedPath}` || '/en'
+    return `/en${cleanedPath}`
   }
   const shortPrefix = LANGUAGE_PREFIXES[language]
   return cleanedPath ? `/${shortPrefix}${cleanedPath}` : `/${shortPrefix}`
@@ -86,7 +86,7 @@ export function buildPathForLanguageForHostname(
 
   if (language === 'en') {
     // English is always explicit.
-    return `/en${cleanedPath}` || '/en'
+    return `/en${cleanedPath}`
   }
 
   const shortPrefix = LANGUAGE_PREFIXES[language]

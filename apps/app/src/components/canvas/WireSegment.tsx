@@ -52,9 +52,14 @@ import {
   isWireLengthLabelVisibleForSegment,
 } from '@/lib/wireLabelVisibility'
 import { getWireLengthLabel } from '@/lib/wires/wireFingerprint'
-import { getVerticalRouteIndicatorEndY } from '@/lib/wires/wireRouteIndicatorGeometry'
+import {
+  getVerticalRouteIndicatorEndY,
+  getVerticalWallRouteSymbolOffsets,
+} from '@/lib/wires/wireRouteIndicatorGeometry'
 import { getDomainForSymbol, getSymbolById } from '@/lib/symbols'
 import { DomainMarker } from '@/components/canvas/eendraad/DomainMarker'
+import { ConductorMarks } from '@/components/canvas/shared/ConductorMarks'
+import { layoutOneWireConductorMarks } from '@/lib/wires/oneWireConductorMarkLayout'
 import { CatalogSymbolImage } from '@/components/canvas/eendraad/CatalogSymbolImage'
 import {
   WIRE_LABEL_DISTANCE_FROM_WIRE,
@@ -297,6 +302,11 @@ export const WireSegmentComponent = memo(function WireSegmentComponent({
   targetProtectionType,
 }: WireSegmentProps) {
   const { t } = useTranslation()
+  const translateWire: WireTranslateFn = (key, options) => {
+    if (typeof options === 'string') return t(key, options)
+    if (options && typeof options.value === 'string') return t(key, { value: options.value })
+    return t(key)
+  }
   const setSelection = useSetSelection()
   const isWireSelected = useUIStore((s) => wireSegmentMatchesSelection(wireSegment, s.selection))
   const selectedBusSection = useUIStore((state) => state.selection.busSectionMetadata)
@@ -674,6 +684,35 @@ export const WireSegmentComponent = memo(function WireSegmentComponent({
     wireSegment.startPoint.x + (isBranchConversionOutput ? 7 : 10) + domainLabelOffsetX
   const domainLabelY = wireSegment.startPoint.y - 4
 
+  const conductorMarkLayout = wireSegment.conductorMarks
+    ? layoutOneWireConductorMarks(wireSegment, {
+        cableLabel: showCableLabel
+          ? {
+              mainText: formatWireLabel(wireSegment, {
+                otherLabel: t('wires.other', 'Other'),
+                batteryCableLabel: t('wires.batteryCable', 'Battery cable'),
+              }),
+              fireClassText: isFireClassLabelVisibleForSegment(wireSegment)
+                ? getWireFireClassLabel(wireSegment.cable)
+                : undefined,
+              wireLengthText: isWireLengthLabelVisibleForSegment(wireSegment)
+                ? getWireLengthLabel(wireSegment, translateWire)
+                : undefined,
+              labelEndPoint:
+                wireSegment.wireLabelBaseEndPoint ?? wireSegment.wireLabelEndPoint ?? wireSegment.endPoint,
+              fontFamily,
+              distanceFromWire: WIRE_LABEL_DISTANCE_FROM_WIRE + (wireSegment.wireRoute === 'air' ? 2 : 0),
+              offsetAlongWire: wireLabelOffsetAlongWire,
+            }
+          : undefined,
+        verticalRoute: showVerticalRouteIndicators ? effectiveRoute : undefined,
+        verticalTube: showVerticalRouteIndicators && wireSegment.inTube === true,
+        supplyRouteGlyphs:
+          showSupplyRouteIndicators && (wireSegment.inTube === true || !!effectiveRoute),
+        phaseLabelAt: incomingPanelPhaseLabel && isVertical ? incomingPanelPhaseLabelY : undefined,
+      })
+    : undefined
+
   let hitArea: { x: number; y: number; width: number; height: number } | null = null
 
   if (isHorizontal) {
@@ -824,7 +863,7 @@ export const WireSegmentComponent = memo(function WireSegmentComponent({
       {showCableLabel && (
         <LocalizedWireTextLabel
           wireSegment={wireSegment}
-          wireLabelOffsetAlongWire={wireLabelOffsetAlongWire}
+          wireLabelOffsetAlongWire={wireLabelOffsetAlongWire + (conductorMarkLayout?.labelShift ?? 0)}
           fontFamily={fontFamily}
           color={colors.wireColor}
           onLabelClick={handleClick}
@@ -974,19 +1013,14 @@ export const WireSegmentComponent = memo(function WireSegmentComponent({
                 const wallScale = 0.75
                 const wallSymbolCenterX = 3
                 const wallSymbolCenterY = 0
-                const segmentLength = Math.abs(routeIndicatorDeltaY)
                 // Keep both wall symbols within the decorated physical run. Tall trunks can
                 // continue beyond the first endpoint branch, but that continuation does not
                 // belong to the cable/route section immediately above the protection.
-                const idealMargin = 10
-                const minMargin = 3
-                const marginFromEnds = Math.max(
-                  minMargin,
-                  Math.min(idealMargin, segmentLength / 2 - minMargin)
-                )
-                const direction = routeIndicatorDeltaY < 0 ? -1 : 1
-                const firstSymbolY = 10 + direction * marginFromEnds
-                const secondSymbolY = 10 + routeIndicatorDeltaY - direction * marginFromEnds
+                const [firstSymbolY, secondSymbolY] =
+                  getVerticalWallRouteSymbolOffsets(
+                    routeIndicatorDeltaY,
+                    conductorMarkLayout?.wallSymbolMargin
+                  )
                 const wallLines = WALL_ROUTE_LINES.map((points, i) => (
                   <Line
                     key={i}
@@ -1028,6 +1062,17 @@ export const WireSegmentComponent = memo(function WireSegmentComponent({
             })()}
           </Group>
         </>
+      )}
+
+      {conductorMarkLayout && (
+        <ConductorMarks
+          shapes={conductorMarkLayout.shapes}
+          x={conductorMarkLayout.x}
+          y={conductorMarkLayout.y}
+          rotation={conductorMarkLayout.rotation}
+          color={colors.wireColor}
+          fontFamily={fontFamily}
+        />
       )}
 
       {/* Domain-change marker immediately after a trunk or branch conversion device. */}

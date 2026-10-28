@@ -166,7 +166,7 @@ function PlanDropCircuitPanelInner({
         )
   )
   const frameRef = useRef(frame)
-  frameRef.current = frame
+  useLayoutEffect(() => { frameRef.current = frame }, [frame])
 
   // Re-fit with the measured height (the estimate can land it on the drop or off-screen).
   useLayoutEffect(() => {
@@ -259,9 +259,8 @@ function PlanDropCircuitPanelInner({
 
   const [selectedPanelId, setSelectedPanelId] = useState(assignedPanelId)
   const [selectedCircuitId, setSelectedCircuitId] = useState<string>(assignedCircuitId)
-  const [newCircuitCodeDraft, setNewCircuitCodeDraft] = useState('')
-
   const sessionCreatedCircuitIdsRef = useRef(new Set(provisionalCircuitIds))
+  const [sessionCreatedCircuitIds, setSessionCreatedCircuitIds] = useState(() => new Set(provisionalCircuitIds))
   const undoGroupFinalizedRef = useRef(false)
 
   const circuitKindLabel = useCallback(
@@ -309,20 +308,28 @@ function PlanDropCircuitPanelInner({
 
   const orderedCircuitIds = useMemo(() => circuitRows.map((c) => c.id), [circuitRows])
 
-  const selectedProvisionalCircuitId = sessionCreatedCircuitIdsRef.current.has(selectedCircuitId)
+  const selectedProvisionalCircuitId = sessionCreatedCircuitIds.has(selectedCircuitId)
     ? selectedCircuitId
     : null
+  const [newCircuitCodeDraft, setNewCircuitCodeDraft] = useState(() =>
+    selectedProvisionalCircuitId ? getCircuitIdentifier(selectedProvisionalCircuitId) : '')
+  const [draftSource, setDraftSource] = useState({ selectedProvisionalCircuitId, getCircuitIdentifier })
+  if (draftSource.selectedProvisionalCircuitId !== selectedProvisionalCircuitId ||
+      draftSource.getCircuitIdentifier !== getCircuitIdentifier) {
+    setDraftSource({ selectedProvisionalCircuitId, getCircuitIdentifier })
+    setNewCircuitCodeDraft(selectedProvisionalCircuitId ? getCircuitIdentifier(selectedProvisionalCircuitId) : '')
+  }
 
   const orderedCircuitRows = useMemo(() => {
     const stableRows = circuitRows.filter(
-      (circuit) => !sessionCreatedCircuitIdsRef.current.has(circuit.id)
+      (circuit) => !sessionCreatedCircuitIds.has(circuit.id)
     )
     return orderPlanDropCircuitsForDisplay(
       stableRows,
       (id) => eligibilityMap.eligibilityMap.get(id) === true,
       (a, b) => comparePlanDropCircuitCodes(getCircuitIdentifier(a.id), getCircuitIdentifier(b.id))
     )
-  }, [circuitRows, eligibilityMap.eligibilityMap, getCircuitIdentifier])
+  }, [circuitRows, eligibilityMap.eligibilityMap, getCircuitIdentifier, sessionCreatedCircuitIds])
 
   const preferredCircuitRows = orderedCircuitRows.preferred
   const otherCircuitRows = orderedCircuitRows.other
@@ -403,6 +410,7 @@ function PlanDropCircuitPanelInner({
       for (const ref of result.removed) {
         if (ref.kind === 'circuit') sessionCreatedCircuitIdsRef.current.delete(ref.id)
       }
+      setSessionCreatedCircuitIds(new Set(sessionCreatedCircuitIdsRef.current))
       setSelectedCircuitId(targetCircuitId)
       if (outcome.changed || choice === CREATE_NEW_ID) {
         setPlanDropPreference(selectedPanelId, derivedDropKind, targetCircuitId)
@@ -509,20 +517,16 @@ function PlanDropCircuitPanelInner({
         )
       : []
 
-  useEffect(() => {
-    if (!selectedProvisionalCircuitId) {
-      setNewCircuitCodeDraft('')
-      return
-    }
-    setNewCircuitCodeDraft(getCircuitIdentifier(selectedProvisionalCircuitId))
-  }, [getCircuitIdentifier, selectedProvisionalCircuitId])
-
   const shell = (
     <div
+      role="presentation"
       {...(nonModal ? {} : { [APP_MODAL_BACKDROP_ATTR]: 'true' })}
       className={nonModal ? 'pointer-events-none fixed inset-0' : 'fixed inset-0'}
       style={{ zIndex: PLAN_DROP_CIRCUIT_PANEL_Z_INDEX }}
-      onClick={nonModal ? undefined : handleDismiss}
+      onClick={(event) => {
+        if (event.target !== event.currentTarget) event.stopPropagation()
+        else if (!nonModal) handleDismiss()
+      }}
     >
       <div
         {...(nonModal ? { [APP_MODAL_BACKDROP_ATTR]: 'true' } : {})}
@@ -533,7 +537,6 @@ function PlanDropCircuitPanelInner({
         aria-labelledby="plan-drop-circuit-heading"
         className="pointer-events-auto absolute flex max-h-[min(520px,92vh)] w-[min(100vw-16px,352px)] flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-xl dark:border-gray-600 dark:bg-gray-800"
         style={{ left: frame.left, top: frame.top }}
-        onClick={(e) => e.stopPropagation()}
       >
         <div
           className="flex cursor-grab items-center gap-2 border-b border-gray-100 bg-gray-50/90 px-2 py-2 active:cursor-grabbing dark:border-gray-700 dark:bg-gray-900/80"

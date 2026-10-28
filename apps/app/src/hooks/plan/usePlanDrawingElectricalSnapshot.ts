@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useState } from 'react'
 import type { ProjectV2 } from '@/types/projectV2'
 
 /** Hold derived electrical artwork during a drawing session, retaining only one snapshot.
@@ -15,16 +15,17 @@ export function usePlanDrawingElectricalSnapshot(
     () => elements?.filter((element) => element.kind.startsWith('electrical.')) ?? [],
     [elements]
   )
-  const snapshot = useRef({ project, floorId, electricalElements })
+  const [snapshot, setSnapshot] = useState({ project, floorId, electricalElements })
   if (
-    !defer ||
-    snapshot.current.floorId !== floorId ||
-    snapshot.current.project?.project.id !== project?.project.id ||
-    snapshot.current.project?.disciplines.electrical !== project?.disciplines.electrical ||
-    snapshot.current.electricalElements.length !== electricalElements.length ||
-    snapshot.current.electricalElements.some((element, index) => element !== electricalElements[index])
+    (!defer && snapshot.project !== project) ||
+    snapshot.floorId !== floorId ||
+    snapshot.project?.project.id !== project?.project.id ||
+    snapshot.project?.disciplines.electrical !== project?.disciplines.electrical ||
+    snapshot.electricalElements.length !== electricalElements.length ||
+    snapshot.electricalElements.some((element, index) => element !== electricalElements[index])
   ) {
-    snapshot.current = { project, floorId, electricalElements }
+    setSnapshot({ project, floorId, electricalElements })
+    return project
   }
-  return snapshot.current.project
+  return snapshot.project
 }

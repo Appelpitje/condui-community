@@ -89,11 +89,13 @@ function FloorPlanTools({
     return () => window.removeEventListener(CANVAS_OVERLAY_DISMISS_EVENT, handleDismiss)
   }, [graphicPickerOpen])
 
-  useEffect(() => {
+  const [pickerTool, setPickerTool] = useState(activeTool)
+  if (pickerTool !== activeTool) {
+    setPickerTool(activeTool)
     if (activeTool !== 'drawGraphicElement') {
       setGraphicPickerOpen(false)
     }
-  }, [activeTool])
+  }
 
   useEffect(
     () => () => {
@@ -127,6 +129,7 @@ function FloorPlanTools({
   }, [cancelGraphicHoverClose])
 
   const showGraphicPicker = graphicPickerOpen || (!coarsePointer && graphicShelfHovered)
+  if (!showGraphicPicker && graphicPickerPosition !== null) setGraphicPickerPosition(null)
 
   const updateGraphicPickerPosition = useCallback(() => {
     const wrapper = graphicToolRef.current
@@ -167,10 +170,7 @@ function FloorPlanTools({
   }, [overlayHeight])
 
   useLayoutEffect(() => {
-    if (!showGraphicPicker) {
-      setGraphicPickerPosition(null)
-      return
-    }
+    if (!showGraphicPicker) return
 
     updateGraphicPickerPosition()
     const canvasRoot = graphicToolRef.current?.closest('[data-canvas-overlay-root]')

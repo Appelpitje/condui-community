@@ -5,7 +5,7 @@ import { getLocalizedSymbolName } from '@/lib/symbolNames'
  * The search is local: it must not filter (or be hidden behind) the sidebar library.
  */
 
-import { useEffect, useRef, useMemo, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useMemo, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Search, X } from 'lucide-react'
 import { useLibraryStore } from '@/stores/libraryStore'
@@ -45,6 +45,7 @@ export default function AddElementPicker({
   canPlaceSymbol,
 }: AddElementPickerProps) {
   const { t, i18n } = useTranslation()
+  const titleId = useId()
   const locale = i18n.language
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -98,9 +99,11 @@ export default function AddElementPicker({
     onClose()
   }
 
-  useEffect(() => {
+  const [indexSearchQuery, setIndexSearchQuery] = useState(searchQuery)
+  if (indexSearchQuery !== searchQuery) {
+    setIndexSearchQuery(searchQuery)
     setActiveIndex(0)
-  }, [searchQuery])
+  }
 
   useEffect(() => {
     listRef.current
@@ -127,17 +130,23 @@ export default function AddElementPicker({
 
   return (
     <div
+      role="presentation"
       data-app-modal-backdrop="true"
       className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/30"
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose()
+        else event.stopPropagation()
+      }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="flex flex-col w-full max-w-md rounded-md bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
         style={{ maxHeight: 'min(70vh, 28rem)' }}
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h3 id={titleId} className="text-lg font-semibold text-gray-900 dark:text-white">
             {t('contextMenu.addElement')}
           </h3>
           <button

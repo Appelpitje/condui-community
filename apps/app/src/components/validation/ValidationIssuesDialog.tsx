@@ -38,8 +38,9 @@ import { findPanelById } from '@/lib/panel/panelTree'
 import { useOpenJunctionAsset } from '@/components/junctionEditor/junctionEditorHostedFeatures'
 import { useCanValidateCurrentProject } from '@/hooks/useCanValidateCurrentProject'
 import { IncompleteChecksDetails } from './IncompleteChecksDetails'
-import { missingCableSpecificationSegments } from '@/lib/validation/cableSpecifications'
+import { cableSpecificationFocusSegment } from '@/lib/validation/cableSpecifications'
 import { AffectedCircuitTargets } from './AffectedCircuitTargets'
+import { ValidationIssueBadge } from './ValidationIssueBadge'
 import {
   HIDDEN_SITUATION_PLAN_RULE_ID,
   openHiddenSituationPlanValidationDialog,
@@ -455,11 +456,8 @@ function ValidationIssuesDialog({
   const scopeSelection = (scope: Scope, issue?: Issue): Selection | null => {
     if (scope.type === 'circuit' && issue && CABLE_SPECIFICATION_RULE_IDS.has(issue.ruleId)) {
       const protectionId = useProjectStore.getState().getProtectionForCircuit(scope.id)?.id
-      const root = pickRootmostLiveCircuitWireSegmentForFocus(
-        missingCableSpecificationSegments(eendraadWireSegments, scope.id,
-          issue.ruleId.endsWith('cable-fire-class-known') ? 'fireClass' : 'placement'),
-        scope.id, protectionId, 'AC'
-      )
+      const root = cableSpecificationFocusSegment(eendraadWireSegments, scope.id,
+        issue.ruleId.endsWith('cable-fire-class-known') ? 'fireClass' : 'placement', protectionId)
       if (root) return wireSelection([root])
     }
     return incompleteScopeSelection(scope)
@@ -1281,15 +1279,12 @@ function ValidationIssuesDialog({
                             <h4 className="text-sm font-semibold text-gray-900 dark:text-white sm:text-base">
                               {title}
                             </h4>
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 ${hasScopeTargets ? '' : 'cursor-pointer'}`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                if (!hasScopeTargets) handleIssueClick(issue)
-                              }}
+                            <ValidationIssueBadge
+                              interactive={!hasScopeTargets}
+                              onActivate={(source) => handleIssueClick(issue, source)}
                             >
                               {getIssueBadgeLabel(issue)}
-                            </span>
+                            </ValidationIssueBadge>
                           </div>
                           {issue.scope.type !== 'junction' && issue.message !== title && (
                             <p className="mb-1.5 text-sm text-gray-600 dark:text-gray-400">

@@ -46,16 +46,12 @@ import { CertificationListingFields } from '../CertificationListingFields'
 import { SynergridListPicker } from '../SynergridListPicker'
 import {
   APPLIANCE_SYMBOLS,
+  DOMOTICA_CONTROL_KEYS,
+  SWITCH_TYPE_SYMBOLS,
   normalizeSocketSymbol,
   normalizeSwitchSymbol,
 } from './endpointControlsUtils'
-export const DOMOTICA_MAIN_TYPES = ['none', 'socket', 'switch'] as const
-export const DOMOTICA_CONTROL_KEYS: DomoticaControlKey[] = [
-  'programmed_control',
-  'wireless_control',
-  'detection_control',
-  'button_control',
-] as const
+const DOMOTICA_MAIN_TYPES = ['none', 'socket', 'switch'] as const
 
 // Relay-specific properties (symbol === 'relay')
 export function RelayEndpointFields({
@@ -697,23 +693,8 @@ export function DomoticaEndpointFields({
   )
 }
 
-// Dynamically derive switch type symbol keys from the symbols catalog (excludes relay)
-export const SWITCH_TYPE_SYMBOLS: SymbolKey[] = symbols
-  .filter(
-    (s) =>
-      s.category === 'switches' &&
-      s.id !== 'relay' &&
-      (s.id === 'switch' ||
-        s.id.startsWith('switch_') ||
-        s.id === 'contact' ||
-        s.id === 'motion_detector' ||
-        s.id === 'smoke_detector')
-  )
-  .map((s) => s.id as SymbolKey)
-
-// Dynamically derive light type symbol keys from the symbols catalog
 // Dynamically derive socket type symbol keys from the symbols catalog (order preserved: socket_gnd_child first)
-export const SOCKET_TYPE_SYMBOLS: SymbolKey[] = symbols
+const SOCKET_TYPE_SYMBOLS: SymbolKey[] = symbols
   .filter((s) => s.category === 'outlets' && !s.libraryPreset)
   .map((s) => s.id as SymbolKey)
 

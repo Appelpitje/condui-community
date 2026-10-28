@@ -178,7 +178,7 @@ export function useDraggableFloatingWindow({
     [dockLeftThreshold, margin, setDockPreviewActive, window]
   )
 
-  const stopDragging = useCallback((event?: PointerEvent | MouseEvent) => {
+  const stopDragging = useCallback(function finishDragging(event?: PointerEvent | MouseEvent) {
     const dragSnapshot = dragRef.current
     if (
       event && 'pointerId' in event &&
@@ -219,20 +219,20 @@ export function useDraggableFloatingWindow({
         })
         dragRef.current = null
         window.removeEventListener('pointermove', onPointerMove)
-        window.removeEventListener('pointerup', stopDragging)
-        window.removeEventListener('pointercancel', stopDragging)
+        window.removeEventListener('pointerup', finishDragging)
+        window.removeEventListener('pointercancel', finishDragging)
         window.removeEventListener('mousemove', onMouseMove)
-        window.removeEventListener('mouseup', stopDragging)
+        window.removeEventListener('mouseup', finishDragging)
         onDockLeftHandler()
         return
       }
     }
     dragRef.current = null
     window.removeEventListener('pointermove', onPointerMove)
-    window.removeEventListener('pointerup', stopDragging)
-    window.removeEventListener('pointercancel', stopDragging)
+    window.removeEventListener('pointerup', finishDragging)
+    window.removeEventListener('pointercancel', finishDragging)
     window.removeEventListener('mousemove', onMouseMove)
-    window.removeEventListener('mouseup', stopDragging)
+    window.removeEventListener('mouseup', finishDragging)
   }, [dockLeftThreshold, logDrag, onMouseMove, onPointerMove, setDockPreviewActive, window])
 
   const startDragging = useCallback(

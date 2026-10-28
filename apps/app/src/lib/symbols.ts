@@ -582,14 +582,14 @@ export const symbols: SymbolMetadata[] = [
     tags: ['contact', 'los contact', 'domotica', 'input', 'ingang', 'potentiaalvrij', 'dry contact'],
   },
   {
-    id: 'switch_impulse',
-    name: 'Impulse/Push Switch',
-    nameNL: 'Impulsschakelaar',
+    id: 'switch_impulse', // Legacy persisted key for a pushbutton; keep compatible with saved projects.
+    name: 'Pushbutton',
+    nameNL: 'Drukknop',
     nameFR: 'Bouton-poussoir',
     category: 'switches',
     scope: 'both',
     svgPath: '/symbols/switches/switch_impulse.svg',
-    tags: ['switch', 'push', 'impulse', 'momentary'],
+    tags: ['switch', 'push', 'pushbutton', 'drukknop', 'impulse', 'momentary'],
   },
   {
     id: 'motion_detector',
@@ -1227,8 +1227,8 @@ export const SOCKET_OVERLAY_PATHS = {
 export const SWITCH_OVERLAY_PATHS = {
   /** For switch (1p/2p/3p) and switch_1p_pull */
   overlayLight: '/symbols/switches/switch_overlay_light.svg',
-  /** For switch_impulse only */
-  impulseOverlayLight: '/symbols/switches/switch_impulse_overlay_light.svg',
+  /** Pushbutton indicator light (legacy symbol key: switch_impulse). */
+  pushbuttonOverlayLight: '/symbols/switches/switch_impulse_overlay_light.svg',
 } as const
 
 /** Relay control overlay SVG paths (drawn on top of relay symbol for control modes) */
@@ -1522,7 +1522,7 @@ export function getSwitchSymbolPaths(
       break
     case 'switch_impulse':
       basePath = '/symbols/switches/switch_impulse.svg'
-      if (verklikkerlamp) overlayPath = SWITCH_OVERLAY_PATHS.impulseOverlayLight
+      if (verklikkerlamp) overlayPath = SWITCH_OVERLAY_PATHS.pushbuttonOverlayLight
       break
     case 'switch_cross':
       basePath = '/symbols/switches/switch_cross.svg'

@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react'
 
 export function useBlinkingCaret(active: boolean, intervalMs = 530): boolean {
-  const [visible, setVisible] = useState(active)
+  const [blink, setBlink] = useState({ active, intervalMs, visible: active })
+  if (blink.active !== active || blink.intervalMs !== intervalMs) {
+    setBlink({ active, intervalMs, visible: active })
+  }
 
   useEffect(() => {
-    setVisible(active)
     if (!active) return
-    const interval = window.setInterval(() => setVisible((current) => !current), intervalMs)
+    const interval = window.setInterval(() => {
+      setBlink((current) => ({ ...current, visible: !current.visible }))
+    }, intervalMs)
     return () => window.clearInterval(interval)
   }, [active, intervalMs])
 
-  return active && visible
+  return active && blink.visible
 }
 
 export function withDimensionCaret(

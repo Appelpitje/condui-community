@@ -51,6 +51,11 @@ export function DragPreview({
   const previewOpacity = 0.6
   const isDark = useSettingsStore((state) => state.theme.mode === 'dark')
   const [symbolImage, setSymbolImage] = useState<HTMLImageElement | null>(null)
+  const [imageSource, setImageSource] = useState({ symbolData, isDark })
+  if (imageSource.symbolData !== symbolData || imageSource.isDark !== isDark) {
+    setImageSource({ symbolData, isDark })
+    if (!symbolData || !getSymbolById(symbolData.id)?.svgPath) setSymbolImage(null)
+  }
 
   // Find the target panel for highlighting
   // Try to find panel by panelId first, or infer from drop target
@@ -113,16 +118,10 @@ export function DragPreview({
 
   // Load symbol image if symbolData is provided
   useEffect(() => {
-    if (!symbolData) {
-      setSymbolImage(null)
-      return
-    }
+    if (!symbolData) return
     
     const symbol = getSymbolById(symbolData.id)
-    if (!symbol || !symbol.svgPath) {
-      setSymbolImage(null)
-      return
-    }
+    if (!symbol || !symbol.svgPath) return
 
     let cancelled = false
     loadProcessedSymbol(symbol.svgPath, isDark)

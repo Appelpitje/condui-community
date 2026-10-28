@@ -57,7 +57,7 @@ async function runElectricalProjectValidation(
     validationEngine,
     { beAreiBook1_2025 },
     { loadRulePack },
-    { default: validationI18n, setValidationLanguage },
+    { default: validationI18n, prepareValidationLanguage },
     { collectJunctionValidationIssuesForEdition },
   ] = await Promise.all([
     import('./core/engine'),
@@ -68,7 +68,7 @@ async function runElectricalProjectValidation(
   ])
   // Identical language selection to the editor worker client and previous fallback.
   // Setting language and running the synchronous validator share one JS turn.
-  setValidationLanguage(
+  await prepareValidationLanguage(
     options?.language ??
       (typeof document === 'undefined' ? 'nl-BE' : document.documentElement?.lang || 'nl-BE')
   )

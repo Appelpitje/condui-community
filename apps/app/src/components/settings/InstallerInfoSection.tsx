@@ -36,7 +36,7 @@ export function InstallerInfoSection() {
 
   useEffect(() => {
     let cancelled = false
-    getInstallerProfile().then((profile) => {
+    void getInstallerProfile().then((profile) => {
       if (!cancelled) {
         setName(profile.name)
         setCompanyNumber(profile.companyNumber)

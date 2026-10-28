@@ -40,8 +40,8 @@ if (!isCompletingHardReload) {
 
   const root = document.getElementById('root')!
 
-  void import('./CommunityApp')
-    .then(({ default: CommunityApp }) => {
+  void Promise.all([import('./CommunityApp'), import('./i18n').then(({ i18nReady }) => i18nReady)])
+    .then(([{ default: CommunityApp }]) => {
       ReactDOM.createRoot(root).render(
         <CommunityErrorBoundary>
           <React.StrictMode>

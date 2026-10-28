@@ -255,13 +255,19 @@ function LabelCell({
       : ''
   const mainBandHeight = mainBandText ? cellHeight * 0.3 : 0
 
-  useEffect(() => {
+  const [draftSource, setDraftSource] = useState({ focused, value })
+  if (draftSource.focused !== focused || draftSource.value !== value) {
+    setDraftSource({ focused, value })
     if (!focused) {
       setDraft(value)
       setEdited(false)
     }
-  }, [focused, value])
-  useEffect(() => setAlignment(configuredAlignment), [configuredAlignment])
+  }
+  const [alignmentSource, setAlignmentSource] = useState(configuredAlignment)
+  if (alignmentSource !== configuredAlignment) {
+    setAlignmentSource(configuredAlignment)
+    setAlignment(configuredAlignment)
+  }
   useLayoutEffect(() => {
     if (focusRequestId != null) cellRef.current?.querySelector('textarea')?.focus()
   }, [focusRequestId])
@@ -295,7 +301,9 @@ function LabelCell({
     })
   }, [draft, hasDraftChanges, item.ref, item.values.config, onUpdate, side, source])
 
-  pendingCommitRef.current = hasDraftChanges ? commitDraft : null
+  useLayoutEffect(() => {
+    pendingCommitRef.current = hasDraftChanges ? commitDraft : null
+  }, [hasDraftChanges, commitDraft])
 
   const pendingDraftUpdate = hasDraftChanges
     ? source === 'notes'
@@ -350,7 +358,9 @@ function LabelCell({
     })
   }
 
-  shelfActionsRef.current = { updateSource, updateAlignment, toggleMain }
+  useLayoutEffect(() => {
+    shelfActionsRef.current = { updateSource, updateAlignment, toggleMain }
+  })
 
   useEffect(() => {
     if (!focused) return
@@ -753,10 +763,9 @@ export function PanelLabelModeOverlay({
     [bulkTarget, canEdit, getBulkItems, onUpdateModuleLabels]
   )
 
-  bulkActionsRef.current = {
-    updateSource: updateBulkSource,
-    updateAlignment: updateBulkAlignment,
-  }
+  useLayoutEffect(() => {
+    bulkActionsRef.current = { updateSource: updateBulkSource, updateAlignment: updateBulkAlignment }
+  }, [updateBulkSource, updateBulkAlignment])
 
   useEffect(() => {
     const routeBulkPointer = (event: PointerEvent) => {

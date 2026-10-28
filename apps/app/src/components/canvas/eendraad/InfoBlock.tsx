@@ -106,6 +106,11 @@ export function InfoBlock({
 
   const logoImage = useInfoBlockLogoImage(profile?.logoDataUrl)
   const [signatureImage, setSignatureImage] = useState<HTMLImageElement | null>(null)
+  const [signatureSource, setSignatureSource] = useState(profile?.signatureDataUrl)
+  if (signatureSource !== profile?.signatureDataUrl) {
+    setSignatureSource(profile?.signatureDataUrl)
+    if (!profile?.signatureDataUrl) setSignatureImage(null)
+  }
   const installerNameRef = useRef<Konva.Text>(null)
   const [installerNameHeight, setInstallerNameHeight] = useState(INFO_BLOCK_BODY_LINE_HEIGHT)
   const inspectionAgencyNameRef = useRef<Konva.Text>(null)
@@ -139,10 +144,7 @@ export function InfoBlock({
   )
 
   useEffect(() => {
-    if (!profile?.signatureDataUrl) {
-      setSignatureImage(null)
-      return
-    }
+    if (!profile?.signatureDataUrl) return
     const img = new window.Image()
     img.onload = () => setSignatureImage(img)
     img.src = profile.signatureDataUrl

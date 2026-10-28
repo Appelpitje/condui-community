@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useInstallationProfile } from '@/hooks/useInstallationProfile'
 import { useTranslation } from 'react-i18next'
 import { Eye, EyeOff } from 'lucide-react'
@@ -32,6 +32,8 @@ import {
 import type { ProjectState } from '@/stores/projectStore'
 import { clamp } from '@/lib/geometry'
 import { labelClass, selectClass, visibilityToggleClass } from './propertiesSharedUtils'
+import { ConductorMarksPreview } from './ConductorMarksPreview'
+import type { ConductorMarks } from '@/lib/wires/conductorMarks'
 
 type Project = NonNullable<ProjectState['currentProject']>
 
@@ -55,9 +57,11 @@ export function InstallDateField({
   const currentYear = new Date().getFullYear()
   const explicitYear = getExplicitInstallYear(entity)
   const [draftYear, setDraftYear] = useState(explicitYear?.toString() ?? '')
-  useEffect(() => {
+  const [draftEntity, setDraftEntity] = useState(entity)
+  if (draftEntity !== entity) {
+    setDraftEntity(entity)
     setDraftYear(getExplicitInstallYear(entity)?.toString() ?? '')
-  }, [entity])
+  }
   const commitDraft = () => {
     const raw = draftYear.trim()
     if (!raw) {
@@ -121,6 +125,7 @@ export type WireRouteFormState = {
   showFireClassLabel?: boolean
   wireLengthM?: number
   showWireLengthLabel?: boolean
+  showConductorMarks?: boolean
   defaultWireLabelVisible?: boolean
   phaseAssignment?: CircuitPhaseAssignment
   phaseConstraint?: PhaseAssignmentConstraint
@@ -262,10 +267,14 @@ export function WireRouteAndCableForm({
   phaseOnly = false,
   phaseLocked = false,
   cableHint,
+  routeHint,
   lengthPlaceholder,
   lengthHint,
+  conductorMarks,
   t,
 }: {
+  /** This wire's conductor marks; offers the marks toggle with their preview when set. */
+  conductorMarks?: ConductorMarks
   busbar?: boolean
   onMediumChange?: (medium: 'cable' | 'busbar', cable: CableSpec) => void
   groundConductor?: boolean
@@ -281,6 +290,7 @@ export function WireRouteAndCableForm({
   phaseLocked?: boolean
   /** Quiet status or action shown directly under the cable fields. */
   cableHint?: ReactNode
+  routeHint?: ReactNode
   /** Length field placeholder and hint, e.g. a plan-based estimate with an accept action. */
   lengthPlaceholder?: string
   lengthHint?: ReactNode
@@ -618,6 +628,7 @@ export function WireRouteAndCableForm({
             </button>
           ))}
         </div>
+        {routeHint}
       </div>
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -705,6 +716,22 @@ export function WireRouteAndCableForm({
           />
         )}
         {cableHint}
+        {conductorMarks && (
+          <button
+            type="button"
+            aria-pressed={state.showConductorMarks === true}
+            onClick={() => onChange({ showConductorMarks: !(state.showConductorMarks === true) })}
+            className={`flex w-full items-center gap-3 px-3 py-2 rounded-md border-2 text-xs font-medium transition-colors ${
+              state.showConductorMarks === true
+                ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-sky-300'
+            }`}
+            title={t('wires.conductorMarks', 'Conductor markings')}
+          >
+            <ConductorMarksPreview marks={conductorMarks} />
+            <span>{t('wires.conductorMarks', 'Conductor markings')}</span>
+          </button>
+        )}
       </div>
       <div>
         <div className="flex items-center gap-2 mb-2">

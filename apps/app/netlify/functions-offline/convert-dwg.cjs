@@ -1,19 +1,10 @@
 const Busboy = require('busboy')
-const path = require('path')
-const { createRequire } = require('module')
 const { gzipSync } = require('zlib')
 const { DOMParser, XMLSerializer } = require('@xmldom/xmldom')
-const { SvgConverter } = require('./_libredwg-js-svg-converter.cjs')
-const { buildDwgViews, readViewportFrozenLayers } = require('./_dwg-layout-views.cjs')
+const { convertCadBuffer } = require('./_cad-views.cjs')
 
 const MAX_UPLOAD_BYTES = Number(process.env.DWG_CONVERT_MAX_UPLOAD_BYTES || 20 * 1024 * 1024)
 const MAX_CROP_AXIS = Number(process.env.DWG_CONVERT_MAX_CROP_AXIS || 100000)
-
-const nodeRequire = createRequire(__filename)
-
-let libredwgPromise = null
-let wasmPathResolved = null
-let lastDwgReadWarning = null
 
 const LAMBDA_RESPONSE_LIMIT = 6_000_000
 
@@ -183,141 +174,12 @@ function cropSvg(svgContent, crop) {
   return new XMLSerializer().serializeToString(svg)
 }
 
-function normalizeSvgForImageUse(svgContent) {
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(svgContent, 'image/svg+xml')
-  const svg = doc.documentElement
-  const viewBox = svg.getAttribute('viewBox')
-  if (viewBox) {
-    const parts = viewBox.split(/[\s,]+/).map(Number).filter(Number.isFinite)
-    if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
-      svg.setAttribute('width', String(parts[2]))
-      svg.setAttribute('height', String(parts[3]))
-    }
-  }
-
-  const style = doc.createElement('style')
-  style.textContent = `
-    line, path, polyline, polygon, rect, circle, ellipse {
-      vector-effect: non-scaling-stroke;
-      stroke-width: 1px;
-    }
-  `
-  svg.insertBefore(style, svg.firstChild)
-
-  const idMap = new Map()
-  let idCounter = 0
-  const visit = (node) => {
-    if (!node || node.nodeType !== 1) return
-    const id = node.getAttribute('id')
-    if (id) {
-      const safeId = `cad_${++idCounter}`
-      idMap.set(id, safeId)
-      node.setAttribute('id', safeId)
-    }
-    for (let i = 0; i < node.childNodes.length; i += 1) {
-      visit(node.childNodes[i])
-    }
-  }
-  visit(svg)
-
-  const updateReferences = (node) => {
-    if (!node || node.nodeType !== 1) return
-    for (const attrName of ['href', 'xlink:href']) {
-      const value = node.getAttribute(attrName)
-      if (value && value.startsWith('#')) {
-        const mapped = idMap.get(value.slice(1))
-        if (mapped) node.setAttribute(attrName, `#${mapped}`)
-      }
-    }
-    for (let i = 0; i < node.childNodes.length; i += 1) {
-      updateReferences(node.childNodes[i])
-    }
-  }
-  updateReferences(svg)
-
-  return new XMLSerializer()
-    .serializeToString(svg)
-    .replace(/rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)/gi, '#111827')
-    .replace(/#fff\b/gi, '#111827')
-    .replace(/#ffffff\b/gi, '#111827')
-    .replace(/\bwhite\b/gi, '#111827')
-}
-
-function getWasmDir() {
-  if (wasmPathResolved) return wasmPathResolved
-  const entryPath = nodeRequire.resolve('@mlightcad/libredwg-web')
-  wasmPathResolved = path.join(path.dirname(entryPath), '..', 'wasm') + path.sep
-  return wasmPathResolved
-}
-
-async function getLibreDwgModule() {
-  if (!libredwgPromise) {
-    libredwgPromise = import('@mlightcad/libredwg-web')
-  }
-  return libredwgPromise
-}
-
 async function convertDwgToSvg(fileBuffer) {
-  const mod = await getLibreDwgModule()
-  const wasmDir = getWasmDir()
-  const libredwg = await mod.LibreDwg.create(wasmDir)
-  const input = fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength)
-  const fileName = 'tmp.dwg'
-  let dwg
-  try {
-    libredwg.FS.writeFile(fileName, new Uint8Array(input))
-    const result = libredwg.dwg_read_file(fileName)
-    if (result?.error && result.error !== 0) {
-      lastDwgReadWarning = `DWG reader reported code ${result.error}; continuing with recovered drawing data.`
-    }
-    dwg = result?.data
-  } finally {
-    if (libredwg.FS.analyzePath(fileName, false).exists) {
-      libredwg.FS.unlink(fileName)
-    }
+  const converted = await convertCadBuffer(fileBuffer, 'dwg')
+  if (converted.views.length === 0) {
+    throw new Error('DWG drawing has no visible model-space content.')
   }
-  if (!dwg) {
-    throw new Error('DWG reader returned no drawing data.')
-  }
-  try {
-    const db = libredwg.convert(dwg)
-    const cadMetadata = {
-      insunits: db?.header?.INSUNITS,
-      measurement: db?.header?.MEASUREMENT,
-      extmin: db?.header?.EXTMIN,
-      extmax: db?.header?.EXTMAX,
-    }
-    try {
-      const views = buildDwgViews(db, { viewportFrozenLayers: readViewportFrozenLayers(libredwg, dwg, db) })
-        .map(view => ({ ...view, svgContent: normalizeSvgForImageUse(view.svgContent) }))
-      if (views.length > 0) {
-        return { svgContent: views[0].svgContent, views, cadMetadata }
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Layout view renderer failed.'
-      lastDwgReadWarning = lastDwgReadWarning
-        ? `${lastDwgReadWarning} ${message}; used model-space renderer.`
-        : `${message}; used model-space renderer.`
-    }
-    try {
-      return {
-        svgContent: normalizeSvgForImageUse(new SvgConverter().convert(db)),
-        cadMetadata,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'JS SVG converter failed.'
-      lastDwgReadWarning = lastDwgReadWarning
-        ? `${lastDwgReadWarning} ${message}; used LibreDWG SVG exporter fallback.`
-        : `${message}; used LibreDWG SVG exporter fallback.`
-      return {
-        svgContent: libredwg.dwg_to_svg(db),
-        cadMetadata,
-      }
-    }
-  } finally {
-    libredwg.dwg_free(dwg)
-  }
+  return { ...converted, svgContent: converted.views[0].svgContent }
 }
 
 exports.handler = async event => {
@@ -347,11 +209,10 @@ exports.handler = async event => {
   if (cropWarning) warnings.push(cropWarning)
 
   try {
-    lastDwgReadWarning = null
     const converted = await convertDwgToSvg(fileBuffer)
     let svgContent = converted.svgContent
     let { width, height } = parseSvgDimensions(svgContent)
-    if (lastDwgReadWarning) warnings.push(lastDwgReadWarning)
+    warnings.push(...converted.warnings)
     if (width <= 0 || height <= 0 || Math.max(width / Math.max(height, 1e-9), height / Math.max(width, 1e-9)) > 100) {
       return errorResponse(
         422,

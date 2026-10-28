@@ -238,6 +238,7 @@
     "exportProjectError": "Descărcarea proiectului a eșuat. Vă rugăm să încercați din nou.",
     "settings": "Instituţiile",
     "shortcuts": "Taste rapide",
+    "offlineApp": "Aplicație offline",
     "installOffline": "Instalați pentru utilizare offline",
     "contactSupport": "Contactați asistența",
     "documentation": "Documentație",
@@ -259,6 +260,8 @@
     }
   },
   "pwaInstall": {
+    "installedMessage": "Condui este instalat ca aplicație. Deschideți-l din lista de aplicații a dispozitivului. Pentru reinstalare, eliminați-l din setările aplicațiilor browserului, apoi accesați din nou Condui.",
+    "browserInstructions": "În Chrome sau Edge, deschideți meniul browserului și alegeți Instalați aplicația. În Safari pe Mac, alegeți Fișier → Adaugă în Dock. Dacă Condui este deja instalat, deschideți-l din lista de aplicații. Pentru reinstalare, eliminați-l din setările aplicațiilor browserului și accesați din nou Condui.",
     "iosTitle": "Adăugați la ecranul de pornire",
     "iosInstructions": "Atingeți Partajare în Safari și alegeți „Adăugați la ecranul de pornire”.",
     "unavailableTitle": "Instalarea nu este încă disponibilă",
@@ -1917,7 +1920,7 @@
     "switch_shutter": "Întrerupător pentru rulouri",
     "switch_1p_pull": "Trageți întrerupător",
     "contact": "Contact",
-    "switch_impulse": "Comutator de impuls",
+    "switch_impulse": "Buton",
     "switch_cross": "Comutator transversal",
     "source_changeover": "Comutator",
     "motion_detector": "Detector de mișcare",
@@ -2002,7 +2005,7 @@
       "switch_1p_changeover": "Comutator",
       "switch_shutter": "Întrerupător pentru rulouri",
       "switch_1p_pull": "Întrerupător cu șnur",
-      "switch_impulse": "Întrerupător cu impuls",
+      "switch_impulse": "Buton",
       "motion_detector": "Detector de mișcare",
       "smoke_detector": "Detector de fum",
       "relay": "Releu",
@@ -2511,6 +2514,10 @@
       "branchMultiplierEndpointsSplit": "Circuitul {{circuitCode}}: ramura „{{branchLabel}}” are {{absorbCount}} simboluri suplimentare de multiplicare ca puncte finale separate; acestea ar trebui să formeze un singur punct final cu mai multe amplasări. Utilizați funcția de remediere din inspecția elementelor orfane."
     },
     "primitives": {
+      "undergroundCable": {
+        "message": "XVB/XGB subteran: verificați tubul de protecție",
+        "details": "Cablurile XVB și XGB nu sunt destinate îngropării directe. Folosiți un tub de protecție bine drenat și verificați cerințele de instalare ale producătorului cablului."
+      },
       "feedbackSafety": {
         "rcdOverload": {
           "message": "Curentul nominal al întreruptorului diferențial este prea mic",
@@ -3143,7 +3150,7 @@
     "categoryEnergyMeters": "Contoare de energie",
     "categorySockets": "Prize",
     "categorySwitches": "Comutatoare",
-    "categoryImpulse": "Comutatoare de impuls",
+    "categoryImpulse": "Butoane",
     "categoryLights": "Puncte de lumină",
     "categoryRelays": "Releu",
     "categoryDomotica": "Home automation / Smart home",
@@ -3198,10 +3205,12 @@
     "thickness": "Grosime",
     "fireClass": "Clasa de incendiu",
     "inTube": "Tub",
+    "conductorMarks": "Marcaje conductoare",
     "onWall": "Pe perete",
     "inWall": "În perete",
     "inGround": "Teren",
     "inAir": "Aer",
+    "useUpstreamRoute": "Preia din amonte",
     "routeNone": "Niciuna",
     "routeLabel": "Traseu cablu",
     "notFound": "Segment de fir nu a fost găsit",
@@ -3865,13 +3874,20 @@
     "shapeOf": "Formă"
   },
   "materialListExport": {
+    "etimRelease": "Versiune ETIM",
+    "etimClass": "Clasă ETIM",
+    "etimClassName": "Denumire clasă ETIM",
+    "etimClassVersion": "Versiune clasă ETIM",
+    "etimFeatures": "Proprietăți ETIM (JSON)",
+    "etimSource": "Sursă ETIM",
+    "etimNotice": "ETIM 10.0. Materialele neclasificate au câmpurile ETIM goale.",
     "cableMargin": "Rezervă de cablu (%)",
     "invalidCableMargin": "Introduceți un procent valid mai mare sau egal cu 0.",
     "skipSupplyPanel": "Omite elementele din tabloul de rețea",
     "title": "Exportă lista de materiale",
     "menu": "Antemăsurătoare / lista de materiale",
     "export": "Exportă",
-    "searchAliases": "Excel CSV Robaws antemăsurătoare cantități materiale",
+    "searchAliases": "Excel CSV ETIM Robaws antemăsurătoare cantități materiale",
     "preset": "Presetare",
     "standard": "Standard",
     "format": "Format fișier",

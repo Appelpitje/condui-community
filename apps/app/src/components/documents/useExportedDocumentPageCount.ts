@@ -56,7 +56,7 @@ export function useExportedDocumentPageCount(
     for (const document of pdfs) {
       // A replaced file has a new URL, so its old count is not reused.
       if (pdfPages[document.id]?.url === document.url) continue
-      loadPdfDocument(document)
+      void loadPdfDocument(document)
         .then((pdf) => pdf.numPages)
         .catch(() => 0)
         .then((pages) => {

@@ -72,9 +72,17 @@ export function FindPanelDialog({
             id={`${listId}-${index}`}
             data-index={index}
             role="option"
+            tabIndex={-1}
             aria-selected={active === index}
             onMouseMove={() => setActive(index)}
             onClick={() => choose(index)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                choose(index)
+              }
+            }}
             className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 ${active === index ? 'bg-sky-50 dark:bg-sky-900/30' : ''}`}
           >
             <div className="min-w-0 flex-1">

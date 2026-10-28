@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useProjectStore, type ProjectState } from '@/stores/projectStore'
 import {
@@ -97,7 +97,7 @@ function ValidationStatusIcon() {
   const currentProject = useProjectStore((state: ProjectState) => state.currentProject)
   const validationWindowOpen = useUIStore((state) => state.validationWindowOpen)
   const projectRef = useRef(currentProject)
-  projectRef.current = currentProject
+  useLayoutEffect(() => { projectRef.current = currentProject }, [currentProject])
   const validate = useValidationStore((state: ValidationState) => state.validate)
   const status = useValidationStore((state: ValidationState) => state.status)
   const isLoading = useValidationStore((state: ValidationState) => state.isLoading)
@@ -122,16 +122,14 @@ function ValidationStatusIcon() {
   // Signature generation walks the canonical electrical graph. Keep it out of the
   // input event that mutated that graph; validation itself is already idle-scheduled.
   const [signature, setSignature] = useState(() => getValidationSignature(currentProject ?? null))
+  if (!currentProject && signature !== '') setSignature('')
   const signatureIdleHandleRef = useRef<RequestIdleCallbackHandle | null>(null)
   useEffect(() => {
     if (signatureIdleHandleRef.current !== null) {
       cancelIdle(signatureIdleHandleRef.current)
       signatureIdleHandleRef.current = null
     }
-    if (!currentProject) {
-      setSignature('')
-      return
-    }
+    if (!currentProject) return
     signatureIdleHandleRef.current = requestIdle(() => {
       signatureIdleHandleRef.current = null
       setSignature(getValidationSignature(currentProject))
@@ -180,7 +178,8 @@ function ValidationStatusIcon() {
     return projectSizeScore <= 2000 ? 1200 : 1800
   }, [projectSizeScore, validationWindowOpen])
 
-  const lastInteractionRef = useRef<number>(Date.now())
+  const [mountedAt] = useState(() => Date.now())
+  const lastInteractionRef = useRef<number>(mountedAt)
   const lastInteractionMarkRef = useRef<number>(0)
   const idleHandleRef = useRef<RequestIdleCallbackHandle | null>(null)
   const timerRef = useRef<number | null>(null)

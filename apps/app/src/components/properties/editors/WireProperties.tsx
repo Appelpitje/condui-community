@@ -190,6 +190,7 @@ function CanonicalSegmentProperties({
         defaults={segment}
         sharedGeometry={sharedGeometry}
         sharedGeometryAnchors={sharedGeometry ? segment.wireAnchors : undefined}
+        conductorMarksOnBranch={segment.conductorMarksBranchPiece === true}
       />
     </div>
   )

@@ -1,6 +1,7 @@
 // Core data types matching the JSON schema (docs/Example.json)
 
 import type { ViewportLayout } from './ui'
+import type { WireSegmentDerivedFields } from './wireSegmentDerived'
 
 export interface Point2 {
   x: number
@@ -438,7 +439,7 @@ export type SymbolKey =
   | 'switch_shutter'
   | 'switch_1p_pull'
   | 'contact'
-  | 'switch_impulse'
+  | 'switch_impulse' // Pushbutton; legacy persisted key retained for project compatibility.
   | 'switch_cross'
   | 'motion_detector'
   | 'smoke_detector'
@@ -724,7 +725,7 @@ export type DomoticaControlKey =
   | 'wireless_control'
   | 'detection_control'
 
-export type DomoticaSwitchType = '1p' | '2p' | 'impulse'
+export type DomoticaSwitchType = '1p' | '2p' | 'impulse' // 'impulse' is the persisted pushbutton subtype.
 
 /**
  * Per-output wire overrides for a domotica module.
@@ -865,7 +866,7 @@ export interface SwitchDeviceProps {
   twoPole?: boolean
   /** Draw verklikkerlamp (indicator light) overlay. Only for switch (1p/2p/3p), switch_1p_pull, and switch_impulse. */
   verklikkerlamp?: boolean
-  /** For switch_impulse: number of switching locations. Values above 1 are shown on the symbol. */
+  /** Number of pushbutton locations (switch_impulse); values above 1 are shown on the symbol. */
   switchingCount?: number
 }
 
@@ -1788,7 +1789,7 @@ export interface FeedTopology {
   rootFeeds: RootPanelFeedPath[]
 }
 
-export interface WireSegment {
+export interface WireSegment extends WireSegmentDerivedFields {
   /** Derived electrical connection identity; never a persisted WireRun id. */
   wireAnchor?: string
   /** All connections represented by shared stem geometry. */
@@ -1815,7 +1816,6 @@ export interface WireSegment {
   installationType?: 'in-wall' | 'in-tube' | 'surface' | 'conduit'
   inTube?: boolean // Flag: wire is in tube (independent)
   inWall?: boolean // @deprecated use wireRoute === 'wall'
-  /** Route: wall, ground, or air. Mutually exclusive. */
   wireRoute?: 'wall' | 'ground' | 'air'
   hideWireLabel?: boolean // Flag: hide wire label on vertical wire
   /** Optional end of the first physical run, used for labels and route decorations when the drawable trunk continues higher. */

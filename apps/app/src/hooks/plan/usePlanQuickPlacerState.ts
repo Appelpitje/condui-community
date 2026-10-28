@@ -10,7 +10,15 @@ export type QuickPlacerCursorHint = {
   tone: 'error' | 'info'
 }
 
-export function usePlanQuickPlacerState() {
+export function usePlanQuickPlacerState(source?: { open: boolean; docked: boolean }) {
+  const [quickPlacerFocusPlacementId, setQuickPlacerFocusPlacementId] = useState<string | null>(null)
+  const open = source?.open
+  const docked = source?.docked
+  const [focusSource, setFocusSource] = useState({ open, docked })
+  if (focusSource.open !== open || focusSource.docked !== docked) {
+    setFocusSource({ open, docked })
+    if (source && !open && !docked) setQuickPlacerFocusPlacementId(null)
+  }
   const [quickPlacerMode, setQuickPlacerMode] = useState<QuickPlacerMode>('slow')
   const [quickPlacerSelectedCircuitId, setQuickPlacerSelectedCircuitId] = useState<string | null>(
     null,
@@ -29,6 +37,8 @@ export function usePlanQuickPlacerState() {
   )
 
   return {
+    quickPlacerFocusPlacementId,
+    setQuickPlacerFocusPlacementId,
     quickPlacerMode,
     setQuickPlacerMode,
     quickPlacerSelectedCircuitId,

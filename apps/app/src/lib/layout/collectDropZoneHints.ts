@@ -11,6 +11,7 @@ import {
 import { PROTECTION_SYMBOL_IDS } from '@/lib/protectionKind'
 import { getCircuitBranches } from '@/lib/layout/endpointChains'
 import { getDomoticaEndpointInputDomain } from '@/lib/eendraad/domoticaOutputOrdering'
+import { isTerminalPanelFeederCircuit } from '@/lib/eendraad/panelSupplyLink'
 import { getEndpointTypeFromSymbol } from '@/utils'
 import {
   resolveSymbolPortsForWire,
@@ -304,18 +305,20 @@ function circuitWouldGainSecondaryBus(
   return findCircuitInProject(project, circuitId)?.subCircuitIds?.length === 1
 }
 
-const subPanelFeederCircuitsKey = Symbol('drop hint panel feeder circuits')
+const terminalPanelFeederCircuitsKey = Symbol('drop hint panel feeder circuits')
 
-function circuitFeedsSubPanel(
+function circuitIsTerminalPanelFeeder(
   project: ProjectWithOptionalV2Electrical,
   circuitId: string
 ): boolean {
   const context = getPanelReadContext(project)
-  if (context) return memoizePanelReadContext(context, subPanelFeederCircuitsKey, () => {
+  if (context) return memoizePanelReadContext(context, terminalPanelFeederCircuitsKey, () => {
     const ids = new Set<string>()
     for (const panel of context.entities.panelsById.values()) {
       for (const protection of panel.protections ?? []) {
-        if (protection.subPanelId) for (const circuit of protection.circuits ?? []) ids.add(circuit.id)
+        for (const circuit of protection.circuits ?? []) {
+          if (isTerminalPanelFeederCircuit(protection, circuit)) ids.add(circuit.id)
+        }
       }
     }
     return ids
@@ -324,7 +327,7 @@ function circuitFeedsSubPanel(
   while (stack.length) {
     const panel = stack.pop()!
     for (const protection of panel.protections ?? []) {
-      if (protection.subPanelId && protection.circuits?.some((c) => c.id === circuitId)) {
+      if (protection.circuits?.some((c) => c.id === circuitId && isTerminalPanelFeederCircuit(protection, c))) {
         return true
       }
     }
@@ -583,7 +586,7 @@ function appendTrunkTopSlotHints(
   for (const [circuitId, segmentCount] of trunkSegmentCounts) {
     if (segmentCount <= 0) continue
     const circuit = findCircuitInProject(project, circuitId)
-    if (circuitFeedsSubPanel(project, circuitId)) continue
+    if (circuitIsTerminalPanelFeeder(project, circuitId)) continue
     if (hints.some((hint) => hint.match?.circuitId === circuitId && hint.match.insertAfterCircuitContent)) continue
 
     const slotCount = trunkInsertionSlotCount(circuit)
@@ -1042,7 +1045,7 @@ function shouldIncludeHintNode(
     }
     if (node.id?.startsWith('circuit-nest-')) {
       const circuit = ctx.circuitId ? findCircuitInProject(project, ctx.circuitId) : undefined
-      return !!circuit && !(circuit.subCircuitIds?.length) && !circuitFeedsSubPanel(project, circuit.id)
+      return !!circuit && !(circuit.subCircuitIds?.length) && !circuitIsTerminalPanelFeeder(project, circuit.id)
     }
     if (node.id?.startsWith('circuit-trunk-') && hitType === 'circuit') return true
   }
@@ -1067,7 +1070,7 @@ function shouldIncludeHintNode(
         return true
       }
       if (circuit?.supplySource?.kind === 'converter-backup') return false
-      if (ctx.circuitId && circuitFeedsSubPanel(project, ctx.circuitId)) return false
+      if (ctx.circuitId && circuitIsTerminalPanelFeeder(project, ctx.circuitId)) return false
       const hasJunctionPanelBoundary = (circuit?.trunkDevices ?? []).some(
         (device) => device.type === 'junction_panel' || device.symbol === 'junction_panel'
       )
@@ -1110,7 +1113,7 @@ function shouldIncludeHintNode(
     !node.hitZone.converterDcConnection &&
     (node.id?.startsWith('circuit-trunk-') || node.id === `circuit-nest-${ctx.circuitId}`) &&
     circuitAcceptsTrunkSwitch(findCircuitInProject(project, ctx.circuitId)) &&
-    !circuitFeedsSubPanel(project, ctx.circuitId)
+    !circuitIsTerminalPanelFeeder(project, ctx.circuitId)
   ) {
     // Low on the trunk wire: series trunk device. Nest zone above the
     // branches: a new branch, as for every other endpoint. An empty circuit
@@ -1173,7 +1176,7 @@ function shouldIncludeHintNode(
     }
   }
 
-  if (ctx.circuitId && circuitFeedsSubPanel(project, ctx.circuitId)) {
+  if (ctx.circuitId && circuitIsTerminalPanelFeeder(project, ctx.circuitId)) {
     const isEndpointSymbol = !!getEndpointTypeFromSymbol(symbol)
     const isTrunkInsertableSymbol = CIRCUIT_TRUNK_INSERTABLE_SYMBOLS.has(symbol.id)
     if (

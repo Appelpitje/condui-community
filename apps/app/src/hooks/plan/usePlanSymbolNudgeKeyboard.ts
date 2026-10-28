@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MutableRefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react'
 import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import { useIsActiveViewport, useViewportUIApi } from '@/components/viewport/ViewportUIStore'
 import type { Point } from '@/types/ui'
@@ -31,7 +31,14 @@ export type PlanSymbolNudgeKeyboardOptions = {
  * Arrow-key nudge for selected plan symbols while PlanCanvas is mounted.
  * Tap: 1 cm (preview instant). Hold: 10→18 cm/s after 250 ms delay. Store commits coalesced.
  */
-export function usePlanSymbolNudgeKeyboard(options: PlanSymbolNudgeKeyboardOptions) {
+export function usePlanSymbolNudgeKeyboard({
+  activeFloorId,
+  pxPerMeter: pxPerMeterOption,
+  disabled = false,
+  setPreviewPositions,
+  isDraggingRef,
+  onCommit,
+}: PlanSymbolNudgeKeyboardOptions) {
   const window = useCanvasWindow()
   const viewportUI = useViewportUIApi()
   const isActiveViewport = useIsActiveViewport()
@@ -44,16 +51,12 @@ export function usePlanSymbolNudgeKeyboard(options: PlanSymbolNudgeKeyboardOptio
   const sessionRowsRef = useRef<PlanNudgePlacementRow[] | null>(null)
   const lastPreviewKeyRef = useRef('')
 
-  const setPreviewRef = useRef(options.setPreviewPositions)
-  const onCommitRef = useRef(options.onCommit)
-  const isDraggingRef = options.isDraggingRef
-
-  setPreviewRef.current = options.setPreviewPositions
-  onCommitRef.current = options.onCommit
-
-  const activeFloorId = options.activeFloorId
-  const disabled = options.disabled ?? false
-  const pxPerMeterOption = options.pxPerMeter
+  const setPreviewRef = useRef(setPreviewPositions)
+  const onCommitRef = useRef(onCommit)
+  useLayoutEffect(() => {
+    setPreviewRef.current = setPreviewPositions
+    onCommitRef.current = onCommit
+  }, [setPreviewPositions, onCommit])
 
   useEffect(() => {
     if (disabled) return

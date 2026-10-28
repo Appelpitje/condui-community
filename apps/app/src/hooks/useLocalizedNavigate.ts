@@ -27,7 +27,7 @@ export function useLocalizedNavigate() {
 
   return useCallback(
     (pathWithoutLanguage: string, options?: NavigateOptions) => {
-      navigate(localizedPath(pathWithoutLanguage), options)
+      void navigate(localizedPath(pathWithoutLanguage), options)
     },
     [localizedPath, navigate],
   )

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useCanvasWindow } from '@/components/viewport/ViewportContext'
 import { clamp } from '@/lib/geometry'
 
@@ -38,18 +39,21 @@ export function ResizableDivider({
   perpSlopNegativePx = DEFAULT_PERP_SLOP_PX,
   perpSlopPositivePx = DEFAULT_PERP_SLOP_PX,
 }: ResizableDividerProps) {
+  const { t } = useTranslation()
   const window = useCanvasWindow()
-  const document = window.document
   const rootRef = useRef<HTMLDivElement | null>(null)
   const handleRef = useRef<HTMLDivElement | null>(null)
   const handlePositionRafRef = useRef<number | null>(null)
   const pendingHandleRatioRef = useRef<number>(0.5)
   const startRatioRef = useRef(startRatio)
-  startRatioRef.current = startRatio
+  useLayoutEffect(() => {
+    startRatioRef.current = startRatio
+  }, [startRatio])
   const hoverActiveRef = useRef(false)
 
   const startDrag = useCallback(
     (startPos: number, container: HTMLElement) => {
+      const document = container.ownerDocument
       const dragStartRatio = startRatioRef.current
       let lastRatio = dragStartRatio
       const containerSize =
@@ -101,7 +105,7 @@ export function ResizableDivider({
       document.addEventListener('touchend', cleanup)
       document.addEventListener('touchcancel', cleanup)
     },
-    [direction, document, onDragEnd, onDragStart, onRatioChange, window]
+    [direction, onDragEnd, onDragStart, onRatioChange, window]
   )
 
   const handleMouseDown = useCallback(
@@ -220,6 +224,16 @@ export function ResizableDivider({
     }
   }
 
+  const resizeFromKeyboard = (nextRatio: number) => {
+    const container = rootRef.current?.parentElement
+    if (!container) return
+    const containerSize = direction === 'vertical' ? container.offsetWidth : container.offsetHeight
+    if (containerSize <= 0) return
+    onDragStart?.()
+    onRatioChange(nextRatio, containerSize)
+    onDragEnd?.(nextRatio, containerSize)
+  }
+
   return (
     <div
       ref={rootRef}
@@ -228,11 +242,36 @@ export function ResizableDivider({
       } ${isAbsolute ? '' : `flex-shrink-0 ${direction === 'vertical' ? 'w-1' : 'h-1'}`}`}
       style={style}
     >
-      <div
-        className={`absolute z-20 ${
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={Math.round(clamp(startRatio, 0, 1) * 100)}
+        aria-label={t('commandPalette.resizePanel')}
+        aria-orientation={direction === 'vertical' ? 'horizontal' : 'vertical'}
+        className={`peer absolute z-20 m-0 opacity-0 ${
           direction === 'vertical' ? 'cursor-ew-resize' : 'cursor-ns-resize'
         }`}
-        style={hitSlopStyle}
+        style={{
+          ...hitSlopStyle,
+          width: direction === 'vertical'
+            ? `calc(100% + ${perpSlopNegativePx + perpSlopPositivePx}px)` : '100%',
+          height: direction === 'vertical'
+            ? '100%' : `calc(100% + ${perpSlopNegativePx + perpSlopPositivePx}px)`,
+        }}
+        onFocus={() => setHandleVisible(true)}
+        onBlur={() => setHandleVisible(false)}
+        onChange={(event) => resizeFromKeyboard(Number(event.currentTarget.value) / 100)}
+        onKeyDown={(event) => {
+          const decreaseKey = direction === 'vertical' ? 'ArrowLeft' : 'ArrowUp'
+          const increaseKey = direction === 'vertical' ? 'ArrowRight' : 'ArrowDown'
+          if (event.key !== decreaseKey && event.key !== increaseKey) return
+          event.preventDefault()
+          event.stopPropagation()
+          const nextRatio = clamp(startRatio + (event.key === increaseKey ? 0.01 : -0.01), 0, 1)
+          resizeFromKeyboard(nextRatio)
+        }}
         onMouseMove={(e) => {
           const axisSize =
             direction === 'vertical' ? e.currentTarget.clientHeight : e.currentTarget.clientWidth
@@ -256,7 +295,7 @@ export function ResizableDivider({
       <div
         ref={handleRef}
         aria-hidden
-        className={`pointer-events-none absolute z-10 rounded-md border border-gray-300/90 bg-white/95 shadow-sm transition-opacity ease-out dark:border-gray-500/90 dark:bg-gray-700/95 ${
+        className={`pointer-events-none absolute z-10 rounded-md border border-gray-300/90 bg-white/95 shadow-sm transition-opacity ease-out peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500 dark:border-gray-500/90 dark:bg-gray-700/95 ${
           direction === 'vertical'
             ? 'left-1/2 h-7 w-4 -translate-x-1/2 -translate-y-1/2'
             : 'top-1/2 h-4 w-7 -translate-x-1/2 -translate-y-1/2'

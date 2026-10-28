@@ -120,6 +120,7 @@ export function MenuSubmenu({
             <div
               ref={flyoutRef}
               role="menu"
+              tabIndex={-1}
               aria-label={label}
               {...{ [MENU_FLYOUT_ATTRIBUTE]: '' }}
               onMouseEnter={cancelClose}
