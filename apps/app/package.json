@@ -9,10 +9,12 @@
   },
   "scripts": {
     "build:community": "node ./scripts/run-community-build.mjs",
+    "build:mcp": "vite build --mode community --config vite.mcp.config.ts",
     "validation:help": "node ./scripts/validation-help-cli.mjs"
   },
   "dependencies": {
     "@capacitor/core": "8.5.3",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@napi-rs/canvas": "1.0.11",
     "@node-projects/acad-ts": "3.6.0",
     "@tiptap/extension-text-style": "3.32.0",
@@ -48,6 +50,7 @@
     "zustand": "5.0.15"
   },
   "devDependencies": {
+    "@types/node": "24.19.2",
     "@vitejs/plugin-react": "6.1.2",
     "autoprefixer": "10.6.1",
     "postcss": "8.5.30",

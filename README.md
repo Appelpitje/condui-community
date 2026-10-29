@@ -141,6 +141,28 @@ Set `CONDUI_DATA_DIR` to an existing folder to enable server storage when runnin
 This repository is generated from Condui's private development repository. Generated Community
 snapshots contain only the source and assets required by the local edition.
 
+## Draw with an AI assistant through MCP
+
+The Community server exposes a Streamable HTTP MCP endpoint at `/mcp`. An MCP-compatible assistant
+can create projects, inspect symbols and electrical connections, and edit one-wire diagrams,
+situation plans, and panel layouts through the same commands as the editor.
+
+For a local checkout, build the application and start the editor with server storage:
+
+```bash
+npm run build
+npm run start:mcp
+```
+
+Open <http://127.0.0.1:8090>. This command creates `condui-data/` in the repository and uses port
+8090 by default. The project-scoped Codex configuration in `.codex/config.toml` connects to
+<http://127.0.0.1:8090/mcp>; restart the MCP connection after starting the server. Other MCP clients
+can use the same URL. See [`docs/mcp.md`](docs/mcp.md) for configuration and tool examples.
+
+MCP needs server storage. Browser-only projects must first be moved to server storage through the
+normal import/migration workflow. Reload an open project after an assistant saves changes. Concurrent
+browser and assistant edits use revision checks so neither silently overwrites the other's work.
+
 ## Project data and backups
 
 Without server storage, projects are stored in the browser profile used to open Condui Community.

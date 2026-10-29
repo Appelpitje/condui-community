@@ -12,7 +12,10 @@
   },
   "scripts": {
     "build": "npm run build:community -w condui-community-app",
+    "build:mcp": "npm run build:mcp -w condui-community-app",
+    "test:mcp": "npm run build:mcp && node --test apps/app/community/mcp.test.mjs",
     "start": "node apps/app/community/server.mjs",
+    "start:mcp": "node scripts/start-community-mcp.mjs",
     "validation:help": "node apps/app/scripts/validation-help-cli.mjs"
   },
   "overrides": {

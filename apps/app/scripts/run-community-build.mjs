@@ -40,3 +40,4 @@ function run(args) {
 rmSync(join(appRoot, '.community-module-audit.local.json'), { force: true })
 run([viteBin, 'build', '--mode', 'community', '--config', 'vite.config.ts'])
 run(['./scripts/write-version-json.mjs'])
+run([viteBin, 'build', '--mode', 'community', '--config', 'vite.mcp.config.ts'])

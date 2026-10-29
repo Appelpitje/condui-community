@@ -112,32 +112,33 @@ export function createStorage(dataDirectory) {
     return rebuilt
   }
 
-  async function listProjects() {
-    await ready
-    const names = await fs.readdir(projectsDirectory)
-    const ids = names
-      .filter((name) => name.endsWith('.json') && !name.endsWith('.meta.json'))
-      .map((name) => name.slice(0, -'.json'.length))
-      .filter((id) => PROJECT_ID_PATTERN.test(id))
-    const metadata = await Promise.all(ids.map((id) => readMetadata(id).catch(() => undefined)))
-    return metadata.filter(Boolean)
+  function listProjects() {
+    return serialized(async () => {
+      await ready
+      const names = await fs.readdir(projectsDirectory)
+      const ids = names
+        .filter((name) => name.endsWith('.json') && !name.endsWith('.meta.json'))
+        .map((name) => name.slice(0, -'.json'.length))
+        .filter((id) => PROJECT_ID_PATTERN.test(id))
+      const metadata = await Promise.all(ids.map((id) => readMetadata(id).catch(() => undefined)))
+      return metadata.filter(Boolean)
+    })
   }
 
-  async function getProject(id, { touch = false } = {}) {
+  function getProject(id, { touch = false } = {}) {
     assertProjectId(id)
-    await ready
-    const project = await readJson(projectPath(id))
-    if (!project) throw new StorageError(404, 'Project not found.')
-    let metadata = await readMetadata(id)
-    if (touch) {
-      metadata = await serialized(async () => {
-        const current = (await readMetadata(id)) ?? metadata
-        const next = { ...current, lastOpened: new Date().toISOString() }
-        await writeJsonAtomically(metadataPath(id), next)
-        return next
-      })
-    }
-    return { project, metadata }
+    // Read the document and its revision together, never halfway through an editor/MCP write.
+    return serialized(async () => {
+      await ready
+      const project = await readJson(projectPath(id))
+      if (!project) throw new StorageError(404, 'Project not found.')
+      let metadata = await readMetadata(id)
+      if (touch) {
+        metadata = { ...metadata, lastOpened: new Date().toISOString() }
+        await writeJsonAtomically(metadataPath(id), metadata)
+      }
+      return { project, metadata }
+    })
   }
 
   function putProject(id, { project, baseRevision = null, force = false, lastOpened }) {

@@ -37,6 +37,9 @@ jobs:
       - name: Build Community edition
         run: npm run build
 
+      - name: Test MCP drawing and shared storage
+        run: node --test apps/app/community/mcp.test.mjs
+
       - name: Build container
         run: docker build --tag condui-community:ci .
 

@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { createAccessGuard, sendAccessDenied, validateConfiguredPassword } from './access.mjs'
 import { handleStorageRequest, openStorage, resolveDataDirectory } from './storage.mjs'
+import { handleMcpRequest } from './dist/mcp.mjs'
 import { assertSupportedNodeVersion } from '../../../scripts/verify-node-version.mjs'
 
 assertSupportedNodeVersion()
@@ -136,6 +137,11 @@ const server = createServer(async (request, response) => {
     return
   }
 
+  if (url.pathname === '/mcp') {
+    await handleMcpRequest(storage, request, response)
+    return
+  }
+
   if (await handleStorageRequest(storage, request, response, url.pathname)) return
 
   const conversionModule = conversionHandlers.get(url.pathname)
@@ -163,12 +169,14 @@ const server = createServer(async (request, response) => {
 })
 
 server.listen(port, host, () => {
-  console.log(`Condui Community listening on http://${host}:${port}`)
+  const listeningPort = server.address().port
+  console.log(`Condui Community listening on http://${host}:${listeningPort}`)
   console.log(
     storage
       ? `Projects are stored on the server in ${dataDirectory}.`
       : 'Projects are stored in each browser. Map a folder to /data to store them on the server.',
   )
+  if (storage) console.log(`MCP endpoint: http://${host}:${listeningPort}/mcp`)
   console.log(
     accessGuard.requiresPassword
       ? 'Access requires CONDUI_PASSWORD.'
